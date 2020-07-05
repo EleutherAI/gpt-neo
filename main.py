@@ -74,7 +74,6 @@ if __name__ == "__main__":
     predict_fn = models[params["model"]][1]
 
     if params["use_tpu"] and not predict_mode:
-        print(f'CONNECTING TO TPU - {args.tpu}')
         # Resolve TPU cluster and runconfig
         if args.tpu == 'colab_tpu':
           tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver()
@@ -103,7 +102,6 @@ if __name__ == "__main__":
                 params=params)
 
     else:
-        print('NOT CONNECTING TO TPU')
         # Non TPU setup
         if not predict_mode:
             params["batch_size"] = params["train_batch_size"]
