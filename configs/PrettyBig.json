@@ -15,7 +15,7 @@
     "train_steps": 10000,
     "eval_steps": 10,
     "max_steps": 604800,
-    "data_path": "gs://connors-datasets/openwebtext/",
+    "data_path": "gs://connors-datasets/bundestag",
     "res_dropout": 0.1,
     "predict_batch_size": 1,
     "eval_batch_size": 256,
