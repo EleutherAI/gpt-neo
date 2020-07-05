@@ -8,7 +8,7 @@ from pathlib import Path
 
 import tensorflow as tf
 
-from inputs import *
+from inputs import generic_text
 from model_fns import *
 from predict_fns import *
 
@@ -18,17 +18,9 @@ models = {
     "GPT2": (gpt2_model, gpt2_predict)
 }
 
-inputs = {
-    "openwebtext": openwebtext, # Standard OpenWebtext input
-    "openwebtext_longbiased": openwebtext_longbiased, # OpenWebtext with a bias towards showing more long (>512 tokens) examples
-    "openwebtext_long": openwebtext_long, # Openwebtext that only shows long examples
-    "bundestag": bundestag,
-}
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--tpu', type=str, default="test") # Name of TPU to train on, if any
+    parser.add_argument('--tpu', type=str, default="sparse") # Name of TPU to train on, if any
     parser.add_argument('--model', type=str, default="configs/117M.json") # JSON file that contains model parameters
     parser.add_argument("--predict_file", type=str) # File to take as input for predict
     parser.add_argument("--predict_text", type=str) # Take string directly from args
@@ -53,7 +45,7 @@ if __name__ == "__main__":
     Path("logs").mkdir(exist_ok=True)
     tf.logging.set_verbosity(logging.INFO)
     handlers = [
-        logging.FileHandler('logs/{}.log'.format(args.model)),
+        logging.FileHandler('logs/{}.log'.format(args.model.split("/")[-1])),
         logging.StreamHandler(sys.stdout)
     ]
     logger = logging.getLogger('tensorflow')
@@ -78,7 +70,6 @@ if __name__ == "__main__":
 
     model_fn = models[params["model"]][0]
     predict_fn = models[params["model"]][1]
-    input_fn = inputs[params["input"]]
 
     if params["use_tpu"] and not predict_mode:
         # Resolve TPU cluster and runconfig
@@ -142,7 +133,7 @@ if __name__ == "__main__":
         start = time.time()
 
         network.train(
-                input_fn=partial(input_fn, eval=False),
+                input_fn=partial(generic_text, eval=False),
                 steps=params["train_steps"])
 
 
@@ -150,7 +141,7 @@ if __name__ == "__main__":
         logger.info("\nTrain loop took {:.2f}s\n".format(end-start))
 
         eval_result = network.evaluate(
-           input_fn=partial(input_fn, eval=True),
+           input_fn=partial(generic_text, eval=True),
            steps=params["eval_steps"])
 
         logger.info("\nEval Results: {}\n".format(str(eval_result)))

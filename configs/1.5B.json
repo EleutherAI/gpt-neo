@@ -20,7 +20,7 @@
     "eval_batch_size": 8,
     "iterations": 100,
     "n_embd": 1600,
-    "input": "openwebtext_longbiased",
+    "datasets": [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]],
     "model": "GPT2",
     "model_path": "gs://connors-models/1.5B",
     "n_ctx": 1024,

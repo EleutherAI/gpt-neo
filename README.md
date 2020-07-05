@@ -124,6 +124,7 @@ Values you'll definitely want to change:
 * **model_path**: Where to save and load checkpoints from
 * **data_path**: Where your .tfrecords files are located
 * **encoder_path**: Path to the BPE encoder files. To get this, use the download_model.py script to download any model (or just the encoder). You will get a folder called "encoder". This is what you want this to point to (only required for prediction)
+* **datasets**: A list of tuples of the form (train file glob, eval file glob, stitch parameter, dataset type, weight of this dataset)
 
 Values you'll probably want to change:
 * **train_batch_size**: Batch size during training phase
@@ -140,10 +141,12 @@ Model parameters:
 * **n_head**: Number of attention heads (default: n_embd / 64)
 * **scale_by_depth**: Whether or not to scale init by the number of layers (Default: true)
 * **scale_by_in**: Whether to scale init by the number of input channels (Default: true)
+* **local**: Whether or not to use local attention (default: false) 
+* **fixed_attn_block_size**: Size of the attention blocks, should be a multiple of 128 on TPUs for performance reasons (default: 128)
+* **layer_offset**: (default: 16)
 
 Training parameters:
 * **precision**: Whether to use float32 or bfloat16 variables (use "bfloat16" when training very large models) (optional, defaults to float32)
-* **input**: Which input function to use (default: "openwebtext")
 * **lr**: Learning rate (default: 0.00025)
 * **warmup_steps**: Number of warmup steps. If this is set, a linear warmup + cosine decay schedule is used (default: 2000) (optional)
 * **opt_name**: Name of optimizer, currently there are "adam" and "adafactor" (default: "adam")
@@ -160,7 +163,3 @@ Training parameters:
 * **embed_dropout**: Dropout chance on the word embedding, set to 0 to disable (default: 0.1)
 * **attn_dropout**: Dropout chance on attention layers, set to 0 to disable (default: 0.1)
 * **res_dropout**: Dropout chance on residual connections, set to 0 to disable (default: 0.1)
-
-* **local**: Whether or not to use local attention (default: false) 
-* **fixed_attn_block_size**: Size of the attention blocks, should be a multiple of 128 on TPUs for performance reasons (default: 128)
-* **layer_offset**: (default: 16)
