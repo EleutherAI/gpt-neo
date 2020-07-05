@@ -73,7 +73,11 @@ if __name__ == "__main__":
 
     if params["use_tpu"] and not predict_mode:
         # Resolve TPU cluster and runconfig
-        tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(args.tpu)
+        if args.tpu == 'colab_tpu':
+            # colab tpus will connect if TPUClusterResolver args are left blank
+            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver()
+        else:
+            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(args.tpu)
 
         run_config = tf.contrib.tpu.RunConfig(
             model_dir=params["model_path"],
