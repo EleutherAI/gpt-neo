@@ -1,0 +1,18 @@
+# -*-Python-*-
+# Bilion word language modeling benchmark from tfds - pretokenized
+
+# Dataset
+dataset_name = "lm1b/subwords32k"
+utils.run.train_dataset_fn = @mesh_tensorflow.transformer.dataset.pretokenized_tfds_dataset
+dataset.pretokenized_tfds_dataset.dataset_name = %dataset_name
+dataset.pretokenized_tfds_dataset.text2self = True
+
+# Vocabulary
+utils.run.vocabulary = @mesh_tensorflow.transformer.vocabulary.get_tfds_vocabulary()
+dataset.get_tfds_vocabulary.dataset_name = %dataset_name
+
+# Model
+run.model_type = "lm"
+
+# No custom ops required:
+dataset.pack_dataset.use_custom_ops = False

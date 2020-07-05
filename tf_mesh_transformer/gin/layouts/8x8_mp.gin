@@ -1,0 +1,4 @@
+# -*-Python-*-
+
+utils.run.mesh_shape = "model:128"
+utils.run.layout_rules = "d_ff:model,heads:model,vocab:model"

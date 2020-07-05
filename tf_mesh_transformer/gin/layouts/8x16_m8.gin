@@ -1,0 +1,5 @@
+# -*-Python-*-
+# 32-way data-parallelism, 8-way model-parallelism on tpu 8x16
+
+utils.run.mesh_shape = "batch:32,model:8"
+utils.run.layout_rules = "batch:batch,d_ff:model,heads:model,vocab:model"

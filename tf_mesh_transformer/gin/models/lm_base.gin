@@ -1,0 +1,3 @@
+# -*-Python-*-
+
+utils.run.model_type = "lm"

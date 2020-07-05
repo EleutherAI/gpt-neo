@@ -1,0 +1,4 @@
+# -*-Python-*-
+
+utils.run.model_type = "bitransformer"
+num_layers = 12

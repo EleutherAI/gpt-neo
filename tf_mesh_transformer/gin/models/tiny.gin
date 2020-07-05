@@ -1,0 +1,14 @@
+# -*-Python-*-
+# List this file after a different config file so as to reduce the model
+#    size (for debugging)
+
+import mesh_tensorflow.transformer.moe
+
+d_model=128
+d_ff=512
+num_heads=4
+d_kv=32
+num_layers=2
+
+MoE1D.hidden_size = 512
+MoE1D.num_experts = 8

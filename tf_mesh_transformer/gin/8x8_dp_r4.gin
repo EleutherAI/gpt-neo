@@ -1,0 +1,6 @@
+# -*-Python-*-
+# data-parallelism or mixture-of-experts on 128-core TPU
+
+
+utils.run.layout_rules = 'outer_batch:outer,batch:inner,experts:inner'
+utils.run.mesh_shape = 'outer:4,inner:32'

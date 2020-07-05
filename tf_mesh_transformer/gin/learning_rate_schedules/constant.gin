@@ -1,0 +1,7 @@
+# -*-Python-*-
+
+import mesh_tensorflow.transformer.learning_rate_schedules
+
+learning_rate_schedules.constant_learning_rate.learning_rate = 0.01
+
+run.learning_rate_schedule = @learning_rate_schedules.constant_learning_rate

@@ -1,0 +1,7 @@
+# -*-Python-*-
+
+utils.run.model_type = "bitransformer"
+num_layers = 12
+# widen by a factor of 2**3 over base hparams
+d_ff = 32768
+num_heads = 64
