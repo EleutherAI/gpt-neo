@@ -13,7 +13,7 @@ from model_fns import *
 from predict_fns import *
 
 # This program was designed to function with multiple kinds of models, but currently only GPT2 is supported
-# The first element in the tuple is the model function, the second is the function called when predicting
+# The first element in the tupel is the model function, the second is the function called when predicting
 models = {
     "GPT2": (gpt2_model, gpt2_predict)
 }
@@ -27,18 +27,26 @@ if __name__ == "__main__":
     parser.add_argument("--top_k", type=int) # Top K truncation parameter for text generation
     args = parser.parse_args()
 
+
+    # Read params of model
+    with open(args.model, "r") as f:
+        params = json.load(f)
+
+    params["use_tpu"] = True if not args.tpu is None else False
+
     # Get prediction text
     predict_mode = False
-    if args.predict_file is not None:
-        predict_mode = True
-        with open(args.predict_file) as f:
-            text = f.read()
-    elif args.predict_text is not None:
-        predict_mode = True
-        text = args.predict_text
-    elif args.predict_file is not None and args.predict_text is not None:
-        print("ERROR: Specify exactly one of --predict_file and --predict_text!")
-        sys.exit()
+    if not params["use_tpu"]:
+      if args.predict_file is not None:
+          predict_mode = True
+          with open(args.predict_file) as f:
+              text = f.read()
+      elif args.predict_text is not None:
+          predict_mode = True
+          text = args.predict_text
+      elif args.predict_file is not None and args.predict_text is not None:
+          print("ERROR: Specify exactly one of --predict_file and --predict_text!")
+          sys.exit()
 
 
     # Setup logging
@@ -50,12 +58,6 @@ if __name__ == "__main__":
     ]
     logger = logging.getLogger('tensorflow')
     logger.handlers = handlers
-
-    # Read params of model
-    with open(args.model, "r") as f:
-        params = json.load(f)
-
-    params["use_tpu"] = True if not args.tpu is None else False
 
     if args.top_k is not None:
         params["top_k"] = args.top_k 
@@ -72,12 +74,12 @@ if __name__ == "__main__":
     predict_fn = models[params["model"]][1]
 
     if params["use_tpu"] and not predict_mode:
+        print(f'CONNECTING TO TPU - {args.tpu}')
         # Resolve TPU cluster and runconfig
         if args.tpu == 'colab_tpu':
-            # colab tpus will connect if TPUClusterResolver args are left blank
-            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver()
+          tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver()
         else:
-            tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(args.tpu)
+          tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(args.tpu)
 
         run_config = tf.contrib.tpu.RunConfig(
             model_dir=params["model_path"],
@@ -101,6 +103,7 @@ if __name__ == "__main__":
                 params=params)
 
     else:
+        print('NOT CONNECTING TO TPU')
         # Non TPU setup
         if not predict_mode:
             params["batch_size"] = params["train_batch_size"]
