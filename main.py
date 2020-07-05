@@ -13,7 +13,7 @@ from model_fns import *
 from predict_fns import *
 
 # This program was designed to function with multiple kinds of models, but currently only GPT2 is supported
-# The first element in the tupel is the model function, the second is the function called when predicting
+# The first element in the tuple is the model function, the second is the function called when predicting
 models = {
     "GPT2": (gpt2_model, gpt2_predict)
 }
