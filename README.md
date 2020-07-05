@@ -1,15 +1,16 @@
-# GPT2
-**Disclaimer: This is not the official GPT2 implementation! I've done my best to follow the specifications of the original GPT2 model as closely as possible, but be warned that I have not been able to replicate the full performance of the original model using this code. I don't know why this is, I haven't been able to track down any bug that could be causing this.**
+# GPT Neo
 
-An implementation of training for [GPT2](https://openai.com/blog/better-language-models/) that supports both GPUs and TPUs. The dataset scripts are a bit hacky and will probably need to be adapted to your needs. 
+1T or bust my dudes
+
+An implementation of training for [GPT2](https://openai.com/blog/better-language-models/)/[GPT3](https://arxiv.org/abs/2005.14165)-like models. Supports both GPUs and TPUs. The dataset scripts are a bit hacky and will probably need to be adapted to your needs. 
 ## Requirements
 For GPUs:
 
-`pip3 install tensorflow-gpu regex`
+`pip3 install tensorflow-gpu==1.15.2 regex`
 
 For TPUs:
 
-`pip3 install tensorflow regex google-api-python-client oauth2client`
+`pip3 install tensorflow==1.15.2 regex google-api-python-client oauth2client`
 
 For downloading the models:
 
@@ -160,5 +161,5 @@ Training parameters:
 * **attn_dropout**: Dropout chance on attention layers, set to 0 to disable (default: 0.1)
 * **res_dropout**: Dropout chance on residual connections, set to 0 to disable (default: 0.1)
 
-* **fixed_attn_block_size**: 128,
-* **layer_offset**: 16
+* **fixed_attn_block_size**: Size of the attention blocks, should be a multiple of 128 on TPUs for performance reasons (default: 128)
+* **layer_offset**: (default: 16)
