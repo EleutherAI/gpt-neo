@@ -31,5 +31,6 @@
     "scale_by_depth": true,
     "scale_by_in": true,
     "fixed_attn_block_size": 128,
-    "layer_offset": 16
+    "layer_offset": 16,
+    "local": true
 }

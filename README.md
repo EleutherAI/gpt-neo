@@ -161,5 +161,6 @@ Training parameters:
 * **attn_dropout**: Dropout chance on attention layers, set to 0 to disable (default: 0.1)
 * **res_dropout**: Dropout chance on residual connections, set to 0 to disable (default: 0.1)
 
+* **local**: Whether or not to use local attention (default: false) 
 * **fixed_attn_block_size**: Size of the attention blocks, should be a multiple of 128 on TPUs for performance reasons (default: 128)
 * **layer_offset**: (default: 16)

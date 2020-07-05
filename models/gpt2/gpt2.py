@@ -72,7 +72,7 @@ def attention_mask(nd, ns, *, dtype):
     return tf.cast(m, dtype)
 
 
-def attn(x, scope, n_state, *, past, params, local=True, block_offset=0, train=False):
+def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state % params["n_head"] == 0
     if past is not None:
@@ -81,7 +81,7 @@ def attn(x, scope, n_state, *, past, params, local=True, block_offset=0, train=F
         ## LOCAL ATTENTION
 
     # TODO: implement proper past cache. in the meantime, don't pass a past if implementing local attention!!!
-    assert not (local and past is not None)
+    assert not (params["local"] and past is not None)
 
     x_shape = tf.shape(x)
     sh_batch = x_shape[0]
@@ -90,7 +90,7 @@ def attn(x, scope, n_state, *, past, params, local=True, block_offset=0, train=F
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     inp_len = sh_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    if local:
+    if params["local"]:
         right_pad = params["fixed_attn_block_size"] - ((block_offset + inp_len) % params["fixed_attn_block_size"])
         dont_pad_aligned = False
         padded_seq = ((inp_len + params["fixed_attn_block_size"] - (1 if dont_pad_aligned else 0)) // params["fixed_attn_block_size"]) * params["fixed_attn_block_size"]
@@ -151,7 +151,7 @@ def attn(x, scope, n_state, *, past, params, local=True, block_offset=0, train=F
 
         # a = tf.Print(a, [tf.shape(a)[i] for i in range(3)])
 
-        if local:
+        if params["local"]:
             # a :: [batch * blocks, sequence / blocks, features]
             #a = tf.Print(a, [tf.shape(present)[i] for i in range(5)])
             #a = tf.Print(a, [tf.shape(a)[i] for i in range(3)])
