@@ -70,6 +70,7 @@ def cosine_decay_with_warmup(global_step,
                              warmup_steps=0,
                              hold_base_rate_steps=0,
                              name="learning_rate"):
+    #TODO: convert to mtf code (?)
     if total_steps < warmup_steps:
         raise ValueError('total_steps must be larger or equal to '
                         'warmup_steps.')
@@ -98,6 +99,7 @@ def cosine_decay_with_warmup(global_step,
 # Adafactor from tensor2tensor -------------------------------------------------------------
 
 class AdafactorOptimizer(tf.train.Optimizer):
+    # TODO: update to tfmesh version here: https://github.com/tensorflow/mesh/blob/8fba074af3c9d823f8b9e901dadd62b0e3085f49/mesh_tensorflow/optimize.py#L206
     """Optimizer that implements the Adafactor algorithm.
     Adafactor is described in https://arxiv.org/abs/1804.04235.
     Adafactor is most similar to Adam (Kingma and Ba), the major differences are:

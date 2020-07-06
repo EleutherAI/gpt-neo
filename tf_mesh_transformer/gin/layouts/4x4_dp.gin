@@ -1,5 +1,0 @@
-# -*-Python-*-
-# data-parallelism or mixture-of-experts on 32-core TPU
-
-utils.run.mesh_shape = "all:32"
-utils.run.layout_rules = "batch:all,experts:all"

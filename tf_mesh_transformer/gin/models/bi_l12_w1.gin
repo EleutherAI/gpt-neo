@@ -1,7 +1,0 @@
-# -*-Python-*-
-
-utils.run.model_type = "bitransformer"
-num_layers = 12
-# _w1 means widen by a factor of 2**1 over base hparams
-d_ff = 8192
-num_heads = 16

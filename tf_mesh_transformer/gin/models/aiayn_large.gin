@@ -1,9 +1,0 @@
-# -*-Python-*-
-# This is the shape of the large model from "Attention is all you need"
-
-utils.run.model_type = "bitransformer"
-num_layers = 6
-d_model = 1024
-num_heads = 16
-d_ff = 4096
-d_kv = 64

@@ -1,4 +1,0 @@
-# -*-Python-*-
-
-utils.run.mesh_shape = "batch:2,model:4"
-utils.run.layout_rules = "batch:batch,d_ff:model,heads:model,vocab:model"
