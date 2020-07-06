@@ -1,0 +1,165 @@
+TF Mesh Notes
+
+Data Parallelism, normally: 
+
+	- Parameters are replicated on every core
+	- Batch Split between cores
+	- Sum parameter gradients
+
+Fast, universal, full utilisation
+
+But doesn’t work with giant models, as the model must fit on each device.
+
+TF mesh helps us do this with Model Parallelism, which means we’re splitting the model itself between different devices.
+
+Advantages: 
+	
+	Can train giant models
+	Low latency (split the computation)
+
+Cons:
+
+	Tricky to design & implement
+
+Normally done with device placement, but that’s super hard to design and you end up with giant graphs.
+
+TF Mesh:
+
+	Every processor is involved in every operation
+	Single Program, multiple devices
+	Collective communication
+
+Can supposedly do data parallelism, model parallelism and spatial partitioning.
+
+
+How does it work?
+
+For data-parallelism, the data is split over the batch dimension
+
+For Model-parallelism, different dimensions are split. E.G split some dimensions representing sizes of hidden layers
+
+Most operations are local, but some require collective communication (backward pass)
+
+‘Mesh’ comes from the fact that modern supercomputers tend to be built of a mesh of individual processors working in tandem. The mesh is only a naming abstraction and does not imply a physical network topology.
+
+With TFMesh you can even get really fancy by splitting data across one dimension of your 2D mesh, and splitting the model across another.
+
+• Each tensor in the computation is represented by one (not-necessarily-distinct) slice of the tensor on each processor. 
+• Each operation in the computation is implemented as one operation on each processor. Most operations require no communication, with each processor producing its slice of the output from its slices of the inputs. Some operations additionally require collective communication primitives such as MPI-allreduce. 
+
+General case with TF Mesh:
+
+	- Name all tensor-dimensions in the computation
+	- A “layout” is a partial map from tensor-dimension-name to mesh-dimension across which that tensor-dimension is split. It guides the program on which tensor dimensions to split across which mesh dimensions E.G: 	layout={“batch”:”processor_rows”, “hidden_size”:”processor_columns”}
+
+Layouts for example “transformer” model:
+
+Data-Parallelism: {“batch”:”all”}
+Model-Parallelism: {“vocab_size”: “all”, “ff_hiddenlayer”: “all”, “num_attention_heads”: “all”}
+Both: {“batch”:”rows”,  “vocab_size”: “columns”, “ff_hiddenlayer”: “columns”, “num_attention_heads”: “columns”}
+
+
+Picking a good layout is the hard part:
+	
+	- All expensive operations should be split to avoid repeated work
+	- Two dimensions of the same tensor cannot be split across the 	same dimension of the mesh (?)
+	- Slicing the model too finely may result in too much communication 	between cores (i.e batch / hidden layers shouldn’t be too small)
+
+
+Using TF Mesh:
+
+Build a mesh-tensorflow graph, like a normal tensorflow graph but with named tensor-dimensions. I.E:
+
+	“Each Tensor has a static Shape, which is a tuple of different 	"Dimensions". A Dimension is a (name, size) pair. For example, the 	shape of a Tensor representing a batch of images might be:
+	[("batch", 100), ("rows", 28"), ("cols", 28), ("channels", 3)].“
+
+
+Define a “mesh” i.e an n-dimensional array of processors mapped to your hardware
+
+Define a “layout” as explained above
+
+TFMesh turns this into part of your tensor flow graph
+
+
+Example - Two Fully Connected Layers
+
+  ...
+  batch = mtf.Dimension("batch", b)
+  io = mtf.Dimension("io", d_io)
+  hidden = mtf.Dimension("hidden", d_h)
+  # x.shape == [batch, io]
+  w = mtf.get_variable("w", shape=[io, hidden])
+  bias = mtf.get_variable("bias", shape=[hidden])
+  v = mtf.get_variable("v", shape=[hidden, io])
+  h = mtf.relu(mtf.einsum(x, w, output_shape=[batch, hidden]) + bias)
+  y = mtf.einsum(h, v, output_shape=[batch, io])
+  ...
+
+To train the above model in data-parallel mode on a mesh of n processors, we would define: 
+	mesh_shape = [("all", n)] 
+  	computation_layout = [("batch", "all")]
+
+When the Mesh-TensorFlow graph is compiled with this layout, the parameter tensors w, v, and bias are replicated on all processors, but the activation matrices x, h, y, etc. are split across the batch dimension. 
+Rather than splitting the batch, we can split the units in the hidden layer: 
+ 	 mesh_shape = [("all", n)]
+ 	 computation_layout = [("hidden", "all")]
+
+When the Mesh-TensorFlow graph is compiled with this layout, the input and output layers x, and y are replicated on all processors, but the hidden activations h and the parameter tensors w, v and bias are all split across the hidden dimension.
+On a two-dimensional mesh of r × c processors, we can employ both data-parallelism and model- parallelism: 
+	mesh_shape = [("rows", r), ("cols", c)]
+	computation_layout = [("batch", "rows"), ("hidden", "cols")]
+In this layout, each row of processors handles a fraction of the batch, while each column of processors handles a fraction of the hidden units. 
+
+The Mesh TensorFlow Language
+
+https://github.com/tensorflow/mesh
+
+“Mesh TensorFlow (v0.0) is implemented as a Python library which can generate part of a TensorFlow graph. The user first builds a mtf.Graph (the analog of a TensorFlow graph) made up of mtf.Tensors and mtf.Operations. As in TensorFlow, this graph consists of simple Python objects. The user then creates a mtf.Lowering object, which lowers the mtf.Graph into TensorFlow, adding to the default TensorFlow graph.”
+
+
+Basic conversion method from TF to TFMesh:
+
+Adapted from TFmesh toy model here: https://github.com/tensorflow/mesh/blob/master/examples/toy_model_tpu.py#L103
+
+	import mesh_tensorflow as mtf
+
+	- Define mesh shape (example for 8 cores): 
+		“mesh_shape = mtf.convert_to_shape('all:8’)”
+
+	- Define layout rules (example distributes odd numbered hidden layers across all cores): 
+		“layout_rules = mtf.convert_to_layout_rules('hidden_odd:all') “
+		Layout rules can also be defined automatically using: https://github.com/tensorflow/mesh/tree/master/mesh_tensorflow/auto_mtf
+
+	- Define how vars are placed across the mesh:     
+		“var_placer = mtf.utils.BalancedVariablePlacer(device_list,devices_memeory_usage)”
+
+	- Name and define dimensions of all tensors, i.e
+		“ 
+		   batch_dim = mtf.Dimension(‘batch’, batch_size)
+		   io_dim = mtf.Dimension('io', FLAGS.io_size)”
+
+	- Define network with TFmesh functions, according to mesh:
+		https://github.com/tensorflow/mesh/blob/master/examples/toy_model_tpu.py#L112
+
+	- Define loss fns with TFmesh functions, I.E: “loss = mtf.reduce_mean(mtf.square(y - x))”
+
+	- Calc. Gradients, define optimiser and update ops w TFmesh functions: https://github.com/tensorflow/mesh/blob/master/examples/toy_model_tpu.py#L179
+
+	- Use mtf.Lowering to ‘lower’ the TFmesh graph into a regular tensor flow graph:
+		“lowering = mtf.Lowering(graph, {mesh: mesh_impl})”
+			
+	- get loss value from distributed loss (?) : 
+		tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
+
+	- Finalize train op: https://github.com/tensorflow/mesh/blob/master/examples/toy_model_tpu.py#L196
+
+	- Run (regular TF) estimator: 
+		“tpu_estimator.TPUEstimatorSpec(tf.estimator.ModeKeys.TRAIN,loss=tf_loss,train_op=train_op,training_hooks=[restore_hook, 					saver_hook])”
+
+
+Light Reading:
+		
+Transformer implemented in TFmesh: https://github.com/tensorflow/mesh/tree/master/mesh_tensorflow/transformer
+BERT implemented in TFmesh: https://github.com/tensorflow/mesh/tree/8fba074af3c9d823f8b9e901dadd62b0e3085f49/mesh_tensorflow/bert
+TFMesh paper: https://arxiv.org/pdf/1811.02084.pdf
+TFMesh talk: https://www.youtube.com/watch?v=HgGyWS40g-g
