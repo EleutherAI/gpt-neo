@@ -1,7 +1,0 @@
-# -*-Python-*-
-
-utils.run.layout_rules = ""
-utils.run.mesh_shape = ""
-
-# This is likely a CPU, which can not handle bfloat16 activations.
-utils.get_variable_dtype.activation_dtype = "float32"
