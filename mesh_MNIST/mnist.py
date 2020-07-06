@@ -25,6 +25,7 @@ from __future__ import print_function
 import mesh_tensorflow as mtf
 import mnist_dataset as dataset  # local file import
 import tensorflow.compat.v1 as tf
+import os
 
 
 tf.flags.DEFINE_string("data_dir", "/tmp/mnist_data",
@@ -196,37 +197,69 @@ def model_fn(features, labels, mode, params):
                 labels=labels, predictions=tf.argmax(tf_logits, axis=1)),
         })
 
+def get_tpu_resolver(tpu_name='auto'):
+  # Get the TPU's location
+  if tpu_name != 'auto':
+    return tf.distribute.cluster_resolver.TPUClusterResolver(tpu_name)
+  elif 'COLAB_TPU_ADDR' in os.environ:
+    return tf.distribute.cluster_resolver.TPUClusterResolver()
+  elif 'TPU_NAME' in os.environ:
+    return tf.distribute.cluster_resolver.TPUClusterResolver(os.environ['TPU_NAME'])
 
 def run_mnist():
-  """Run MNIST training and eval loop."""
-  mnist_classifier = tf.estimator.Estimator(
+    """Run MNIST training and eval loop."""
+
+    tpu_config = tf.contrib.tpu.TPUConfig(
+        iterations_per_loop=128,
+        experimental_host_call_every_n_steps=64)
+
+    # mnist_classifier = tf.estimator.Estimator(
+    #   model_fn=model_fn,
+    #   model_dir=FLAGS.model_dir)
+
+    run_config = tf.contrib.tpu.RunConfig(
+      model_dir=FLAGS.model_dir,
+      # save_checkpoints_steps=100,
+      save_checkpoints_secs=600 // 5,
+      keep_checkpoint_max=10,
+      keep_checkpoint_every_n_hours=1,
+      cluster=get_tpu_resolver(),
+      tpu_config=tpu_config)
+
+    mnist_classifier = tf.contrib.tpu.TPUEstimator(
+      config=run_config,
+      use_tpu=True,
       model_fn=model_fn,
-      model_dir=FLAGS.model_dir)
+      train_batch_size=FLAGS.batch_size)
 
-  # Set up training and evaluation input functions.
-  def train_input_fn():
-    """Prepare data for training."""
+    print('Training...')
 
-    # When choosing shuffle buffer sizes, larger sizes result in better
-    # randomness, while smaller sizes use less memory. MNIST is a small
-    # enough dataset that we can easily shuffle the full epoch.
-    ds = dataset.train(FLAGS.data_dir)
-    ds_batched = ds.cache().shuffle(buffer_size=50000).batch(FLAGS.batch_size)
+    # mnist_classifier.train(input_fn, steps=training_steps)
 
-    # Iterate through the dataset a set number (`epochs_between_evals`) of times
-    # during each training session.
-    ds = ds_batched.repeat(FLAGS.epochs_between_evals)
-    return ds
+    # Set up training and evaluation input functions.
+    def train_input_fn():
+        """Prepare data for training."""
 
-  def eval_input_fn():
-    return dataset.test(FLAGS.data_dir).batch(
-        FLAGS.batch_size).make_one_shot_iterator().get_next()
+        # When choosing shuffle buffer sizes, larger sizes result in better
+        # randomness, while smaller sizes use less memory. MNIST is a small
+        # enough dataset that we can easily shuffle the full epoch.
+        ds = dataset.train(FLAGS.data_dir)
+        ds_batched = ds.cache().shuffle(buffer_size=50000).batch(FLAGS.batch_size)
 
-  # Train and evaluate model.
-  for _ in range(FLAGS.train_epochs // FLAGS.epochs_between_evals):
-    mnist_classifier.train(input_fn=train_input_fn, hooks=None)
-    eval_results = mnist_classifier.evaluate(input_fn=eval_input_fn)
-    print("\nEvaluation results:\n\t%s\n" % eval_results)
+        # Iterate through the dataset a set number (`epochs_between_evals`) of times
+        # during each training session.
+        ds = ds_batched.repeat(FLAGS.epochs_between_evals)
+        return ds
+
+    def eval_input_fn():
+        return dataset.test(FLAGS.data_dir).batch(
+            FLAGS.batch_size).make_one_shot_iterator().get_next()
+
+    # Train and evaluate model.
+    for _ in range(FLAGS.train_epochs // FLAGS.epochs_between_evals):
+        mnist_classifier.train(input_fn=train_input_fn, hooks=None)
+        eval_results = mnist_classifier.evaluate(input_fn=eval_input_fn)
+        print("\nEvaluation results:\n\t%s\n" % eval_results)
 
 
 def main(_):
