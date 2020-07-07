@@ -5,6 +5,8 @@ import tensorflow as tf
 import mesh_tensorflow as mtf
 import os
 
+#TODO: file needs porting to mtf
+
 def shape_list(x):
     # TODO: can this be used with mtf? tensor shapes are different
     """Deal with dynamic shape in tensorflow cleanly."""
@@ -121,7 +123,6 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
     def split_heads(x):
         # TODO: convert to mtf code
-
         # From [batch, sequence, features] to [batch, heads, sequence, features]
         return tf.transpose(split_states(x, params["n_head"]), [0, 2, 1, 3])
 
@@ -212,16 +213,16 @@ def past_shape(*, params, batch_size=None, sequence=None):
 
 def expand_tile(value, size):
     """Add a new axis of given size."""
-    # TODO: convert to mtf code
+    # TODO: convert to mtf code ?
     value = tf.convert_to_tensor(value, name='value')
     ndims = value.shape.ndims
     return tf.tile(tf.expand_dims(value, axis=0), [size] + [1]*ndims)
 
 def positions_for(tokens, past_length):
     # TODO: convert to mtf.shape ?
-    batch_size = tf.shape(tokens)[0]
-    nsteps = tf.shape(tokens)[1]
-    return expand_tile(past_length + tf.range(nsteps), batch_size)
+    batch_size = mtf.Shape(tokens)[0]
+    nsteps = mtf.Shape(tokens)[1]
+    return expand_tile(past_length + mtf.mtf_range(nsteps), batch_size)
 
 def dropout(x, pdrop, train):
     if train and pdrop > 0:
@@ -242,16 +243,17 @@ def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=Fal
             print('INPUT SHAPE:')
             print(X.shape)
         results = {}
-        batch, sequence = shape_list(X)
+        # batch, sequence = shape_list(X)
 
         # define mtf shapes and names
         batch_size = os.environ.get('BATCH_SIZE', 0)
         sequence_size = os.environ.get('SEQUENCE', 0)
+        features_len = os.environ.get('FEATURES', 0)
         assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
 
-        X = mtf.import_tf_tensor(mesh, X, mtf.Shape(X.shape)) # convert input tensor to mtf tensor
+        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, features_len])) # convert input tensor to mtf tensor
 
         if params["precision"] == "bfloat16":
             wpe = mtf.get_variable('wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
@@ -265,7 +267,7 @@ def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=Fal
             wte = mtf.get_variable('wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
                                 initializer=tf.random_normal_initializer(stddev=0.02))
 
-        past_length = 0 if past is None else tf.shape(past)[-2] # TODO: convert to mtf shape
+        past_length = 0 if past is None else mtf.Shape(past)[-2]
 
         wpe = dropout(wpe, params["embed_dropout"], train)
         wte = dropout(wte, params["embed_dropout"], train)
@@ -277,10 +279,10 @@ def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=Fal
         presents = []
         pasts = mtf.unstack(past, dim=1) if past is not None else [None] * params["n_layer"]
         assert len(pasts) == params["n_layer"]
-        for layer, past in enumerate(pasts): # TODO: will enumerate work with mtf tensors?
+        for layer, past in enumerate(pasts):
             h, present = block(h, 'h%d' % layer, past=past, params=params, block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
             presents.append(present)
-        dim_name = "xxxx" # TODO: need to define dim_name for stack - why ? ? (╯°□°)╯︵ ┻━┻
+        dim_name = "results"
         results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
         h = norm(h, 'ln_f', params=params)
 
@@ -288,9 +290,10 @@ def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=Fal
         # optimize by putting lots of sparse layers next to each other to reduce reshapes,
         # and only reshape between sparse and regular layers instead of resizing every time for drop in compatibility
 
-        # TODO: convert below to mtf fns
-        h_flat = tf.reshape(h, [batch*sequence, params["n_embd"]])
-        logits = tf.matmul(h_flat, wte, transpose_b=True)
-        logits = tf.reshape(logits, [batch, sequence, params["n_vocab"]])
+        h_flat = mtf.reshape(h, [batch_size*sequence_size, params["n_embd"]])
+        # TODO: will need to replicate transpose_b by manually transposing i guess?
+        # logits = tf.matmul(h_flat, wte, transpose_b=True)
+        logits = mtf.einsum([h_flat, wte], output_shape=None) #TODO: do i need to set output shape?
+        logits = mtf.reshape(logits, [batch_size, sequence_size, params["n_vocab"]])
         results['logits'] = logits
         return results

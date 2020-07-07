@@ -1,6 +1,12 @@
 import numpy as np
 import tensorflow as tf
+import mesh_tensorflow as mtf
 
+
+# TODO: optimizers will need converting to mtf code, which has its own optimizers.
+#         optimizer = mtf.optimize.AdamWeightDecayOptimizer()
+#      OR optimizer = mtf.optimize.AdafactorOptimizer()
+#         Not sure abt warmup?
 
 def create_train_op(loss, params):
     lr = params["lr"]
@@ -70,7 +76,7 @@ def cosine_decay_with_warmup(global_step,
                              warmup_steps=0,
                              hold_base_rate_steps=0,
                              name="learning_rate"):
-    #TODO: convert to mtf code (?)
+    #TODO: convert to mtf code
     if total_steps < warmup_steps:
         raise ValueError('total_steps must be larger or equal to '
                         'warmup_steps.')
@@ -99,7 +105,7 @@ def cosine_decay_with_warmup(global_step,
 # Adafactor from tensor2tensor -------------------------------------------------------------
 
 class AdafactorOptimizer(tf.train.Optimizer):
-    # TODO: update to tfmesh version here: https://github.com/tensorflow/mesh/blob/8fba074af3c9d823f8b9e901dadd62b0e3085f49/mesh_tensorflow/optimize.py#L206
+    #TODO: should be replaceable with optimizer = mtf.optimize.AdafactorOptimizer()
     """Optimizer that implements the Adafactor algorithm.
     Adafactor is described in https://arxiv.org/abs/1804.04235.
     Adafactor is most similar to Adam (Kingma and Ba), the major differences are:
@@ -329,15 +335,18 @@ def adafactor_decay_rate_adam(beta2):
 
 
 def adafactor_decay_rate_pow(exponent):
+    # fine without conversion
     return 1.0 - tf.pow((step_num() + 1.0), -exponent)
 
 def step_num():
+    # fine without conversion
     return tf.to_float(tf.train.get_or_create_global_step())
 
 def reduce_rms(x):
-    return tf.sqrt(tf.reduce_mean(tf.square(x)))
+  return mtf.sqrt(mtf.reduce_mean(mtf.square(x)))
 
 def cast_like(x, y):
+    # only used in adafactor so simply replacing that fn w mtf optimizer that should be fine
     """Cast x to y's dtype, if necessary."""
     x = tf.convert_to_tensor(x)
     y = tf.convert_to_tensor(y)

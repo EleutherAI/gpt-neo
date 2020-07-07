@@ -12,6 +12,8 @@ from inputs import generic_text
 from model_fns import *
 from predict_fns import *
 
+# TODO: probably fine as is w/out porting to MTF - all mtf code should be in model_fn
+
 # This program was designed to function with multiple kinds of models, but currently only GPT2 is supported
 # The first element in the tupel is the model function, the second is the function called when predicting
 models = {
