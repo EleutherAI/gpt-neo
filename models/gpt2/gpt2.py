@@ -211,12 +211,30 @@ def past_shape(*, params, batch_size=None, sequence=None):
     # return [batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]]
     return mtf.Shape([batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]])
 
+def mtf_squeeze(x, dim_name, name=None):
+    """tf squeeze for mtf tensors"""
+    # TODO: assert the dimension appears in x with size 1?
+    return mtf.reduce_sum(x, reduced_dim=mtf.Dimension(dim_name, 1), name=name)
+
+def mtf_expand_dims(x, dim_name, axis, name=None):
+    """tf expand_dims for mtf tensors"""
+
+    new_dims = list(x.shape[:])
+    if axis == -1:
+        new_dims.append(mtf.Dimension(dim_name, 1))
+    elif axis < 0:
+        new_dims.insert(axis + 1, mtf.Dimension(dim_name, 1))
+    else:
+        new_dims.insert(axis, mtf.Dimension(dim_name, 1))
+    return mtf.reshape(x, mtf.Shape(new_dims), name=name)
+
+
 def expand_tile(value, size):
     """Add a new axis of given size."""
     # TODO: convert to mtf code ?
     value = tf.convert_to_tensor(value, name='value')
     ndims = value.shape.ndims
-    return tf.tile(tf.expand_dims(value, axis=0), [size] + [1]*ndims)
+    return tf.tile(mtf.expand_dims(value, axis=0), [size] + [1]*ndims)
 
 def positions_for(tokens, past_length):
     # TODO: convert to mtf.shape ?
