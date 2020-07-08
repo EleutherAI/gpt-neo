@@ -112,8 +112,8 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         # blocks is 1 more than would otherwise be thanks to padding
         # there's always one padded block at the end, even if it's entirely padded
         x = tf.pad(x, tf.stack([
-                tf.constant([0,0]), 
-                tf.stack([block_offset, right_pad], axis=0), 
+                tf.constant([0,0]),
+                tf.stack([block_offset, right_pad], axis=0),
                 tf.constant([0,0])
             ], axis=0), "CONSTANT")
         #x = tf.Print(x, [tf.shape(x)[i] for i in range(len(x.shape.as_list()))])
@@ -234,7 +234,7 @@ def expand_tile(value, size):
     # TODO: convert to mtf code ?
     value = tf.convert_to_tensor(value, name='value')
     ndims = value.shape.ndims
-    return tf.tile(mtf.expand_dims(value, axis=0), [size] + [1]*ndims)
+    return tf.tile(mtf.expand_dims(value, axis=0), [size] + [1]*ndims) #TODO: not sure if tile works in mtf
 
 def positions_for(tokens, past_length):
     # TODO: convert to mtf.shape ?
