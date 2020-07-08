@@ -1,3 +1,4 @@
+
 TF Mesh Notes
 
 Data Parallelism, normally: 
