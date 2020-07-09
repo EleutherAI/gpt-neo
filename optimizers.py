@@ -11,6 +11,7 @@ import mesh_tensorflow as mtf
 def create_train_op(loss, params):
     lr = params["lr"]
     if "warmup_steps" in params.keys():
+        #TODO: warmup won't work in tfm
         lr = cosine_decay_with_warmup(tf.train.get_global_step(), lr,
                                         params["max_steps"], warmup_steps=params["warmup_steps"])
 

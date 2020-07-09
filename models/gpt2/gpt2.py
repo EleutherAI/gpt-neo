@@ -255,7 +255,7 @@ def _assert_float_dtype(dtype):
     return dtype
 
 
-def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=False, train=False):
+def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, train=False):
     with tf.variable_scope(scope, reuse=reuse):
         if os.environ.get('DEBUG', 0):
             print('INPUT SHAPE:')
@@ -291,6 +291,9 @@ def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=Fal
         wte = dropout(wte, params["embed_dropout"], train)
 
         # TODO: convert positions_for to mtf code
+        # below code gets the positional encodings for each of the tokens
+        # wpe has shape [ctx, embd]
+        # h has shape [batch, seq, embd]
         h = mtf.gather(wte, X, 0) + mtf.gather(wpe, positions_for(X, past_length), 0)
 
         # Transformer
@@ -302,6 +305,8 @@ def model(X, params, mesh=None, labels=None, past=None, scope='model', reuse=Fal
             presents.append(present)
         dim_name = "results"
         results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
+
+        #TODO: convert norm to mtf code
         h = norm(h, 'ln_f', params=params)
 
         # TODO: optimization suggestion from bmk:

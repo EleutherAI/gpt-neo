@@ -145,8 +145,7 @@ def model_fn(features, labels, mode, params):
     logits, loss = mnist_model(features, labels, mesh)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
-        var_grads = mtf.gradients(
-            [loss], [v.outputs[0] for v in graph.trainable_variables])
+        var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
         optimizer = mtf.optimize.AdafactorOptimizer()
         update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
 
