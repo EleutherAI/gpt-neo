@@ -73,53 +73,43 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         c = tf.reshape(tf.matmul(tf.reshape(x, [-1, nx]), tf.reshape(w, [-1, nf]))+b, start+[nf])
         return c
 
-def attention_mask(nd, ns, *, dtype):
-    # TODO: convert to mtf code
+
+def visible_pos(mesh, nd, ns):
     """1's in the lower triangle, counting from the lower right corner.
 
     Same as tf.matrix_band_part(tf.ones([nd, ns]), -1, ns-nd), but doesn't produce garbage on TPUs.
+
+    UPDATE: modified for mtf
     """
-    i = tf.range(nd)[:,None]
-    j = tf.range(ns)
+    i = mtf.range(mesh, nd, tf.int32)[:,None]
+    j = mtf.range(mesh, ns, tf.int32)
     m = i >= j - ns + nd
-    return tf.cast(m, dtype)
+    return m
 
 
 def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
-    # TODO: convert to mtf code. There are some impls of local attention but not sure if they do exactly the same thing
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state % params["n_head"] == 0
     if past is not None:
         assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
 
-        ## LOCAL ATTENTION
-
     # TODO: implement proper past cache. in the meantime, don't pass a past if implementing local attention!!!
-    assert not (params["local"] and past is not None)
+    # update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts apparantly (?? - ask Daj). 
+    # we can remove this assert once we're sure we didnt break anything
+    #assert not (params["local"] and past is not None)
+    assert past is None
 
-    x_shape = tf.shape(x)
+    # x :: [batch, seq, n_embd]
+    x_shape = x.shape
     sh_batch = x_shape[0]
     sh_seq = x_shape[1]
+    sh_embd = x_shape[2]
+
+    dim_heads = mtf.Dimension("heads", params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
-    inp_len = sh_seq + (tf.shape(past)[3] if past is not None else 0)
-
-    if params["local"]:
-        right_pad = params["fixed_attn_block_size"] - ((block_offset + inp_len) % params["fixed_attn_block_size"])
-        dont_pad_aligned = False
-        padded_seq = ((inp_len + params["fixed_attn_block_size"] - (1 if dont_pad_aligned else 0)) // params["fixed_attn_block_size"]) * params["fixed_attn_block_size"]
-
-        # blocks is 1 more than would otherwise be thanks to padding
-        # there's always one padded block at the end, even if it's entirely padded
-        x = tf.pad(x, tf.stack([
-                tf.constant([0,0]),
-                tf.stack([block_offset, right_pad], axis=0),
-                tf.constant([0,0])
-            ], axis=0), "CONSTANT")
-        #x = tf.Print(x, [tf.shape(x)[i] for i in range(len(x.shape.as_list()))])
-        #x = tf.Print(x, [inp_len, right_pad])
-        #x = tf.Print(x, [sh_batch * hparams.fixed_attn_block_size, padded_seq // hparams.fixed_attn_block_size, hparams.n_embd])
-        x = tf.reshape(x, [sh_batch * params["fixed_attn_block_size"], padded_seq // params["fixed_attn_block_size"], params["n_embd"]]) # should be [batch * blocks, sequence / blocks, features]
+    # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
+    #inp_len = sh_seq + (tf.shape(past)[3] if past is not None else 0)
 
     def split_heads(x):
         # TODO: convert to mtf code
@@ -131,58 +121,59 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         # Reverse of split_heads
         return merge_states(tf.transpose(x, [0, 2, 1, 3]))
 
-    def mask_attn_weights(w):
-        # TODO: convert to mtf code
+    # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
+    def biasmask_attn_weights(mesh, dtype):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
-        _, _, nd, ns = shape_list(w)
-        b = attention_mask(nd, ns, dtype=w.dtype)
-        b = tf.reshape(b, [1, 1, nd, ns])
-        w = w*b - tf.cast(1e10, w.dtype)*(1-b)
-        return w
+        
+        # n_src and n_dest are both the same, i.e equal to sequence length
+        ns = sh_seq
+        nd = sh_seq
 
-    def multihead_attn(q, k, v):
-        #TODO: convt to mtf code - already implemented at:
-        # mtf.layers.multihead_attention(query_antecedent, memory_antecedent, mask, kv_channels, heads, *))
-
-        # q, k, v have shape [batch, heads, sequence, features]
-        w = tf.matmul(q, k, transpose_b=True)
-        w = w * tf.rsqrt(tf.cast(v.shape[-1].value, w.dtype))
-
-        w = mask_attn_weights(w)
-        w = softmax(w)
-
-        w = dropout(w, params["attn_dropout"], train)
-
-        a = tf.matmul(w, v)
-        return a
+        vis = visible_pos(mesh, nd, ns)
+        # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
+        # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
+        singleton = mtf.Dimension('singleton', 1)
+        vis = mtf.reshape(vis, [singleton, singleton, nd, ns])
+        return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
         c = conv1d(x, 'c_attn', n_state*3, params=params)
-        q, k, v = map(split_heads, tf.split(c, 3, axis=2))
-        present = tf.stack([k, v], axis=1)
+
+        conv_output_channels = c.shape[2]
+        q, k, v = map(split_heads, mtf.split(c, conv_output_channels, 3))
+
+        # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working. 
+        present = mtf.stack([k, v], "kv", axis=1)
+
         if past is not None:
+            # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
             pk, pv = tf.unstack(past, axis=1)
             k = tf.concat([pk, k], axis=-2)
             v = tf.concat([pv, v], axis=-2)
-        a = multihead_attn(q, k, v)
+
+        # TODO: control whether layer is local on a layer-by-layer basis, not as a global. 
+        if params["local"]:
+            # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
+            a = mtf.transformer.attention.local_attention_1d(
+                q, k, v,
+                length_dim=sh_seq,
+                key_dim=sh_embd,
+                value_dim=sh_embd,
+                length_dim_num_splits=1, # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
+            )
+        else:
+            # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
+            a = mtf.transformer.attention.attention(
+                q, k, v,
+                memory_length_dim=sh_seq,
+                key_dim=sh_embd,
+                value_dim=sh_embd,
+                bias=biasmask_attn_weights(q.mesh, q.dtype)
+            )
+
         a = merge_heads(a)
         a = conv1d(a, 'c_proj', n_state, params=params)
         a = dropout(a, params["res_dropout"], train)
-
-        # a = tf.Print(a, [tf.shape(a)[i] for i in range(3)])
-
-        if params["local"]:
-            # a :: [batch * blocks, sequence / blocks, features]
-            #a = tf.Print(a, [tf.shape(present)[i] for i in range(5)])
-            #a = tf.Print(a, [tf.shape(a)[i] for i in range(3)])
-            a = tf.reshape(a, [sh_batch, padded_seq, params["n_embd"]])[:, block_offset:-right_pad]
-
-            # TODO: WARNING! present is a PLACEHOLDER and *should not be used*!!!
-            # when sampling, pass None for pasts!
-
-            # present: [batch, 2, heads, 1 (seq), features]
-
-            present = tf.zeros([sh_batch, 2, params["n_head"], 1, params["n_embd"] // params["n_head"]])
 
         return a, present
 
@@ -237,9 +228,8 @@ def expand_tile(value, size):
     return tf.tile(mtf.expand_dims(value, axis=0), [size] + [1]*ndims) #TODO: not sure if tile works in mtf
 
 def positions_for(tokens, past_length):
-    # TODO: convert to mtf.shape ?
-    batch_size = mtf.Shape(tokens)[0]
-    nsteps = mtf.Shape(tokens)[1]
+    batch_size = tokens.shape[0]
+    nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.mtf_range(nsteps), batch_size)
 
 def dropout(x, pdrop, train):
@@ -264,9 +254,9 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # batch, sequence = shape_list(X)
 
         # define mtf shapes and names
-        batch_size = os.environ.get('BATCH_SIZE', 0)
-        sequence_size = os.environ.get('SEQUENCE', 0)
-        features_len = os.environ.get('FEATURES', 0)
+        batch_size = params["train_batch_size"]
+        sequence_size = params["n_ctx"]
+        features_len = params["n_embd"]
         assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
