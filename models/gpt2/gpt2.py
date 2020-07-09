@@ -260,6 +260,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
+        vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+        embd_dim = mtf.Dimension("embd", params["n_embd"])
 
         X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, features_len])) # convert input tensor to mtf tensor
 
@@ -303,10 +305,11 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # optimize by putting lots of sparse layers next to each other to reduce reshapes,
         # and only reshape between sparse and regular layers instead of resizing every time for drop in compatibility
 
-        h_flat = mtf.reshape(h, [batch_size*sequence_size, params["n_embd"]])
-        # TODO: will need to replicate transpose_b by manually transposing i guess?
-        # logits = tf.matmul(h_flat, wte, transpose_b=True)
-        logits = mtf.einsum([h_flat, wte], output_shape=None) #TODO: do i need to set output shape?
-        logits = mtf.reshape(logits, [batch_size, sequence_size, params["n_vocab"]])
+        h_flat = mtf.reshape(h, [batch_size*sequence_size, embd_dim])
+
+        # h_flat :: [batch*seq, embd]
+        # wte :: [vocab, embd]
+        logits = mtf.einsum([h_flat, wte], output_shape=[batch_size*sequence_size, vocab_dim])
+        logits = mtf.reshape(logits, [batch_size, sequence_size, vocab_dim])
         results['logits'] = logits
         return results
