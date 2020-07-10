@@ -57,7 +57,10 @@ def gpt2_model_mesh(features, labels, mode, params):
                                     train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
 
         # TODO: change to mtf.layers.softmax_cross_entropy_with_logits
-        vdim = 'something' #TODO: guess we need to define a vocab_dim somewhere
+
+        # logits :: [batch, seq, vocab]
+
+        vdim = output["logits"].shape[2]
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=output["logits"], targets=labels, vocab_dim=vdim)
         loss = mtf.reduce_mean(loss_batch)
 
