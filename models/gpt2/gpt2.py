@@ -238,18 +238,15 @@ def mtf_expand_dims(x, dim_name, axis, name=None):
     return mtf.reshape(x, mtf.Shape(new_dims), name=name)
 
 
-def expand_tile(value, size):
+def expand_tile(value, newdim):
     """Add a new axis of given size."""
-    # TODO: convert to mtf code ?
     value = tf.convert_to_tensor(value, name='value')
-    ndims = value.shape.ndims
-    return tf.tile(mtf.expand_dims(value, axis=0), [size] + [1]*ndims) #TODO: not sure if tile works in mtf
+    return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0), [newdim] + value.shape) #TODO: not sure if tile works in mtf
 
-def positions_for(tokens, past_length, batch_dim):
-    # TODO: i don't think we can call mtf range like this. It takes these args:
-    # mtf_range(mesh, dim, dtype, name=None)
+
+def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
-    return expand_tile(past_length + mtf.range(nsteps), batch_dim)
+    return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
 
 def dropout(x, pdrop, train):
@@ -310,8 +307,9 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         #  *hoping* it won't matter it's not a Dimension here?
         # below code gets the positional encodings for each of the tokens
         # wpe has shape [ctx, embd]
+        # positions_for would have shape [batch, seq]
         # h has shape [batch, seq, embd]
-        h = mtf.gather(wte, X, 0) + mtf.gather(wpe, positions_for(X, past_length), 0)
+        h = mtf.gather(wte, X, 0) + mtf.gather(wpe, positions_for(X, past_length, batch_dim), 0)
 
         # Transformer
         presents = []
