@@ -154,7 +154,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
         # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
         singleton = mtf.Dimension('singleton', 1)
-        vis = mtf.reshape(vis, [singleton, singleton, nd, ns])
+        vis = mtf.reshape(vis, [singleton, singleton, nd, ns]) #TODO: think the shape in reshape needs to be dimensions wrapped in mtf.Shape() ?
         return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
@@ -288,8 +288,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         vocab_dim = mtf.Dimension("vocab", vocab_size)
         embd_dim = mtf.Dimension("embd", features_len)
 
-
-        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, embd_dim])) # convert input tensor to mtf tensor
+        # convert input tensor to mtf tensor
+        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, embd_dim]))
 
         if params["precision"] == "bfloat16":
             wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]), # Position encoding
