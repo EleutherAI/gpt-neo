@@ -91,7 +91,6 @@ def mnist_model(image, labels, mesh):
     # add some fully-connected dense layers.
     hidden_dim1 = mtf.Dimension("hidden1", FLAGS.hidden_size)
     hidden_dim2 = mtf.Dimension("hidden2", FLAGS.hidden_size)
-
     h1 = mtf.layers.dense(
         x, hidden_dim1,
         reduced_dims=x.shape.dims[-4:],

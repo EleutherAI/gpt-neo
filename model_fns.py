@@ -33,7 +33,7 @@ def gpt2_model_mesh(features, labels, mode, params):
     replica_cache_size = 300 * 1000000  # 300M per replica
     # Worker 0 caches all the TPU binaries.
     worker0_mem = replica_cache_size * ctx.num_replicas
-    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1) #TODO: what dis
+    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
     var_placer = mtf.utils.BalancedVariablePlacer(device_list,
                                                   devices_memory_usage)
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
@@ -56,11 +56,9 @@ def gpt2_model_mesh(features, labels, mode, params):
                                     past=None, reuse=tf.AUTO_REUSE,
                                     train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
 
-        # TODO: change to mtf.layers.softmax_cross_entropy_with_logits
 
         # logits :: [batch, seq, vocab]
-
-        vdim = output["logits"].shape[2]
+        vdim = output["logits"].shape[2] #TODO: doesn't this need to be a dimension?
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=output["logits"], targets=labels, vocab_dim=vdim)
         loss = mtf.reduce_mean(loss_batch)
 
@@ -82,7 +80,6 @@ def gpt2_model_mesh(features, labels, mode, params):
 
         if mode == tf.estimator.ModeKeys.EVAL:
             #TODO: implement EVAL
-
             from metric_fns import perplexity_metric
 
             if params["use_tpu"]:
