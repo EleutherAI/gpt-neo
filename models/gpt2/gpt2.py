@@ -326,4 +326,5 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         logits = mtf.einsum([h_flat, wte], output_shape=[batch_size*sequence_size, vocab_dim])
         logits = mtf.reshape(logits, [batch_size, sequence_size, vocab_dim])
         results['logits'] = logits
+        # logits :: [batch, seq, vocab]
         return results
