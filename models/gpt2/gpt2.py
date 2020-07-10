@@ -221,7 +221,7 @@ def block(x, scope, *, past, params, train=False, block_offset=0):
         return x, present
 
 def past_shape(*, params, batch_size=None, sequence=None):
-    # TODO: think this should be converted to mtf.Shape( return ), but not sure
+    # TODO: mtf.Shape() takes dims - fix this
     # return [batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]]
     return mtf.Shape([batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]])
 
@@ -232,7 +232,6 @@ def mtf_squeeze(x, dim_name, name=None):
 
 def mtf_expand_dims(x, dim_name, axis, name=None):
     """tf expand_dims for mtf tensors"""
-
     new_dims = list(x.shape[:])
     if axis == -1:
         new_dims.append(mtf.Dimension(dim_name, 1))
@@ -250,10 +249,12 @@ def expand_tile(value, size):
     ndims = value.shape.ndims
     return tf.tile(mtf.expand_dims(value, axis=0), [size] + [1]*ndims) #TODO: not sure if tile works in mtf
 
-def positions_for(tokens, past_length):
-    batch_size = tokens.shape[0]
+def positions_for(tokens, past_length, batch_dim):
+    # TODO: i don't think we can call mtf range like this. It takes these args:
+    # mtf_range(mesh, dim, dtype, name=None)
     nsteps = tokens.shape[1]
-    return expand_tile(past_length + mtf.mtf_range(nsteps), batch_size)
+    return expand_tile(past_length + mtf.range(nsteps), batch_dim)
+
 
 def dropout(x, pdrop, train):
     if train and pdrop > 0:
@@ -280,32 +281,37 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         batch_size = params["train_batch_size"]
         sequence_size = params["n_ctx"]
         features_len = params["n_embd"]
+        vocab_size = params["n_vocab"]
         assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
-        vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
-        embd_dim = mtf.Dimension("embd", params["n_embd"])
+        vocab_dim = mtf.Dimension("vocab", vocab_size)
+        embd_dim = mtf.Dimension("embd", features_len)
 
-        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, features_len])) # convert input tensor to mtf tensor
+
+        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, embd_dim])) # convert input tensor to mtf tensor
 
         if params["precision"] == "bfloat16":
-            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
+            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]), # Position encoding
                              initializer=tf.random_normal_initializer(stddev=0.01, dtype=tf.bfloat16), dtype=tf.bfloat16)
-            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
+            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]), # Text encoding
                              initializer=tf.random_normal_initializer(stddev=0.02, dtype=tf.bfloat16), dtype=tf.bfloat16)
 
         else:
-            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
+            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]), # Position encoding
                                 initializer=tf.random_normal_initializer(stddev=0.01))
-            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
+            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]), # Text encoding
                                 initializer=tf.random_normal_initializer(stddev=0.02))
 
+        # WARNING: since shapes need to be constructed from dims past needs to be a dim here -
+        #  but it'll be none during training anyway so we'll fix later
         past_length = 0 if past is None else mtf.Shape(past)[-2]
 
         wpe = dropout(wpe, params["embed_dropout"], train)
         wte = dropout(wte, params["embed_dropout"], train)
 
-        # TODO: convert positions_for to mtf code
+        # TODO: convert positions_for to mtf code (past_length is zero so I'm
+        #  *hoping* it won't matter it's not a Dimension here?
         # below code gets the positional encodings for each of the tokens
         # wpe has shape [ctx, embd]
         # h has shape [batch, seq, embd]
@@ -313,28 +319,36 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
 
         # Transformer
         presents = []
-        pasts = mtf.unstack(past, dim=1) if past is not None else [None] * params["n_layer"]
+        #TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
+        # just create a singleton?
+        # but it's none if pasts is none anyway... think it should be fine?
+        singleton = mtf.Dimension('singleton', 1)
+        pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
         assert len(pasts) == params["n_layer"]
+
         for layer, past in enumerate(pasts):
             h, present = block(h, 'h%d' % layer, past=past, params=params, block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
             presents.append(present)
+
         dim_name = "results"
         results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
-        #TODO: convert norm to mtf code
         h = norm(h, 'ln_f', params=params)
 
         # TODO: optimization suggestion from bmk:
         # optimize by putting lots of sparse layers next to each other to reduce reshapes,
         # and only reshape between sparse and regular layers instead of resizing every time for drop in compatibility
         # (I don't think we can easily do this with the mtf code.)
-
-        h_flat = mtf.reshape(h, [batch_size*sequence_size, embd_dim])
+        h_flat = mtf.reshape(h, mtf.Shape([batch_dim*sequence_dim, embd_dim]))
 
         # h_flat :: [batch*seq, embd]
         # wte :: [vocab, embd]
-        logits = mtf.einsum([h_flat, wte], output_shape=[batch_size*sequence_size, vocab_dim])
-        logits = mtf.reshape(logits, [batch_size, sequence_size, vocab_dim])
+        # proper einsum op:
+        #       selector = mtf.einsum([selector, same_minor_batch], output_shape=[major_batch,
+        #                         old_minor_batch, old_beam_dim, minor_batch, beam_dim],
+        #           reduced_dims=[])
+        logits = mtf.einsum([h_flat, wte], output_shape=[batch_dim*sequence_dim, vocab_dim])
+        logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
         results['logits'] = logits
         # logits :: [batch, seq, vocab]
         return results

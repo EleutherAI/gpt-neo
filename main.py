@@ -12,12 +12,12 @@ from inputs import generic_text
 from model_fns import *
 from predict_fns import *
 
-# TODO: probably fine as is w/out porting to MTF - all mtf code should be in model_fn
 
 # This program was designed to function with multiple kinds of models, but currently only GPT2 is supported
 # The first element in the tupel is the model function, the second is the function called when predicting
 models = {
-    "GPT2": (gpt2_model, gpt2_predict)
+    "GPT2": (gpt2_model, gpt2_predict),
+    "GPT2_mesh": (gpt2_model_mesh, gpt2_predict) #TODO: mesh predict fn
 }
 
 if __name__ == "__main__":
