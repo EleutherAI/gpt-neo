@@ -23,7 +23,7 @@ def gpt2_model_mesh(features, labels, mode, params):
     # model parallelism - distribute blocks across all cores
     layout_rules = mtf.convert_to_layout_rules('blocks:all') #TODO: if we get model working this hardcoding needs to go
 
-    # distribute blocks according to layour rules
+    # distribute blocks according to layout rules
     ctx = params['context']
     num_hosts = ctx.num_hosts
     host_placement_fn = ctx.tpu_host_placement_function
