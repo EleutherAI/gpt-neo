@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import mesh_tensorflow as mtf
 
-from optimizers import create_train_op, get_update_ops
+from optimizers import get_update_ops
 from metric_fns import *
 
 
