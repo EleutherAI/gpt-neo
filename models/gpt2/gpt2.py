@@ -54,18 +54,6 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         x = x*g + b
         return x
 
-def split_states(x, n):
-    """Reshape the last dimension of x into [n, x.shape[-1]/n]."""
-    # TODO: convert to mtf code
-    *start, m = shape_list(x)
-    return tf.reshape(x, start + [n, m//n])
-
-def merge_states(x):
-    """Smash the last two dimensions of x into a single dimension."""
-    # TODO: convert to mtf code
-    *start, a, b = shape_list(x)
-    return tf.reshape(x, start + [a*b])
-
 
 # TODO: this isnt actually a convolution, rename it to something more appropriate
 def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
@@ -127,6 +115,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     dim_embd = x_shape[2]
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
+    dim_features_per_head = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
@@ -134,14 +123,19 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
 
     def split_heads(x):
-        # TODO: convert to mtf code
-        # From [batch, sequence, features] to [batch, heads, sequence, features]
-        return tf.transpose(split_states(x, params["n_head"]), [0, 2, 1, 3])
+        # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
+        # heads is split out of features!
+
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head])
+        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, dim_features_per_head])
+        return x
 
     def merge_heads(x):
-        # TODO: convert to mtf code
-        # Reverse of split_heads : result shape [batch, sequence, features]
-        return merge_states(tf.transpose(x, [0, 2, 1, 3]))
+        # Reverse of split_heads
+        # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
+        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head])
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd])
+        return x
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
     def biasmask_attn_weights(mesh, dtype):
@@ -154,8 +148,9 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         vis = visible_pos(mesh, nd, ns)
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
         # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
-        singleton = mtf.Dimension('singleton', 1)
-        vis = mtf.reshape(vis, [singleton, singleton, nd, ns])
+        singletona = mtf.Dimension('singletona', 1)
+        singletonb = mtf.Dimension('singletonb', 1)
+        vis = mtf.reshape(vis, [singletona, singletonb, nd, ns])
         return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
