@@ -3,11 +3,6 @@ import tensorflow as tf
 import mesh_tensorflow as mtf
 
 
-# TODO: optimizers will need converting to mtf code, which has its own optimizers.
-#         optimizer = mtf.optimize.AdamWeightDecayOptimizer()
-#      OR optimizer = mtf.optimize.AdafactorOptimizer()
-#         Not sure abt warmup?
-
 def get_update_ops(loss, params, graph):
     lr = params["lr"]
     var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])

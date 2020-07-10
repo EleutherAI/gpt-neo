@@ -5,8 +5,6 @@ import tensorflow as tf
 import mesh_tensorflow as mtf
 import os
 
-#TODO: file needs porting to mtf
-
 # TODO: standardize which parameters are int and which are Dimension, and add type annotations.
 # we probably want to turn things into Dimensions at the beginning of the code, and pass those around for the rest of the code
 
@@ -343,10 +341,6 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
 
         # h_flat :: [batch*seq, embd]
         # wte :: [vocab, embd]
-        # proper einsum op:
-        #       selector = mtf.einsum([selector, same_minor_batch], output_shape=[major_batch,
-        #                         old_minor_batch, old_beam_dim, minor_batch, beam_dim],
-        #           reduced_dims=[])
         logits = mtf.einsum([h_flat, wte], output_shape=[batch_dim*sequence_dim, vocab_dim])
         logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
         results['logits'] = logits
