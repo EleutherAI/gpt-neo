@@ -129,7 +129,6 @@ def model_fn(features, labels, mode, params):
     host_placement_fn = ctx.tpu_host_placement_function
     device_list = [host_placement_fn(host_id=t) for t in range(num_hosts)]
     tf.logging.info('device_list = %s' % device_list, )
-    # TODO: Better estimation of replica cache size?
     replica_cache_size = 300 * 1000000  # 300M per replica
     # Worker 0 caches all the TPU binaries.
     worker0_mem = replica_cache_size * ctx.num_replicas

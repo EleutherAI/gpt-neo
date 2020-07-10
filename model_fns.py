@@ -9,7 +9,6 @@ from metric_fns import *
 
 
 def gpt2_model_mesh(features, labels, mode, params):
-    # TODO: convert to mtf code
     from models.gpt2 import gpt2
 
     # define mtf graph / mesh
@@ -58,7 +57,7 @@ def gpt2_model_mesh(features, labels, mode, params):
 
 
         # logits :: [batch, seq, vocab]
-        vdim = output["logits"].shape[2] #TODO: doesn't this need to be a dimension?
+        vdim = output["logits"].shape[2] 
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=output["logits"], targets=labels, vocab_dim=vdim)
         loss = mtf.reduce_mean(loss_batch)
 
