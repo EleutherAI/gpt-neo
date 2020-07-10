@@ -7,7 +7,7 @@ import os
 
 #TODO: file needs porting to mtf
 
-# TODO: standardize which parameters are int and which are Dimension, and add type annotations.
+# TODO: standardize which parameters are int and which are Dimension, and add type annotations. (nice to have: https://github.com/agronholm/typeguard to ensure types are correct)
 # we probably want to turn things into Dimensions at the beginning of the code, and pass those around for the rest of the code
 
 def shape_list(x):
@@ -108,7 +108,7 @@ def visible_pos(mesh, nd, ns):
 
 
 def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
-    # n_state is the same as config['n_embd'], which is also the same as sh_embd.
+    # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state % params["n_head"] == 0
     if past is not None:
@@ -122,15 +122,16 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
     # x :: [batch, seq, n_embd]
     x_shape = x.shape
-    sh_batch = x_shape[0]
-    sh_seq = x_shape[1]
-    sh_embd = x_shape[2]
+    dim_batch = x_shape[0]
+    dim_seq = x_shape[1]
+    dim_embd = x_shape[2]
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
-    # inp_len = sh_seq + (tf.shape(past)[3] if past is not None else 0)
+    # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
+
 
     def split_heads(x):
         # TODO: convert to mtf code
@@ -147,8 +148,8 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
         
         # n_src and n_dest are both the same, i.e equal to sequence length
-        ns = sh_seq
-        nd = sh_seq
+        ns = dim_seq
+        nd = dim_seq
 
         vis = visible_pos(mesh, nd, ns)
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
@@ -178,23 +179,23 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
             a = mtf.transformer.attention.local_attention_1d(
                 q, k, v,
-                length_dim=sh_seq,
-                key_dim=sh_embd,
-                value_dim=sh_embd,
+                length_dim=dim_seq,
+                key_dim=dim_embd,
+                value_dim=dim_embd,
                 length_dim_num_splits=1, # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
             )
         else:
             # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
             a = mtf.transformer.attention.attention(
                 q, k, v,
-                memory_length_dim=sh_seq,
-                key_dim=sh_embd,
-                value_dim=sh_embd,
+                memory_length_dim=dim_seq,
+                key_dim=dim_embd,
+                value_dim=dim_embd,
                 bias=biasmask_attn_weights(q.mesh, q.dtype)
             )
 
         a = merge_heads(a)
-        a = conv1d(a, 'c_proj', sh_embd, params=params)
+        a = conv1d(a, 'c_proj', dim_embd, params=params)
         a = dropout(a, params["res_dropout"], train)
 
         return a, present
@@ -204,7 +205,7 @@ def mlp(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
         # TODO: nx will probably be the only thing that needs changing here
         # TODO: also n_state needs to be a Dimension. probably best if we standardize and make whatever calls this provide a Dimension in the first place.
-        nx = x.shape[-1].value
+        nx = x.shape[-1]
         h = gelu(conv1d(x, 'c_fc', n_state, params=params))
         h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
         h2 = dropout(h2, params["res_dropout"], train)

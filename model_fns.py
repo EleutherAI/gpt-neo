@@ -44,7 +44,7 @@ def gpt2_model_mesh(features, labels, mode, params):
         if params["precision"] == 'bfloat16':
             raise Exception('Not implemented') #TODO: implement bfloat precision
             with tf.contrib.tpu.bfloat16_scope():
-                output = gpt2.model(X=features, params=params,
+                output = gpt2.model(X=features, params=params, mesh=mesh,
                                     past=None, reuse=tf.AUTO_REUSE,
                                     train=mode==tf.estimator.ModeKeys.TRAIN)
 
@@ -52,13 +52,13 @@ def gpt2_model_mesh(features, labels, mode, params):
 
         else:
 
-            output = gpt2.model(X=features, params=params,
+            output = gpt2.model(X=features, params=params, mesh=mesh,
                                     past=None, reuse=tf.AUTO_REUSE,
                                     train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
 
 
         # logits :: [batch, seq, vocab]
-        vdim = output["logits"].shape[2] #TODO: doesn't this need to be a dimension?
+        vdim = output["logits"].shape[2]
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=output["logits"], targets=labels, vocab_dim=vdim)
         loss = mtf.reduce_mean(loss_batch)
 
