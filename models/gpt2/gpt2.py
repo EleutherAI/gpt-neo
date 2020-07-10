@@ -53,24 +53,31 @@ def merge_states(x):
     *start, a, b = shape_list(x)
     return tf.reshape(x, start + [a*b])
 
+
+# TODO: this isnt actually a convolution, rename it to something more appropriate
 def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
-    # TODO: convert to mtf code
-    #  (mtf.layers.conv1d is a thing but i think we want to keep scale_by_depth / scale_by_in opts)
+    # nf = number of features
 
     if params["scale_by_depth"] and scale: # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]: # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].value))
 
+    # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
+    dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+
+    # TODO: verify that this is actually right
+
+    # not in the variable_scope because mtf already has a variable_scope in it
+    c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1, filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
     with tf.variable_scope(scope):
-        *start, nx = shape_list(x)
-        if params["precision"] == "bfloat16":
-            w = tf.get_variable('w', [1, nx, nf], initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=tf.bfloat16), dtype=tf.bfloat16)
-            b = tf.get_variable('b', [nf], initializer=tf.constant_initializer(0, dtype=tf.bfloat16), dtype=tf.bfloat16)
-        else:
-            w = tf.get_variable('w', [1, nx, nf], initializer=tf.random_normal_initializer(stddev=w_init_stdev))
-            b = tf.get_variable('b', [nf], initializer=tf.constant_initializer(0))
-        c = tf.reshape(tf.matmul(tf.reshape(x, [-1, nx]), tf.reshape(w, [-1, nf]))+b, start+[nf])
+        singleton = mtf.Dimension('singleton', 1)
+
+        b = mtf.get_variable(x.mesh, 'b', [nf], initializer=tf.constant_initializer(0, dtype=tf.bfloat16), dtype=dt)
+        # NWC
+        b = mtf.reshape(b, [singleton, singleton, nf])
+
+        c += b
         return c
 
 
@@ -260,6 +267,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
+        vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+        embd_dim = mtf.Dimension("embd", params["n_embd"])
 
         X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, features_len])) # convert input tensor to mtf tensor
 
@@ -302,11 +311,13 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # TODO: optimization suggestion from bmk:
         # optimize by putting lots of sparse layers next to each other to reduce reshapes,
         # and only reshape between sparse and regular layers instead of resizing every time for drop in compatibility
+        # (I don't think we can easily do this with the mtf code.)
 
-        h_flat = mtf.reshape(h, [batch_size*sequence_size, params["n_embd"]])
-        # TODO: will need to replicate transpose_b by manually transposing i guess?
-        # logits = tf.matmul(h_flat, wte, transpose_b=True)
-        logits = mtf.einsum([h_flat, wte], output_shape=None) #TODO: do i need to set output shape?
-        logits = mtf.reshape(logits, [batch_size, sequence_size, params["n_vocab"]])
+        h_flat = mtf.reshape(h, [batch_size*sequence_size, embd_dim])
+
+        # h_flat :: [batch*seq, embd]
+        # wte :: [vocab, embd]
+        logits = mtf.einsum([h_flat, wte], output_shape=[batch_size*sequence_size, vocab_dim])
+        logits = mtf.reshape(logits, [batch_size, sequence_size, vocab_dim])
         results['logits'] = logits
         return results
