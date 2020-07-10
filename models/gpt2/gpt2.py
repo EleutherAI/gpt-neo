@@ -7,6 +7,9 @@ import os
 
 #TODO: file needs porting to mtf
 
+# TODO: standardize which parameters are int and which are Dimension, and add type annotations.
+# we probably want to turn things into Dimensions at the beginning of the code, and pass those around for the rest of the code
+
 def shape_list(x):
     # TODO: can this be used with mtf? tensor shapes are different
     """Deal with dynamic shape in tensorflow cleanly."""
@@ -95,6 +98,7 @@ def visible_pos(mesh, nd, ns):
 
 
 def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
+    # n_state is the same as config['n_embd'], which is also the same as sh_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state % params["n_head"] == 0
     if past is not None:
@@ -144,9 +148,10 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-        c = conv1d(x, 'c_attn', n_state*3, params=params)
+        dim_qkv = mtf.Dimension("qkv", n_state*3)
+        c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
-        conv_output_channels = c.shape[2]
+        conv_output_channels = c.shape[2] # should be equal to dim_qkv
         q, k, v = map(split_heads, mtf.split(c, conv_output_channels, 3))
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working. 
@@ -179,7 +184,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             )
 
         a = merge_heads(a)
-        a = conv1d(a, 'c_proj', n_state, params=params)
+        a = conv1d(a, 'c_proj', sh_embd, params=params)
         a = dropout(a, params["res_dropout"], train)
 
         return a, present
@@ -188,6 +193,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 def mlp(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
         # TODO: nx will probably be the only thing that needs changing here
+        # TODO: also n_state needs to be a Dimension. probably best if we standardize and make whatever calls this provide a Dimension in the first place.
         nx = x.shape[-1].value
         h = gelu(conv1d(x, 'c_fc', n_state, params=params))
         h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
@@ -320,4 +326,5 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         logits = mtf.einsum([h_flat, wte], output_shape=[batch_size*sequence_size, vocab_dim])
         logits = mtf.reshape(logits, [batch_size, sequence_size, vocab_dim])
         results['logits'] = logits
+        # logits :: [batch, seq, vocab]
         return results
