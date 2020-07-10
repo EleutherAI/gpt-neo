@@ -9,7 +9,6 @@ from metric_fns import *
 
 
 def gpt2_model_mesh(features, labels, mode, params):
-    # TODO: convert to mtf code
     from models.gpt2 import gpt2
 
     # define mtf graph / mesh
