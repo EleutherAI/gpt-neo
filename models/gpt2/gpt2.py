@@ -281,8 +281,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         vocab_dim = mtf.Dimension("vocab", vocab_size)
         embd_dim = mtf.Dimension("embd", features_len)
 
-
-        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, embd_dim])) # convert input tensor to mtf tensor
+        # convert input tensor to mtf tensor
+        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, embd_dim]))
 
         if params["precision"] == "bfloat16":
             wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]), # Position encoding
@@ -337,10 +337,6 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
 
         # h_flat :: [batch*seq, embd]
         # wte :: [vocab, embd]
-        # proper einsum op:
-        #       selector = mtf.einsum([selector, same_minor_batch], output_shape=[major_batch,
-        #                         old_minor_batch, old_beam_dim, minor_batch, beam_dim],
-        #           reduced_dims=[])
         logits = mtf.einsum([h_flat, wte], output_shape=[batch_dim*sequence_dim, vocab_dim])
         logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
         results['logits'] = logits
