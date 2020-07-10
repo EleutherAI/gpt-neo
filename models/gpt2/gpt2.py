@@ -120,7 +120,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
-    #inp_len = sh_seq + (tf.shape(past)[3] if past is not None else 0)
+    # inp_len = sh_seq + (tf.shape(past)[3] if past is not None else 0)
 
     def split_heads(x):
         # TODO: convert to mtf code
