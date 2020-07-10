@@ -8,6 +8,23 @@ import mesh_tensorflow as mtf
 #      OR optimizer = mtf.optimize.AdafactorOptimizer()
 #         Not sure abt warmup?
 
+def get_update_ops(loss, params, graph):
+    lr = params["lr"]
+    var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
+    if "warmup_steps" in params.keys():
+        #TODO: warmup won't work in tfm
+        raise Exception('Warmup not yet implemented')
+        lr = cosine_decay_with_warmup(tf.train.get_global_step(), lr,
+                                        params["max_steps"], warmup_steps=params["warmup_steps"])
+    optimizer = mtf.optimize.AdamWeightDecayOptimizer(
+        learning_rate=lr,
+        weight_decay_rate=lr * params["weight_decay"],
+        beta_1=params["beta1"],
+        beta_2=params["beta2"],
+        epsilon=params["epsilon"])
+    return optimizer.apply_grads(var_grads, graph.trainable_variables)
+    #TODO: add adafactor optimizer
+
 def create_train_op(loss, params):
     lr = params["lr"]
     if "warmup_steps" in params.keys():
@@ -30,7 +47,6 @@ def create_train_op(loss, params):
                 beta1=params["beta1"],
                 beta2=params["beta2"],
                 epsilon=params["epsilon"])
-
     elif params["opt_name"] == "adafactor":
         if params["decay_type"] == "adam":
             decay_rate = adafactor_decay_rate_adam(params["beta2"])

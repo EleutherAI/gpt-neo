@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 import mesh_tensorflow as mtf
 
-from optimizers import create_train_op
+from optimizers import create_train_op, get_update_ops
 from metric_fns import *
 
 
@@ -59,54 +59,60 @@ def gpt2_model_mesh(features, labels, mode, params):
         # TODO: change to mtf.layers.softmax_cross_entropy_with_logits
         vdim = 'something' #TODO: guess we need to define a vocab_dim somewhere
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=output["logits"], targets=labels, vocab_dim=vdim)
-        # loss_batch = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=output["logits"])
         loss = mtf.reduce_mean(loss_batch)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
-        # TODO: rip apart create_train_op to separate functions
-        #       The lowering op needs to happen after the update_ops
-        #       have been created and then the ops & exported tensors passed into the estimator
-        train_op = create_train_op(loss, params)
+        update_ops = get_update_ops(loss, params, graph)
 
-        if params["use_tpu"]:
-            return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
-        else:
-            return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+    lowering = mtf.Lowering(graph, {mesh: mesh_impl})
+    if mode != tf.estimator.ModeKeys.PREDICT:
+        tf_loss = lowering.export_to_tf_tensor(loss)
 
+    with mtf.utils.outside_all_rewrites():
 
-    if mode == tf.estimator.ModeKeys.EVAL:
-        from metric_fns import perplexity_metric
-
-        if params["use_tpu"]:
-            # Metric inputs are transferred to CPU and must preserve batch dimension
-            return tf.contrib.tpu.TPUEstimatorSpec(mode=mode,
-                loss=loss, eval_metrics=(perplexity_metric, {"loss": loss_batch}))
-        else:
-            return tf.estimator.EstimatorSpec(mode=mode,
-                loss=loss, eval_metric_ops=perplexity_metric(loss_batch))
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            tf_update_ops = [lowering.lowered_operation(op) for op in update_ops] # lower mtf update ops to tf update ops
+            train_op = tf.group(tf_update_ops) # group update ops into train op
+            return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=tf_loss, train_op=train_op)
 
 
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        from models.gpt2 import sample
 
-        if not "top_k" in params.keys():
-            params["top_k"] = 0
+        if mode == tf.estimator.ModeKeys.EVAL:
+            #TODO: implement EVAL
 
-        output = sample.sample_sequence(
-            params=params, length=params["n_ctx"],
-            context=features,
-            batch_size=params["batch_size"],
-            temperature=1.0, top_k=params["top_k"]
-        )
+            from metric_fns import perplexity_metric
 
-        predictions = {
-            "tokens": output
-        }
+            if params["use_tpu"]:
+                # Metric inputs are transferred to CPU and must preserve batch dimension
+                return tf.contrib.tpu.TPUEstimatorSpec(mode=mode,
+                    loss=loss, eval_metrics=(perplexity_metric, {"loss": loss_batch}))
+            else:
+                return tf.estimator.EstimatorSpec(mode=mode,
+                    loss=loss, eval_metric_ops=perplexity_metric(loss_batch))
 
-        if params["use_tpu"]:
-            return tf.contrib.tpu.TPUEstimatorSpec(mode, predictions=predictions)
-        else:
-            return tf.estimator.EstimatorSpec(mode, predictions=predictions)
+
+        if mode == tf.estimator.ModeKeys.PREDICT:
+            #TODO: implement predict / sample
+            from models.gpt2 import sample
+
+            if not "top_k" in params.keys():
+                params["top_k"] = 0
+
+            output = sample.sample_sequence(
+                params=params, length=params["n_ctx"],
+                context=features,
+                batch_size=params["batch_size"],
+                temperature=1.0, top_k=params["top_k"]
+            )
+
+            predictions = {
+                "tokens": output
+            }
+
+            if params["use_tpu"]:
+                return tf.contrib.tpu.TPUEstimatorSpec(mode, predictions=predictions)
+            else:
+                return tf.estimator.EstimatorSpec(mode, predictions=predictions)
 
 
 def gpt2_model(features, labels, mode, params):
@@ -153,6 +159,7 @@ def gpt2_model(features, labels, mode, params):
 
 
     if mode == tf.estimator.ModeKeys.PREDICT:
+
         from models.gpt2 import sample
 
         if not "top_k" in params.keys():
