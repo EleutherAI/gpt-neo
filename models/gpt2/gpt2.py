@@ -11,13 +11,14 @@ import os
 # we probably want to turn things into Dimensions at the beginning of the code, and pass those around for the rest of the code
 
 def shape_list(x):
-    # TODO: can this be used with mtf? tensor shapes are different
+    # all shapes in mtf are static
     """Deal with dynamic shape in tensorflow cleanly."""
-    static = x.shape.as_list()
-    dynamic = tf.shape(x)
-    return [dynamic[i] if s is None else s for i, s in enumerate(static)]
+    return x.shape
 
-def softmax(x, axis=-1):
+sentinel = object()
+def softmax(x, axis=sentinel):
+    if axis is sentinel:
+        axis = x.shape[-1]
     # x = x - tf.reduce_max(x, axis=axis, keepdims=True)
     # ex = tf.exp(x)
     # return ex / tf.reduce_sum(ex, axis=axis, keepdims=True)
@@ -27,20 +28,29 @@ def gelu(x):
     # return 0.5*x*(1+tf.tanh(np.sqrt(2/np.pi)*(x+0.044715*tf.pow(x, 3))))
     return mtf.gelu(x)
 
-def norm(x, scope, *, axis=-1, epsilon=1e-5, params=None):
+def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
-    # TODO: convert to mtf code
+    if axis is sentinel:
+        axis = x.shape[-1]
+
     with tf.variable_scope(scope):
-        n_state = x.shape[-1].value
-        if params["precision"] == "bfloat16":
-            g = tf.get_variable('g', [n_state], initializer=tf.constant_initializer(1, dtype=tf.bfloat16), dtype=tf.bfloat16)
-            b = tf.get_variable('b', [n_state], initializer=tf.constant_initializer(0, dtype=tf.bfloat16), dtype=tf.bfloat16)
-        else:
-            g = tf.get_variable('g', [n_state], initializer=tf.constant_initializer(1))
-            b = tf.get_variable('b', [n_state], initializer=tf.constant_initializer(0))
-        u = tf.reduce_mean(x, axis=axis, keepdims=True)
-        s = tf.reduce_mean(tf.square(x-u), axis=axis, keepdims=True)
-        x = (x - u) * tf.rsqrt(s + epsilon)
+        n_state = x.shape[-1]
+
+        # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
+        dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+
+        g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
+        b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
+
+        u = mtf.reduce_mean(x, reduced_dim=axis)
+        s = mtf.reduce_mean(mtf.square(x-u), reduced_dim=axis)
+
+        singleton = mtf.Dimension('singleton', 1)
+        # keep_dim is not an option for mtf so we have to add it back by hand
+        u = mtf.reshape(u, x.shape[:-1] + [singleton])
+        s = mtf.reshape(s, x.shape[:-1] + [singleton])
+
+        x = (x - u) * mtf.rsqrt(s + epsilon)
         x = x*g + b
         return x
 
@@ -129,7 +139,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
     def merge_heads(x):
         # TODO: convert to mtf code
-        # Reverse of split_heads
+        # Reverse of split_heads : result shape [batch, sequence, features]
         return merge_states(tf.transpose(x, [0, 2, 1, 3]))
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
@@ -279,15 +289,15 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, features_len])) # convert input tensor to mtf tensor
 
         if params["precision"] == "bfloat16":
-            wpe = mtf.get_variable('wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
+            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
                              initializer=tf.random_normal_initializer(stddev=0.01, dtype=tf.bfloat16), dtype=tf.bfloat16)
-            wte = mtf.get_variable('wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
+            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
                              initializer=tf.random_normal_initializer(stddev=0.02, dtype=tf.bfloat16), dtype=tf.bfloat16)
 
         else:
-            wpe = mtf.get_variable('wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
+            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([params["n_ctx"], params["n_embd"]]), # Position encoding
                                 initializer=tf.random_normal_initializer(stddev=0.01))
-            wte = mtf.get_variable('wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
+            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([params["n_vocab"], params["n_embd"]]), # Text encoding
                                 initializer=tf.random_normal_initializer(stddev=0.02))
 
         past_length = 0 if past is None else mtf.Shape(past)[-2]
