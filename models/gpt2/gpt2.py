@@ -11,13 +11,14 @@ import os
 # we probably want to turn things into Dimensions at the beginning of the code, and pass those around for the rest of the code
 
 def shape_list(x):
-    # TODO: can this be used with mtf? tensor shapes are different
+    # all shapes in mtf are static
     """Deal with dynamic shape in tensorflow cleanly."""
-    static = x.shape.as_list()
-    dynamic = tf.shape(x)
-    return [dynamic[i] if s is None else s for i, s in enumerate(static)]
+    return x.shape
 
-def softmax(x, axis=-1):
+sentinel = object()
+def softmax(x, axis=sentinel):
+    if axis is sentinel:
+        axis = x.shape[-1]
     # x = x - tf.reduce_max(x, axis=axis, keepdims=True)
     # ex = tf.exp(x)
     # return ex / tf.reduce_sum(ex, axis=axis, keepdims=True)
@@ -129,7 +130,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
     def merge_heads(x):
         # TODO: convert to mtf code
-        # Reverse of split_heads
+        # Reverse of split_heads : result shape [batch, sequence, features]
         return merge_states(tf.transpose(x, [0, 2, 1, 3]))
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
