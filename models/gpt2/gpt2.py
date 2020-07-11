@@ -258,7 +258,6 @@ def expand_tile(value, newdim):
     print(value)
     print('############')
 
-    value = mtf.convert_to_tensor(value, name='value')
     return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0),
                          [newdim] + value.shape)  # TODO: not sure if tile works in mtf
 
