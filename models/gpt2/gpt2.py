@@ -269,7 +269,7 @@ def expand_tile(value, newdim):
     print(value)
     print('############')
 
-    return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0),
+    return mtf.broadcast(mtf_expand_dims(value, newdim, 0),
                          [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
 
 
