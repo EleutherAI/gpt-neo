@@ -259,7 +259,7 @@ def expand_tile(value, newdim):
     print('############')
 
     return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0),
-                         [newdim] + value.shape)  # TODO: not sure if tile works in mtf
+                         [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
 
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
