@@ -56,10 +56,6 @@ tf.flags.DEFINE_string(
     help='The directory where the model will be stored.')
 tf.flags.DEFINE_string(
     'data_path',
-    default='',
-    help='The directory where the data is stored.')
-tf.flags.DEFINE_string(
-    'data_path',
     default='gs://datasets_storage_1/datasets/bundestag',
     help='The directory where the data is stored.')
 tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords", "", 10, "random_sample", 1.0')
@@ -118,22 +114,21 @@ class ToyModelInput(object):
     return dataset
 
 
-def generic_text(params, eval=False):
+def generic_text(eval=False):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
     i = 0 if not eval else 1
     dsets = [FLAGS.dataset.split(",")]
-    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])),
-                             params, stitch=dataset[2], datatype=dataset[3], batch=False)
+    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2], datatype=dataset[3], batch=False)
                 for dataset in dsets]
     weights = [dataset[4] for dataset in dsets]
 
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["batch_size"], drop_remainder=True).prefetch(FLAGS.iterations * 2)
+    dataset = dataset.batch(FLAGS.batch_size, drop_remainder=True).prefetch(FLAGS.iterations * 2)
 
     return dataset
 
 
-def text_dataset(files, params, stitch, datatype, batch=True):
+def text_dataset(files, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
     dataset = dataset.apply(
         tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
@@ -205,7 +200,7 @@ def text_dataset(files, params, stitch, datatype, batch=True):
         dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if batch:
-        dataset = dataset.batch(params["batch_size"], drop_remainder=True).prefetch(FLAGS.iterations * 2)
+        dataset = dataset.batch(FLAGS.batch_size, drop_remainder=True).prefetch(FLAGS.iterations * 2)
 
     dataset = dataset.repeat()
 
@@ -381,16 +376,16 @@ def run_toy_model_tpu():
   current_step = estimator_lib._load_global_step_from_checkpoint_dir(FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
   logging.info('Current step %d', current_step)
   if FLAGS.steps_per_checkpoint == 0:
-    classifier.train(input_fn=ToyModelInput(), max_steps=FLAGS.train_steps)
+    classifier.train(input_fn=generic_text(), max_steps=FLAGS.train_steps)
     return
   while current_step < FLAGS.train_steps:
     next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
                           FLAGS.train_steps)
-    classifier.train(input_fn=ToyModelInput(), max_steps=next_checkpoint)
+    classifier.train(input_fn=generic_text(), max_steps=next_checkpoint)
     current_step = next_checkpoint
     logging.info('Starting to evaluate.')
     eval_results = classifier.evaluate(
-        input_fn=ToyModelInput(),
+        input_fn=generic_text(),
         steps=156)  # since we have 10000 examples and batch_size = 64 per host
     logging.info('Eval results: %s', eval_results)
 
