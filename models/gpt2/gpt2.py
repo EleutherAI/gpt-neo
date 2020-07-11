@@ -230,7 +230,9 @@ def block(x, scope, *, past, params, train=False, block_offset=0):
         a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,
                           block_offset=block_offset)
         x = x + a
-        m = mlp(norm(x, 'ln_2', params=params), 'mlp', nx * 4, params=params, train=train)
+
+        dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
+        m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
         x = x + m
         return x, present
 
