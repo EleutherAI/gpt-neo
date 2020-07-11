@@ -82,11 +82,12 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
                           filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
     with tf.variable_scope(scope):
-        singleton = mtf.Dimension('singleton', 1)
+        singletona = mtf.Dimension('singletona', 1)
+        singletonb = mtf.Dimension('singletonb', 1)
 
         b = mtf.get_variable(x.mesh, 'b', [nf], initializer=tf.constant_initializer(0, dtype=tf.bfloat16), dtype=dt)
         # NWC
-        b = mtf.reshape(b, [singleton, singleton, nf])
+        b = mtf.reshape(b, [singletona, singletonb, nf])
 
         c += b
         return c
