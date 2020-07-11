@@ -34,7 +34,7 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 FLAGS = flags.FLAGS
 
 tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
-tf.flags.DEFINE_integer('io_size', 16, 'Number of channels per feature.')
+tf.flags.DEFINE_integer('io_size', 128, 'Number of channels per feature.')
 tf.flags.DEFINE_integer('hidden_size', 16, 'Size of each hidden layer.')
 tf.flags.DEFINE_integer('num_hidden_layers', 1, 'Number of layers.')
 tf.flags.DEFINE_string('master_dtype', 'bfloat16', 'dtype for master vars.')
@@ -44,7 +44,7 @@ tf.flags.DEFINE_string('optimizer', 'SGD', 'optimizer (SGD or Adafactor).')
 tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
 tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
 tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
-tf.flags.DEFINE_integer('iterations', 100,
+tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('step_with_nan', -1,
                         'If >= 0, a NaN tensor is added in forward pass.')
@@ -58,11 +58,9 @@ tf.flags.DEFINE_string(
     'data_path',
     default='gs://datasets_storage_1/datasets/bundestag',
     help='The directory where the data is stored.')
-tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords", "", 10, "random_sample", 1.0')
-tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
+tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random_sample",1.0', help="dataset details")
 
 # need flags for: batch_size, iterations, n_ctx, datasets, data_path
-tf.flags.DEFINE_integer('iterations', 500, ' ')
 tf.flags.DEFINE_integer('n_ctx', 128, ' ')
 
 
@@ -113,11 +111,11 @@ class ToyModelInput(object):
 
     return dataset
 
-
 def generic_text(eval=False):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
     i = 0 if not eval else 1
-    dsets = [FLAGS.dataset.split(",")]
+    dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
+    print(dsets)
     datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2], datatype=dataset[3], batch=False)
                 for dataset in dsets]
     weights = [dataset[4] for dataset in dsets]
@@ -205,6 +203,15 @@ def text_dataset(files, stitch, datatype, batch=True):
     dataset = dataset.repeat()
 
     return dataset
+
+class TextInput(object):
+
+  def __init__(self):
+    self.dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
+
+  def __call__(self, params):
+    dset = generic_text()
+    return dset
 
 def toy_model(features, mesh):
   """A toy model implemented by mesh tensorlfow."""
@@ -376,16 +383,16 @@ def run_toy_model_tpu():
   current_step = estimator_lib._load_global_step_from_checkpoint_dir(FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
   logging.info('Current step %d', current_step)
   if FLAGS.steps_per_checkpoint == 0:
-    classifier.train(input_fn=generic_text(), max_steps=FLAGS.train_steps)
+    classifier.train(input_fn=TextInput(), max_steps=FLAGS.train_steps)
     return
   while current_step < FLAGS.train_steps:
     next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
                           FLAGS.train_steps)
-    classifier.train(input_fn=generic_text(), max_steps=next_checkpoint)
+    classifier.train(input_fn=TextInput(), max_steps=next_checkpoint)
     current_step = next_checkpoint
     logging.info('Starting to evaluate.')
     eval_results = classifier.evaluate(
-        input_fn=generic_text(),
+        input_fn=TextInput(),
         steps=156)  # since we have 10000 examples and batch_size = 64 per host
     logging.info('Eval results: %s', eval_results)
 
