@@ -5,7 +5,8 @@ import tensorflow as tf
 import mesh_tensorflow as mtf
 import os
 
-#TODO: file needs porting to mtf
+
+# TODO: file needs porting to mtf
 
 # TODO: standardize which parameters are int and which are Dimension, and add type annotations. (nice to have: https://github.com/agronholm/typeguard to ensure types are correct)
 # we probably want to turn things into Dimensions at the beginning of the code, and pass those around for the rest of the code
@@ -15,7 +16,10 @@ def shape_list(x):
     """Deal with dynamic shape in tensorflow cleanly."""
     return x.shape
 
+
 sentinel = object()
+
+
 def softmax(x, axis=sentinel):
     if axis is sentinel:
         axis = x.shape[-1]
@@ -24,9 +28,11 @@ def softmax(x, axis=sentinel):
     # return ex / tf.reduce_sum(ex, axis=axis, keepdims=True)
     return mtf.softmax(x, axis)
 
+
 def gelu(x):
     # return 0.5*x*(1+tf.tanh(np.sqrt(2/np.pi)*(x+0.044715*tf.pow(x, 3))))
     return mtf.gelu(x)
+
 
 def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
@@ -43,7 +49,7 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
 
         u = mtf.reduce_mean(x, reduced_dim=axis)
-        s = mtf.reduce_mean(mtf.square(x-u), reduced_dim=axis)
+        s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis)
 
         singleton = mtf.Dimension('singleton', 1)
         # keep_dim is not an option for mtf so we have to add it back by hand
@@ -51,7 +57,7 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         s = mtf.reshape(s, x.shape[:-1] + [singleton])
 
         x = (x - u) * mtf.rsqrt(s + epsilon)
-        x = x*g + b
+        x = x * g + b
         return x
 
 
@@ -59,9 +65,10 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
 def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
 
-    if params["scale_by_depth"] and scale: # Scale by sqrt(num_layers), only happens at the final projection before a res block output
+    if params[
+        "scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
-    if params["scale_by_in"]: # Scale by sqrt(num_input_features)
+    if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].value))
 
     # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
@@ -70,7 +77,8 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # TODO: verify that this is actually right
 
     # not in the variable_scope because mtf already has a variable_scope in it
-    c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1, filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
+    c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
+                          filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
     with tf.variable_scope(scope):
         singleton = mtf.Dimension('singleton', 1)
 
@@ -89,7 +97,7 @@ def visible_pos(mesh, nd, ns):
 
     UPDATE: modified for mtf
     """
-    i = mtf.range(mesh, nd, tf.int32)[:,None]
+    i = mtf.range(mesh, nd, tf.int32)[:, None]
     j = mtf.range(mesh, ns, tf.int32)
     m = i >= j - ns + nd
     return m
@@ -105,7 +113,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     # TODO: implement proper past cache. in the meantime, don't pass a past if implementing local attention!!!
     # update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts apparantly (?? - ask Daj). 
     # we can remove this assert once we're sure we didnt break anything
-    #assert not (params["local"] and past is not None)
+    # assert not (params["local"] and past is not None)
     assert past is None
 
     # x :: [batch, seq, n_embd]
@@ -120,7 +128,6 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
-
 
     def split_heads(x):
         # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
@@ -140,7 +147,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
     def biasmask_attn_weights(mesh, dtype):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
-        
+
         # n_src and n_dest are both the same, i.e equal to sequence length
         ns = dim_seq
         nd = dim_seq
@@ -154,13 +161,13 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-        dim_qkv = mtf.Dimension("qkv", n_state*3)
+        dim_qkv = mtf.Dimension("qkv", n_state * 3)
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
-        conv_output_channels = c.shape[2] # should be equal to dim_qkv
+        conv_output_channels = c.shape[2]  # should be equal to dim_qkv
         q, k, v = map(split_heads, mtf.split(c, conv_output_channels, 3))
 
-        # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working. 
+        # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
         present = mtf.stack([k, v], "kv", axis=1)
 
         if past is not None:
@@ -169,7 +176,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             k = tf.concat([pk, k], axis=-2)
             v = tf.concat([pv, v], axis=-2)
 
-        # TODO: control whether layer is local on a layer-by-layer basis, not as a global. 
+        # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
         if params["local"]:
             # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
             a = mtf.transformer.attention.local_attention_1d(
@@ -177,7 +184,8 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
                 length_dim=dim_seq,
                 key_dim=dim_embd,
                 value_dim=dim_embd,
-                length_dim_num_splits=1, # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
+                length_dim_num_splits=1,
+                # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
             )
         else:
             # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
@@ -210,21 +218,26 @@ def mlp(x, scope, n_state, *, params, train=False):
 def block(x, scope, *, past, params, train=False, block_offset=0):
     with tf.variable_scope(scope):
         nx = x.shape[-1].value
-        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params, block_offset=block_offset)
+        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,
+                          block_offset=block_offset)
         x = x + a
-        m = mlp(norm(x, 'ln_2', params=params), 'mlp', nx*4, params=params, train=train)
+        m = mlp(norm(x, 'ln_2', params=params), 'mlp', nx * 4, params=params, train=train)
         x = x + m
         return x, present
+
 
 def past_shape(*, params, batch_size=None, sequence=None):
     # TODO: mtf.Shape() takes dims - fix this
     # return [batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]]
-    return mtf.Shape([batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]])
+    return mtf.Shape(
+        [batch_size, params["n_layer"], 2, params["n_head"], sequence, params["n_embd"] // params["n_head"]])
+
 
 def mtf_squeeze(x, dim_name, name=None):
     """tf squeeze for mtf tensors"""
     # TODO: assert the dimension appears in x with size 1?
     return mtf.reduce_sum(x, reduced_dim=mtf.Dimension(dim_name, 1), name=name)
+
 
 def mtf_expand_dims(x, dim_name, axis, name=None):
     """tf expand_dims for mtf tensors"""
@@ -240,8 +253,14 @@ def mtf_expand_dims(x, dim_name, axis, name=None):
 
 def expand_tile(value, newdim):
     """Add a new axis of given size."""
-    value = tf.convert_to_tensor(value, name='value')
-    return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0), [newdim] + value.shape) #TODO: not sure if tile works in mtf
+    print('############')
+    print('HERE: ')
+    print(value)
+    print('############')
+
+    value = mtf.convert_to_tensor(value, name='value')
+    return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0),
+                         [newdim] + value.shape)  # TODO: not sure if tile works in mtf
 
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
@@ -254,6 +273,7 @@ def dropout(x, pdrop, train):
         # x = tf.nn.dropout(x, rate=pdrop)
         x = mtf.dropout(x, rate=pdrop)
     return x
+
 
 def _assert_float_dtype(dtype):
     # no usages
@@ -275,6 +295,14 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         sequence_size = params["n_ctx"]
         features_len = params["n_embd"]
         vocab_size = params["n_vocab"]
+        if os.environ.get('DEBUG', 0):
+            print('###############')
+            print('PARAM SETTINGS:')
+            print('BATCH SIZE:')
+            print(batch_size)
+            print('SEQUENCE SIZE:')
+            print(sequence_size)
+            print(X.shape)
         assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
@@ -282,19 +310,21 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         embd_dim = mtf.Dimension("embd", features_len)
 
         # convert input tensor to mtf tensor
-        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim, embd_dim]))
+        X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim]))
 
         if params["precision"] == "bfloat16":
-            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]), # Position encoding
-                             initializer=tf.random_normal_initializer(stddev=0.01, dtype=tf.bfloat16), dtype=tf.bfloat16)
-            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]), # Text encoding
-                             initializer=tf.random_normal_initializer(stddev=0.02, dtype=tf.bfloat16), dtype=tf.bfloat16)
+            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
+                                   initializer=tf.random_normal_initializer(stddev=0.01, dtype=tf.bfloat16),
+                                   dtype=tf.bfloat16)
+            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
+                                   initializer=tf.random_normal_initializer(stddev=0.02, dtype=tf.bfloat16),
+                                   dtype=tf.bfloat16)
 
         else:
-            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]), # Position encoding
-                                initializer=tf.random_normal_initializer(stddev=0.01))
-            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]), # Text encoding
-                                initializer=tf.random_normal_initializer(stddev=0.02))
+            wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
+                                   initializer=tf.random_normal_initializer(stddev=0.01))
+            wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
+                                   initializer=tf.random_normal_initializer(stddev=0.02))
 
         # WARNING: since shapes need to be constructed from dims past needs to be a dim here -
         #  but it'll be none during training anyway so we'll fix later
@@ -309,11 +339,13 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # wpe has shape [ctx, embd]
         # positions_for would have shape [batch, seq]
         # h has shape [batch, seq, embd]
-        h = mtf.gather(wte, X, 0) + mtf.gather(wpe, positions_for(X, past_length, batch_dim), 0)
+        zerodim = mtf.Dimension('singleton', 0)
+
+        h = mtf.gather(wte, X, zerodim) + mtf.gather(wpe, positions_for(X, past_length, batch_dim), zerodim)
 
         # Transformer
         presents = []
-        #TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
+        # TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
         # just create a singleton?
         # but it's none if pasts is none anyway... think it should be fine?
         singleton = mtf.Dimension('singleton', 1)
@@ -321,7 +353,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         assert len(pasts) == params["n_layer"]
 
         for layer, past in enumerate(pasts):
-            h, present = block(h, 'h%d' % layer, past=past, params=params, block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
+            h, present = block(h, 'h%d' % layer, past=past, params=params,
+                               block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
             presents.append(present)
 
         dim_name = "results"
@@ -333,11 +366,11 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # optimize by putting lots of sparse layers next to each other to reduce reshapes,
         # and only reshape between sparse and regular layers instead of resizing every time for drop in compatibility
         # (I don't think we can easily do this with the mtf code.)
-        h_flat = mtf.reshape(h, mtf.Shape([batch_dim*sequence_dim, embd_dim]))
+        h_flat = mtf.reshape(h, mtf.Shape([batch_dim * sequence_dim, embd_dim]))
 
         # h_flat :: [batch*seq, embd]
         # wte :: [vocab, embd]
-        logits = mtf.einsum([h_flat, wte], output_shape=[batch_dim*sequence_dim, vocab_dim])
+        logits = mtf.einsum([h_flat, wte], output_shape=[batch_dim * sequence_dim, vocab_dim])
         logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
         results['logits'] = logits
         # logits :: [batch, seq, vocab]
