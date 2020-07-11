@@ -3,6 +3,7 @@ import math
 import numpy as np
 import tensorflow as tf
 import mesh_tensorflow as mtf
+import mesh_tensorflow.transformer as mtf_transformer
 import os
 
 
@@ -161,7 +162,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         singletona = mtf.Dimension('singletona', 1)
         singletonb = mtf.Dimension('singletonb', 1)
         vis = mtf.reshape(vis, [singletona, singletonb, nd, ns])
-        return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
+        return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
         dim_qkv = mtf.Dimension("qkv", n_state.size * 3)
@@ -182,7 +183,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
         if params["local"]:
             # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
-            a = mtf.transformer.attention.local_attention_1d(
+            a = mtf_transformer.attention.local_attention_1d(
                 q, k, v,
                 length_dim=dim_seq,
                 key_dim=dim_embd,
@@ -192,7 +193,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             )
         else:
             # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
-            a = mtf.transformer.attention.attention(
+            a = mtf_transformer.attention.attention(
                 q, k, v,
                 memory_length_dim=dim_seq,
                 key_dim=dim_embd,
