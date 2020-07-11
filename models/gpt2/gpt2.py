@@ -186,8 +186,8 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             a = mtf_transformer.attention.local_attention_1d(
                 q, k, v,
                 length_dim=dim_seq,
-                key_dim=dim_embd,
-                value_dim=dim_embd,
+                key_dim=dim_features_per_head,
+                value_dim=dim_features_per_head,
                 length_dim_num_splits=1,
                 attention_kwargs={}  # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                 # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
@@ -197,8 +197,8 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             a = mtf_transformer.attention.attention(
                 q, k, v,
                 memory_length_dim=dim_seq,
-                key_dim=dim_embd,
-                value_dim=dim_embd,
+                key_dim=dim_features_per_head,
+                value_dim=dim_features_per_head,
                 bias=biasmask_attn_weights(q.mesh, q.dtype)
             )
 
