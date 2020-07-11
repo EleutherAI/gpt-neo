@@ -123,7 +123,7 @@ def gpt2_model(features, labels, mode, params):
                 output = gpt2.model(X=features, params=params,
                                     labels=labels,
                                     past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN)
+                                    train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
 
             output["logits"] = tf.cast(output["logits"], tf.float32)
 
@@ -131,7 +131,7 @@ def gpt2_model(features, labels, mode, params):
             output = gpt2.model(X=features, params=params,
                                     labels=labels,
                                     past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN)
+                                    train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
 
         loss_batch = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=output["logits"], labels=labels)
         loss = tf.reduce_mean(loss_batch)
