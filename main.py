@@ -81,7 +81,12 @@ if __name__ == "__main__":
           tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver()
         else:
           tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(args.tpu)
-
+        # TFMESH STUFF:
+        mesh_shape = mtf.convert_to_shape('all:8')
+        config = tf.contrib.tpu.TPUConfig(num_shards=mesh_shape.size,
+                                          iterations_per_loop=params["iterations"],
+                                          num_cores_per_replica=1,
+                                          per_host_input_for_training=tf.compat.v1.estimator.tpu.InputPipelineConfig.BROADCAST)
         run_config = tf.contrib.tpu.RunConfig(
             model_dir=params["model_path"],
             cluster=tpu_cluster_resolver,
@@ -90,7 +95,7 @@ if __name__ == "__main__":
                 # allow_soft_placement=True,
                 # log_device_placement=True
                 ),
-                tpu_config=tf.contrib.tpu.TPUConfig(iterations_per_loop=params["iterations"])
+                tpu_config=config
         )
 
         # Set up network
@@ -147,11 +152,12 @@ if __name__ == "__main__":
         end = time.time()
         logger.info("\nTrain loop took {:.2f}s\n".format(end-start))
 
-        eval_result = network.evaluate(
-           input_fn=partial(generic_text, eval=True),
-           steps=params["eval_steps"])
+        print('Skipping eval')
+        # eval_result = network.evaluate(
+        #    input_fn=partial(generic_text, eval=True),
+        #    steps=params["eval_steps"])
 
-        logger.info("\nEval Results: {}\n".format(str(eval_result)))
+        # logger.info("\nEval Results: {}\n".format(str(eval_result)))
 
         if network.get_variable_value("global_step") > params["max_steps"]:
             logger.info("Done!")
