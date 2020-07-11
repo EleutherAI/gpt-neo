@@ -54,7 +54,13 @@ def gpt2_model_mesh(features, labels, mode, params):
             output = gpt2.model(X=features, params=params, mesh=mesh,
                                     past=None, reuse=tf.AUTO_REUSE,
                                     train=mode==tf.estimator.ModeKeys.TRAIN)
-
+        
+        # TODO: cleanup: this code duplicates code in gpt2.py. We should try to import all the tensors at once eventually. 
+        batch_size = params["train_batch_size"]
+        sequence_size = params["n_ctx"]                       
+        batch_dim = mtf.Dimension("batch", batch_size)
+        sequence_dim = mtf.Dimension("sequence", sequence_size)
+        labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
         # logits :: [batch, seq, vocab]
         vdim = output["logits"].shape[2]
