@@ -69,7 +69,7 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         "scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
-        w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].value))
+        w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size)) # Dimension is a namedtuple of (name, size)
 
     # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
     dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
@@ -217,7 +217,7 @@ def mlp(x, scope, n_state, *, params, train=False):
 
 def block(x, scope, *, past, params, train=False, block_offset=0):
     with tf.variable_scope(scope):
-        nx = x.shape[-1].value
+        nx = x.shape[-1]
         a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,
                           block_offset=block_offset)
         x = x + a
