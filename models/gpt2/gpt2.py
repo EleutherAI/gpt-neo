@@ -53,9 +53,7 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis)
 
         singleton = mtf.Dimension('singleton', 1)
-        # keep_dim is not an option for mtf so we have to add it back by hand
-        u = mtf.reshape(u, x.shape[:-1] + [singleton])
-        s = mtf.reshape(s, x.shape[:-1] + [singleton])
+
         u = mtf.broadcast(u, x.shape)
         s = mtf.broadcast(s, x.shape)
 
@@ -86,12 +84,10 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
                           filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
     with tf.variable_scope(scope):
-        singletona = mtf.Dimension('singletona', 1)
-        singletonb = mtf.Dimension('singletonb', 1)
 
         b = mtf.get_variable(x.mesh, 'b', [nf], initializer=tf.constant_initializer(0, dtype=tf.bfloat16), dtype=dt)
         # NWC
-        b = mtf.reshape(b, [singletona, singletonb, nf])
+
         b = mtf.broadcast(b, c.shape)
 
         c += b
@@ -163,9 +159,8 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         vis = visible_pos(mesh, nd, ns)
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
         # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
-        singletona = mtf.Dimension('singletona', 1)
-        singletonb = mtf.Dimension('singletonb', 1)
-        vis = mtf.reshape(vis, [singletona, singletonb, nd, ns])
+
+        vis = mtf.broadcast(vis, [dim_batch, dim_heads, nd, ns])
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
@@ -269,7 +264,7 @@ def expand_tile(value, newdim):
     print(value)
     print('############')
 
-    return mtf.broadcast(mtf_expand_dims(value, 'dummy_batch', 0),
+    return mtf.broadcast(value,
                          [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
 
 
