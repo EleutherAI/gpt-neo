@@ -375,11 +375,13 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # optimize by putting lots of sparse layers next to each other to reduce reshapes,
         # and only reshape between sparse and regular layers instead of resizing every time for drop in compatibility
         # (I don't think we can easily do this with the mtf code.)
-        h_flat = mtf.reshape(h, mtf.Shape([batch_dim * sequence_dim, embd_dim]))
+
+        dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+        h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
 
         # h_flat :: [batch*seq, embd]
         # wte :: [vocab, embd]
-        logits = mtf.einsum([h_flat, wte], output_shape=[batch_dim * sequence_dim, vocab_dim])
+        logits = mtf.einsum([h_flat, wte], output_shape=[dim_combined_batch_sequence, vocab_dim])
         logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
         results['logits'] = logits
         # logits :: [batch, seq, vocab]
