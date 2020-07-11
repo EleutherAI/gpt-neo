@@ -63,8 +63,6 @@ tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random
 # need flags for: batch_size, iterations, n_ctx, datasets, data_path
 tf.flags.DEFINE_integer('n_ctx', 128, ' ')
 
-
-
 tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
 
 # Cloud TPU Cluster Resolvers
@@ -85,45 +83,6 @@ tf.flags.DEFINE_string(
     default=None,
     help='GCE zone where the Cloud TPU is located in. If not specified, we '
     'will attempt to automatically detect the GCE project from metadata.')
-
-
-class ToyModelInput(object):
-  """Wrapper class that acts as the input_fn to TPUEstimator."""
-
-  def __init__(self):
-    self._num_examples = 10000  # 10k
-    self._images = numpy.random.uniform(
-        0, 1.0, [self._num_examples, FLAGS.io_size]).astype(numpy.float32)
-    self._labels = self._images
-    logging.info('init ToyModelInput()')
-
-  def __call__(self, params):
-    """Input function which provides a single batch for train or eval."""
-    # Retrieves the batch size for the current shard. The # of shards is
-    # computed according to the input pipeline deployment. See
-    # `tf.estimator.tpu.RunConfig` for details.
-    batch_size = params['batch_size']
-    logging.info('call ToyModelInput() with batch size {}'.format(batch_size))
-
-    ds = Dataset.from_tensor_slices((self._images, self._labels)).repeat()
-
-    dataset = ds.batch(batch_size, drop_remainder=True).prefetch(2)
-
-    return dataset
-
-def generic_text(eval=False):
-    # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
-    i = 0 if not eval else 1
-    dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
-    print(dsets)
-    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2], datatype=dataset[3], batch=False)
-                for dataset in dsets]
-    weights = [dataset[4] for dataset in dsets]
-
-    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(FLAGS.batch_size, drop_remainder=True).prefetch(FLAGS.iterations * 2)
-
-    return dataset
 
 
 def text_dataset(files, stitch, datatype, batch=True):
@@ -204,13 +163,25 @@ def text_dataset(files, stitch, datatype, batch=True):
 
     return dataset
 
+def generic_text(eval=False, dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]):
+    # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
+    i = 0 if not eval else 1
+    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2], datatype=dataset[3], batch=False)
+                for dataset in dsets]
+    weights = [dataset[4] for dataset in dsets]
+
+    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
+    dataset = dataset.batch(FLAGS.batch_size, drop_remainder=True).prefetch(FLAGS.iterations * 2)
+
+    return dataset
+
 class TextInput(object):
 
   def __init__(self):
     self.dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
 
   def __call__(self, params):
-    dset = generic_text()
+    dset = generic_text(dsets=self.dsets)
     return dset
 
 def toy_model(features, mesh):
@@ -243,16 +214,6 @@ def toy_model(features, mesh):
         name='layer_%d' % lnum)
   y = h
   g = tf.train.get_global_step()
-  if FLAGS.step_with_nan >= 0:
-    # Trigger NaN in the forward pass, this is used for testing whether
-    # MeshTensorFlow can handle occasional NaN value.
-    y += mtf.import_tf_tensor(
-        mesh,
-        tf.divide(
-            0.0,
-            tf.cond(tf.equal(g, FLAGS.step_with_nan), lambda: 0., lambda: 1.)),
-        mtf.Shape([]))
-
   loss = mtf.reduce_mean(mtf.square(y - x))
   return y, loss
 
