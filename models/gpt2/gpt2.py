@@ -55,6 +55,8 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         # keep_dim is not an option for mtf so we have to add it back by hand
         u = mtf.reshape(u, x.shape[:-1] + [singleton])
         s = mtf.reshape(s, x.shape[:-1] + [singleton])
+        u = mtf.broadcast(u, x.shape)
+        s = mtf.broadcast(s, x.shape)
 
         x = (x - u) * mtf.rsqrt(s + epsilon)
         x = x * g + b
@@ -338,9 +340,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         # wpe has shape [ctx, embd]
         # positions_for would have shape [batch, seq]
         # h has shape [batch, seq, embd]
-        zerodim = mtf.Dimension('singleton', 0)
 
-        h = mtf.gather(wte, X, zerodim) + mtf.gather(wpe, positions_for(X, past_length, batch_dim), zerodim)
+        h = mtf.gather(wte, X, vocab_dim) + mtf.gather(wpe, positions_for(X, past_length, batch_dim), vocab_dim)
 
         # Transformer
         presents = []
