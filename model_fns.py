@@ -53,7 +53,7 @@ def gpt2_model_mesh(features, labels, mode, params):
 
             output = gpt2.model(X=features, params=params, mesh=mesh,
                                     past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
+                                    train=mode==tf.estimator.ModeKeys.TRAIN)
 
 
         # logits :: [batch, seq, vocab]
