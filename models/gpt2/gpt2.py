@@ -108,7 +108,7 @@ def visible_pos(mesh, nd, ns):
 def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
-    assert n_state % params["n_head"] == 0
+    assert n_state.size % params["n_head"] == 0
     if past is not None:
         assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
 
@@ -163,7 +163,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         return mtf.transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-        dim_qkv = mtf.Dimension("qkv", n_state * 3)
+        dim_qkv = mtf.Dimension("qkv", n_state.size * 3)
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
         conv_output_channels = c.shape[2]  # should be equal to dim_qkv
