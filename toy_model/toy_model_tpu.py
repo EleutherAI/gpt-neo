@@ -34,7 +34,7 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 FLAGS = flags.FLAGS
 
 tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
-tf.flags.DEFINE_integer('io_size', 128, 'Number of channels per feature.')
+tf.flags.DEFINE_integer('sequence_size', 128, 'Sequence Len')
 tf.flags.DEFINE_integer('hidden_size', 16, 'Size of each hidden layer.')
 tf.flags.DEFINE_integer('num_hidden_layers', 1, 'Number of layers.')
 tf.flags.DEFINE_string('master_dtype', 'float32', 'dtype for master vars.')
@@ -199,13 +199,13 @@ def toy_model(features, params, mesh):
     print(features.shape)
 
     batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
-    io_dim = mtf.Dimension('io', FLAGS.io_size)
+    sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
 
     master_dtype = tf.as_dtype(FLAGS.master_dtype)
     slice_dtype = tf.as_dtype(FLAGS.slice_dtype)
     activation_dtype = tf.as_dtype(FLAGS.activation_dtype)
 
-    x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, io_dim]))
+    x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
     x = mtf.cast(x, activation_dtype)
     h = x
     for lnum in range(1, FLAGS.num_hidden_layers + 2):
