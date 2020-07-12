@@ -1,19 +1,4 @@
-# coding=utf-8
-# Copyright 2020 The Mesh TensorFlow Authors.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-
-"""A toy model using Mesh TensorFlow."""
+"""GPT-like model in Mesh-Tensorflow"""
 
 from __future__ import absolute_import
 from __future__ import division
@@ -23,7 +8,6 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import os, json, math
 
-from tensorflow.python.data.ops.dataset_ops import Dataset
 from tensorflow.python.platform import flags
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.tpu import tpu_config  # pylint: disable=g-direct-tensorflow-import
@@ -32,22 +16,19 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 import mesh_tensorflow.transformer as mtf_transformer
 
 FLAGS = flags.FLAGS
+tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
 
 tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
 tf.flags.DEFINE_integer('sequence_size', 128, 'Sequence Len')
 tf.flags.DEFINE_integer('hidden_size', 16, 'Size of each hidden layer.')
-tf.flags.DEFINE_integer('num_hidden_layers', 1, 'Number of layers.')
-tf.flags.DEFINE_string('master_dtype', 'float32', 'dtype for master vars.')
-tf.flags.DEFINE_string('slice_dtype', 'float32', 'dtype for slice vars.')
-tf.flags.DEFINE_string('activation_dtype', 'float32', 'dtype for activations.')
-tf.flags.DEFINE_string('optimizer', 'Adafactor', 'optimizer (SGD or Adafactor).')
+tf.flags.DEFINE_integer('n_ctx', 128, 'Dimensionality of the causal mask.')
 tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
 tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
-tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
+tf.flags.DEFINE_string('layout', '', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
-tf.flags.DEFINE_integer('steps_per_checkpoint', 10, 'steps_per_checkpoint')
+tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
 tf.flags.DEFINE_string(
     'model_dir',
     default='gs://datasets_storage_1/models/GPTNeo_prettybig',
@@ -58,17 +39,13 @@ tf.flags.DEFINE_string(
     help='The directory where the data is stored.')
 tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random_sample",1.0', help="dataset details")
 
-# need flags for: batch_size, iterations, n_ctx, datasets, data_path
-tf.flags.DEFINE_integer('n_ctx', 128, ' ')
-
 # Optimizer settings
+tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
 tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optimizer')  # beta1, beta2, epsilon
 tf.flags.DEFINE_float('beta1', 0.9, 'beta1 setting for Adam optimizer')
 tf.flags.DEFINE_float('beta2', 0.98, 'beta2 setting for Adam optimizer')
 tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
 
-tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
-tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
 # Cloud TPU Cluster Resolvers
 tf.flags.DEFINE_string(
     'tpu',
@@ -88,10 +65,10 @@ tf.flags.DEFINE_string(
     help='GCE zone where the Cloud TPU is located in. If not specified, we '
          'will attempt to automatically detect the GCE project from metadata.')
 
+#TODO: standardize input to all run thru config.json (no more flags ? )
 
 # --------------------------------------------------------------------------------
 # INPUT FNS:
-
 
 def text_dataset(files, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
@@ -214,11 +191,6 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
 
-def gelu(x):
-    # return 0.5*x*(1+tf.tanh(np.sqrt(2/np.pi)*(x+0.044715*tf.pow(x, 3))))
-    return mtf.gelu(x)
-
-
 def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
     if axis is sentinel:
@@ -233,10 +205,8 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
         b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
 
-        u = mtf.reduce_mean(x, reduced_dim=axis)
-        s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis)
-
-        singleton = mtf.Dimension('singleton', 1)
+        u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
+        s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
 
         u = mtf.broadcast(u, x.shape)
         s = mtf.broadcast(s, x.shape)
@@ -291,7 +261,7 @@ def visible_pos(mesh, nd, ns):
     return m
 
 
-def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
+def attn(x, scope, n_state, *, past, params, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -311,39 +281,38 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     dim_embd = x_shape[2]
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
-    dim_features_per_head = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
+    dim_features_per_head_key = mtf.Dimension("features_per_head_key", params['n_embd'] // params['n_head'])
+    dim_features_per_head_value = mtf.Dimension("features_per_head_value", params['n_embd'] // params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    def split_heads(x):
+    def split_heads(x, last_dim):
         # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
         # heads is split out of features!
-
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head])
-        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, dim_features_per_head])
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
+        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
         return x
 
     def merge_heads(x):
         # Reverse of split_heads
         # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
-        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head])
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd])
+        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
         return x
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
     def biasmask_attn_weights(mesh, dtype):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
-
         # n_src and n_dest are both the same, i.e equal to sequence length
         ns = dim_seq
         nd = dim_seq
 
         vis = visible_pos(mesh, nd, ns)
+
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
         # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
-
         vis = mtf.broadcast(vis, [dim_batch, dim_heads, nd, ns])
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
@@ -352,10 +321,11 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
         conv_output_channels = c.shape[2]  # should be equal to dim_qkv
-        q, k, v = map(split_heads, mtf.split(c, conv_output_channels, 3))
+        q, k, v = mtf.split(c, conv_output_channels, 3)
+        q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        present = mtf.stack([k, v], "kv", axis=1)
+        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension('features_per_head_key', 'features_per_head_value')), v], "kv", axis=1, name="stack_presents_attn")
 
         if past is not None:
             # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
@@ -369,46 +339,46 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             a = mtf_transformer.attention.local_attention_1d(
                 q, k, v,
                 length_dim=dim_seq,
-                key_dim=dim_features_per_head,
-                value_dim=dim_features_per_head,
+                key_dim=dim_features_per_head_key,
+                value_dim=dim_features_per_head_value,
                 length_dim_num_splits=1,
                 attention_kwargs={}
                 # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                 # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
             )
+
         else:
+            print('qkv shape', q.shape, k.shape, v.shape)
+
             # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
             a = mtf_transformer.attention.attention(
                 q, k, v,
                 memory_length_dim=dim_seq,
-                key_dim=dim_features_per_head,
-                value_dim=dim_features_per_head,
+                key_dim=dim_features_per_head_key,
+                value_dim=dim_features_per_head_value,
                 bias=biasmask_attn_weights(q.mesh, q.dtype)
             )
 
         a = merge_heads(a)
         a = conv1d(a, 'c_proj', dim_embd, params=params)
-        a = mtf.dropout(a, params["res_dropout"])
+        a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
 
         return a, present
 
 
 def mlp(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
-        # TODO: nx will probably be the only thing that needs changing here
-        # TODO: also n_state needs to be a Dimension. probably best if we standardize and make whatever calls this provide a Dimension in the first place.
         nx = x.shape[-1]
-        h = gelu(conv1d(x, 'c_fc', n_state, params=params))
+        h = mtf.gelu(conv1d(x, 'c_fc', n_state, params=params))
         h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
-        h2 = mtf.dropout(h2, params["res_dropout"])
+        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
 
-def block(x, scope, *, past, params, train=False, block_offset=0):
+def block(x, scope, *, past, params, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,
-                          block_offset=block_offset)
+        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,)
         x = x + a
 
         dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
@@ -419,140 +389,86 @@ def block(x, scope, *, past, params, train=False, block_offset=0):
 
 def toy_model(features, labels, params, mesh, past=None):
     """A toy model implemented by mesh tensorlfow."""
-    print('input details:')
-    print(features.shape)
     results = {}
-
-    # define master dtypes
-    master_dtype = tf.as_dtype(FLAGS.master_dtype)
-    slice_dtype = tf.as_dtype(FLAGS.slice_dtype)
-    activation_dtype = tf.as_dtype(FLAGS.activation_dtype)
 
     # define mtf dims
     batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
     sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
+
+    # we need this because gathering when both the args have the same dimension in them it breaks stuff.
+    # this dim is specifically for the weights
+    # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
+    embed_sequence_dim = mtf.Dimension('embed_sequence', FLAGS.sequence_size)
     embd_dim = mtf.Dimension("embd", params["n_embd"])
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
 
     # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
-    x = mtf.cast(x, activation_dtype)  # TODO: is this necessary
 
-    # wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
-    #                        initializer=tf.random_normal_initializer(stddev=0.01))
-    # wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
-    #                        initializer=tf.random_normal_initializer(stddev=0.02))
+    wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
+                           initializer=tf.random_normal_initializer(stddev=0.01))
+    wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
+                           initializer=tf.random_normal_initializer(stddev=0.02))
 
-    # past_length = 0 if past is None else mtf.Shape(past)[-2]
+    past_length = 0 if past is None else mtf.Shape(past)[-2]
 
-    # # if params["embed_dropout"] > 0:
-    # #     TODO: if you get everything else working, add dropout
-    # #     wpe = mtf.dropout(wpe, params["embed_dropout"])
-    # #     wte = mtf.dropout(wte, params["embed_dropout"])
-    # h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), vocab_dim)
-
+    if params["embed_dropout"] > 0:
+        wpe = mtf.dropout(wpe, params["embed_dropout"], name="wpe_dropout")
+        wte = mtf.dropout(wte, params["embed_dropout"], name="wte_dropout")
+    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
     # # Transformer
-    # presents = []
-    # # TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
-    # # just create a singleton?
-    # # but it's none if pasts is none anyway... think it should be fine?
+    presents = []
+
+    # TODO: we will need this code for sampling
     # singleton = mtf.Dimension('singleton', 1)
     # pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
     # assert len(pasts) == params["n_layer"]
-    # print('PAST LENGTHS:')
-    # print(len(pasts))
+    pasts = [None] * params["n_layer"]
 
-    # for layer, past in enumerate(pasts):
-    #     h, present = block(h, 'h%d' % layer, past=past, params=params,
-    #                        block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
-    #     presents.append(present)
+    # attn blocks
+    for layer, past in enumerate(pasts):
+        h, present = block(h, 'h%d' % layer, past=past, params=params)
+        presents.append(present)
 
-    # dim_name = "results"
-    # results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
+    dim_name = "results"
+    results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
-    # h = norm(h, 'ln_f', params=params)
-    # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
-    # h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
+    # normalize & affine transform
+    h = norm(h, 'ln_f', params=params)
 
-    # # h_flat :: [batch*seq, embd]
-    # # wte :: [vocab, embd]
-    # print('H_FLAT / WTE SHAPES:')
-    # print(h_flat.shape)
-    # print(wte.shape)
-    # print('OUTPUT SHAPE:')
-    # print([dim_combined_batch_sequence, vocab_dim])
+    # flatten
+    dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+    h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
 
-    h = x
-    for lnum in range(1, FLAGS.num_hidden_layers + 2):
-        if lnum + 1 == FLAGS.num_hidden_layers + 2:
-            # output layer
-            dim = sequence_dim
-        elif lnum % 2 == 0:
-            dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
-        else:
-            dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
-        h = mtf.layers.dense(
-            h, dim,
-            use_bias=False,
-            master_dtype=master_dtype,
-            slice_dtype=slice_dtype,
-            name='layer_%d' % lnum)
-    y = h
-
-    # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
-    # h = expand_tile(h, embd_dim)
-    # h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
-
-    logits = mtf.einsum([h, y], output_shape=[batch_dim, sequence_dim])
-    to_stack = []
-    for i in range(params["n_vocab"]):
-        to_stack.append(logits)
-    logits = mtf.stack(to_stack, 'stacked_dim', axis=2)
-    print(logits.shape.dims)
-    # logits = mtf.reshape(logits, [batch_dim, sequence_dim])
+    # equivalent to tf.matmul
+    logits = mtf.einsum([h_flat, wte], output_shape=[dim_combined_batch_sequence, vocab_dim])
+    logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
     results['logits'] = logits
 
-    # vdim = results["logits"].shape[2]
-    # labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
+    vdim = results["logits"].shape[2] # get vocab dimension
 
-    # loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
-    # loss = mtf.reduce_mean(loss_batch)
+    # In this case, labels are simply input shifted one token to the right
+    # this op is done in the input_fn
+    labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    # h = x
-    # for lnum in range(1, FLAGS.num_hidden_layers + 2):
-    #     if lnum + 1 == FLAGS.num_hidden_layers + 2:
-    #         # output layer
-    #         dim = sequence_dim
-    #     elif lnum % 2 == 0:
-    #         dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
-    #     else:
-    #         dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
-    #     h = mtf.layers.dense(
-    #         h, dim,
-    #         use_bias=False,
-    #         master_dtype=master_dtype,
-    #         slice_dtype=slice_dtype,
-    #         name='layer_%d' % lnum)
-    # y = h
-    loss = mtf.reduce_mean(mtf.square(y - x))
+    loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
+    loss = mtf.reduce_mean(loss_batch)
     return logits, loss
 
 
-def model_fn(features, labels, mode, params):
+def model(features, labels, mode, params):
     """A model is called by TpuEstimator."""
     global_step = tf.train.get_global_step()
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
     layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
-    print('PARAMS:')
-    print(params)
-    print('Loading other params from file')
+
     # Read params of model
     with open(FLAGS.model_params, "r") as f:
         new_params = json.load(f)
     params.update(new_params)
-    print('PARAMS AFTER LOAD FROM FILE:')
-    print(params)
+    tf.logging.info('params = %s' % params, )
+
     if FLAGS.use_tpu:
         ctx = params['context']
         num_hosts = ctx.num_hosts
@@ -592,6 +508,7 @@ def model_fn(features, labels, mode, params):
         update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
     else:
         # for now, we can only export fully-replicated tensors.
+        # TODO: this is mtf code - figure out what this does
         fully_replicated_logits = mtf.anonymize(logits)
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
@@ -645,8 +562,8 @@ def model_fn(features, labels, mode, params):
                 eval_metrics=eval_metrics)
 
 
-def run_toy_model_tpu():
-    """Run a toy model on TPU."""
+def run_model_tpu():
+    """Run a GPT model on TPU."""
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
         FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
 
@@ -666,7 +583,7 @@ def run_toy_model_tpu():
             per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
     classifier = tpu_estimator.TPUEstimator(
         use_tpu=True,
-        model_fn=model_fn,
+        model_fn=model,
         config=config,
         train_batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.batch_size)
@@ -689,7 +606,7 @@ def run_toy_model_tpu():
 
 
 def main(_):
-    run_toy_model_tpu()
+    run_model_tpu()
 
 
 if __name__ == '__main__':
