@@ -43,7 +43,7 @@ tf.flags.DEFINE_string('activation_dtype', 'float32', 'dtype for activations.')
 tf.flags.DEFINE_string('optimizer', 'Adafactor', 'optimizer (SGD or Adafactor).')
 tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
 tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
-tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
+tf.flags.DEFINE_string('layout', '', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
@@ -330,23 +330,27 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     dim_embd = x_shape[2]
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
-    dim_features_per_head = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
+    dim_features_per_head_key = mtf.Dimension("features_per_head_key", params['n_embd'] // params['n_head'])
+    dim_features_per_head_value = mtf.Dimension("features_per_head_value", params['n_embd'] // params['n_head'])
+    print("features_per_head", params['n_embd'] // params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    def split_heads(x):
+    def split_heads(x, last_dim):
+        print('split heads shape', x.shape)
         # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
         # heads is split out of features!
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head], name="split_heads_reshape")
-        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, dim_features_per_head], name="split_heads_transpose")
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
+        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
         return x
 
     def merge_heads(x):
+        print('merge heads shape', x.shape)
         # Reverse of split_heads
         # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
-        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head], name="merge_heads_transpose")
+        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
         x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
         return x
 
@@ -370,10 +374,11 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
         conv_output_channels = c.shape[2]  # should be equal to dim_qkv
-        q, k, v = map(split_heads, mtf.split(c, conv_output_channels, 3))
+        q, k, v = mtf.split(c, conv_output_channels, 3)
+        q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        present = mtf.stack([k, v], "kv", axis=1, name="stack_presents_attn")
+        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension('features_per_head_key', 'features_per_head_value')), v], "kv", axis=1, name="stack_presents_attn")
 
         if past is not None:
             # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
@@ -387,20 +392,23 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
             a = mtf_transformer.attention.local_attention_1d(
                 q, k, v,
                 length_dim=dim_seq,
-                key_dim=dim_features_per_head,
-                value_dim=dim_features_per_head,
+                key_dim=dim_features_per_head_key,
+                value_dim=dim_features_per_head_value,
                 length_dim_num_splits=1,
                 attention_kwargs={}
                 # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                 # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
             )
+
         else:
+            print('qkv shape', q.shape, k.shape, v.shape)
+
             # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
             a = mtf_transformer.attention.attention(
                 q, k, v,
                 memory_length_dim=dim_seq,
-                key_dim=dim_features_per_head,
-                value_dim=dim_features_per_head,
+                key_dim=dim_features_per_head_key,
+                value_dim=dim_features_per_head_value,
                 bias=biasmask_attn_weights(q.mesh, q.dtype)
             )
 
@@ -454,23 +462,23 @@ def toy_model(features, labels, params, mesh, past=None):
 
     # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
-    x = mtf.cast(x, activation_dtype)  # TODO: is this necessary
+    #x = mtf.cast(x, activation_dtype)  # TODO: is this necessary
 
-    # wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
-    #                        initializer=tf.random_normal_initializer(stddev=0.01))
-    # wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
-    #                        initializer=tf.random_normal_initializer(stddev=0.02))
+    wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
+                           initializer=tf.random_normal_initializer(stddev=0.01))
+    wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
+                           initializer=tf.random_normal_initializer(stddev=0.02))
 
-    # past_length = 0 if past is None else mtf.Shape(past)[-2]
+    past_length = 0 if past is None else mtf.Shape(past)[-2]
 
     # # if params["embed_dropout"] > 0:
     # #     TODO: if you get everything else working, add dropout
     # #     wpe = mtf.dropout(wpe, params["embed_dropout"])
     # #     wte = mtf.dropout(wte, params["embed_dropout"])
-    # h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), vocab_dim)
-
+    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), vocab_dim)
+    print('h shape:', h.shape)
     # # Transformer
-    # presents = []
+    presents = []
     # # TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
     # # just create a singleton?
     # # but it's none if pasts is none anyway... think it should be fine?
@@ -479,11 +487,12 @@ def toy_model(features, labels, params, mesh, past=None):
     # assert len(pasts) == params["n_layer"]
     # print('PAST LENGTHS:')
     # print(len(pasts))
+    pasts = [None] * params["n_layer"]
 
-    # for layer, past in enumerate(pasts):
-    #     h, present = block(h, 'h%d' % layer, past=past, params=params,
-    #                        block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
-    #     presents.append(present)
+    for layer, past in enumerate(pasts):
+        h, present = block(h, 'h%d' % layer, past=past, params=params,
+                           block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
+        presents.append(present)
 
     # dim_name = "results"
     # results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
@@ -500,21 +509,15 @@ def toy_model(features, labels, params, mesh, past=None):
     # print('OUTPUT SHAPE:')
     # print([dim_combined_batch_sequence, vocab_dim])
 
-    h = x
-    for lnum in range(1, FLAGS.num_hidden_layers + 2):
-        if lnum + 1 == FLAGS.num_hidden_layers + 2:
-            # output layer
-            dim = sequence_dim
-        elif lnum % 2 == 0:
-            dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
-        else:
-            dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
-        h = mtf.layers.dense(
-            h, dim,
-            use_bias=False,
-            master_dtype=master_dtype,
-            slice_dtype=slice_dtype,
-            name='layer_%d' % lnum)
+    #h = x
+    #lnum = 0
+    #dim = embd_dim
+    #h = mtf.layers.dense(
+    #    h, dim,
+    #    use_bias=False,
+    #    master_dtype=master_dtype,
+    #    slice_dtype=slice_dtype,
+    #    name='layer_%d' % lnum)
     y = h
 
     # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
@@ -533,7 +536,7 @@ def toy_model(features, labels, params, mesh, past=None):
     # labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
     # loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
-    loss = mtf.reduce_mean(y - x)
+    loss = mtf.reduce_mean(y)
 
     return y, loss
 
