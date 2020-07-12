@@ -457,6 +457,11 @@ def toy_model(features, labels, params, mesh, past=None):
     # define mtf dims
     batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
     sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
+
+    # we need this because gathering when both the args have the same dimension in them breaks stuff. 
+    # this dim is specifically for the weights
+    # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
+    embed_sequence_dim = mtf.Dimension('embed_sequence', FLAGS.sequence_size)
     embd_dim = mtf.Dimension("embd", params["n_embd"])
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
 
@@ -464,7 +469,7 @@ def toy_model(features, labels, params, mesh, past=None):
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
     #x = mtf.cast(x, activation_dtype)  # TODO: is this necessary
 
-    wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
+    wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
                            initializer=tf.random_normal_initializer(stddev=0.01))
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
                            initializer=tf.random_normal_initializer(stddev=0.02))
@@ -475,7 +480,7 @@ def toy_model(features, labels, params, mesh, past=None):
     # #     TODO: if you get everything else working, add dropout
     # #     wpe = mtf.dropout(wpe, params["embed_dropout"])
     # #     wte = mtf.dropout(wte, params["embed_dropout"])
-    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), vocab_dim)
+    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
     print('h shape:', h.shape)
     # # Transformer
     presents = []
