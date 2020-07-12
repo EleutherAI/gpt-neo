@@ -63,6 +63,13 @@ tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random
 # need flags for: batch_size, iterations, n_ctx, datasets, data_path
 tf.flags.DEFINE_integer('n_ctx', 128, ' ')
 
+# Optimizer settings
+tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optimizer')#beta1, beta2, epsilon
+tf.flags.DEFINE_float('beta1', 0.9, 'beta1 setting for Adam optimizer')
+tf.flags.DEFINE_float('beta2', 0.98, 'beta2 setting for Adam optimizer')
+tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
+
+
 tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
 
 # Cloud TPU Cluster Resolvers
@@ -255,11 +262,12 @@ def model_fn(features, labels, mode, params):
   if mode == tf.estimator.ModeKeys.TRAIN:
     var_grads = mtf.gradients([loss],
                               [v.outputs[0] for v in graph.trainable_variables])
-    if FLAGS.optimizer == 'Adafactor':
-      optimizer = mtf.optimize.AdafactorOptimizer()
-    else:
-      assert FLAGS.optimizer == 'SGD'
-      optimizer = mtf.optimize.SgdOptimizer(learning_rate=FLAGS.lr)
+    optimizer = mtf.optimize.AdamWeightDecayOptimizer(
+        learning_rate=FLAGS.lr,
+        weight_decay_rate=FLAGS.lr * FLAGS.weight_decay,
+        beta_1=FLAGS.beta1,
+        beta_2=FLAGS.beta2,
+        epsilon=FLAGS.epsilon)
     update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
   else:
     # for now, we can only export fully-replicated tensors.
