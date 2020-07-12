@@ -198,20 +198,25 @@ def toy_model(features, params, mesh):
     print('input details:')
     print(features.shape)
 
-    batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
-    sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
-
+    # define master dtypes
     master_dtype = tf.as_dtype(FLAGS.master_dtype)
     slice_dtype = tf.as_dtype(FLAGS.slice_dtype)
     activation_dtype = tf.as_dtype(FLAGS.activation_dtype)
 
+    # define mtf dims
+    batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
+    sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
+    embd_dim = mtf.Dimension("embd", params["n_embd"])
+    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+
+    # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
     x = mtf.cast(x, activation_dtype)
     h = x
     for lnum in range(1, FLAGS.num_hidden_layers + 2):
         if lnum + 1 == FLAGS.num_hidden_layers + 2:
             # output layer
-            dim = io_dim
+            dim = sequence_dim
         elif lnum % 2 == 0:
             dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
         else:
@@ -223,7 +228,6 @@ def toy_model(features, params, mesh):
             slice_dtype=slice_dtype,
             name='layer_%d' % lnum)
     y = h
-    g = tf.train.get_global_step()
     loss = mtf.reduce_mean(mtf.square(y - x))
     return y, loss
 
