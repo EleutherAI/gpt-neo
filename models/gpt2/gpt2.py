@@ -289,9 +289,6 @@ def _assert_float_dtype(dtype):
 
 def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, train=False):
     with tf.variable_scope(scope, reuse=reuse):
-        if os.environ.get('DEBUG', 0):
-            print('INPUT SHAPE:')
-            print(X.shape)
         results = {}
         # batch, sequence = shape_list(X)
 
@@ -300,15 +297,6 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         sequence_size = params["n_ctx"]
         features_len = params["n_embd"]
         vocab_size = params["n_vocab"]
-        if os.environ.get('DEBUG', 0):
-            print('###############')
-            print('PARAM SETTINGS:')
-            print('BATCH SIZE:')
-            print(batch_size)
-            print('SEQUENCE SIZE:')
-            print(sequence_size)
-            print(X.shape)
-        assert batch_size > 0
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
         vocab_dim = mtf.Dimension("vocab", vocab_size)
