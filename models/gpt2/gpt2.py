@@ -346,7 +346,6 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
 
         dim_name = "results"
         results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
-
         h = norm(h, 'ln_f', params=params)
 
         # TODO: optimization suggestion from bmk:
