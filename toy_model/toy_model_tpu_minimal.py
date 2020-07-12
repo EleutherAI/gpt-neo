@@ -47,7 +47,7 @@ tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
-tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
+tf.flags.DEFINE_integer('steps_per_checkpoint', 10, 'steps_per_checkpoint')
 tf.flags.DEFINE_string(
     'model_dir',
     default='gs://datasets_storage_1/models/GPTNeo_prettybig',
@@ -499,12 +499,16 @@ def toy_model(features, labels, params, mesh, past=None):
             name='layer_%d' % lnum)
     y = h
 
-    dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
-    h = expand_tile(h, embd_dim)
-    h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
+    # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+    # h = expand_tile(h, embd_dim)
+    # h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
 
-    logits = mtf.einsum([h_flat, y], output_shape=[dim_combined_batch_sequence, vocab_dim])
-    logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
+    logits = mtf.einsum([h, y], output_shape=[batch_dim, sequence_dim])
+    to_stack = []
+    for i in range(params["n_vocab"]):
+        to_stack.append(logits)
+    logits = mtf.stack(to_stack, 'stacked_dim', axis=2)
+    # logits = mtf.reshape(logits, [batch_dim, sequence_dim])
     results['logits'] = logits
 
     vdim = results["logits"].shape[2]
