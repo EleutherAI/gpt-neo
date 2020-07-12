@@ -46,8 +46,6 @@ tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
 tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
-tf.flags.DEFINE_integer('step_with_nan', -1,
-                        'If >= 0, a NaN tensor is added in forward pass.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
 tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
 tf.flags.DEFINE_string(
