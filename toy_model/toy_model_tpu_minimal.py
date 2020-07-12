@@ -47,7 +47,7 @@ tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
-tf.flags.DEFINE_integer('steps_per_checkpoint', 10, 'steps_per_checkpoint')
+tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
 tf.flags.DEFINE_string(
     'model_dir',
     default='gs://datasets_storage_1/models/GPTNeo_prettybig',
@@ -208,10 +208,31 @@ def expand_tile(value, newdim):
     return mtf.broadcast(value,
                          [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
 
-
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
+
+
+def expand_tile_alt(tensors, dim_name='stacked_dim', axis=0):
+    """
+    given a list of mtf.tensors, and a name for the new Dimension stack them along the chosen axis.
+
+    :param tensors: list of mtf.Tensors
+    :param name: str
+    :param axis: int
+    :return:
+    """
+    out = mtf.stack(tensors, dim_name=dim_name, axis=axis, name="expand_tile_stack")
+    return out
+
+
+def positions_for_alt(tokens: mtf.Tensor, past_length: int, batch_size: int, dim_name="stacked_dim"):
+    nsteps = tokens.shape[1]
+    r = past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32)
+    rs = []
+    for i in range(batch_size):
+        rs.append(r)
+    return expand_tile_alt(rs, dim_name=dim_name)
 
 
 def gelu(x):
@@ -233,10 +254,8 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
         b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
 
-        u = mtf.reduce_mean(x, reduced_dim=axis)
-        s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis)
-
-        singleton = mtf.Dimension('singleton', 1)
+        u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
+        s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
 
         u = mtf.broadcast(u, x.shape)
         s = mtf.broadcast(s, x.shape)
@@ -320,16 +339,15 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     def split_heads(x):
         # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
         # heads is split out of features!
-
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head])
-        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, dim_features_per_head])
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head], name="split_heads_reshape")
+        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, dim_features_per_head], name="split_heads_transpose")
         return x
 
     def merge_heads(x):
         # Reverse of split_heads
         # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
-        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head])
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd])
+        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head], name="merge_heads_transpose")
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
         return x
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
@@ -355,7 +373,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
         q, k, v = map(split_heads, mtf.split(c, conv_output_channels, 3))
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        present = mtf.stack([k, v], "kv", axis=1)
+        present = mtf.stack([k, v], "kv", axis=1, name="stack_presents_attn")
 
         if past is not None:
             # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
@@ -388,7 +406,7 @@ def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
 
         a = merge_heads(a)
         a = conv1d(a, 'c_proj', dim_embd, params=params)
-        a = mtf.dropout(a, params["res_dropout"])
+        a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
 
         return a, present
 
@@ -400,7 +418,7 @@ def mlp(x, scope, n_state, *, params, train=False):
         nx = x.shape[-1]
         h = gelu(conv1d(x, 'c_fc', n_state, params=params))
         h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
-        h2 = mtf.dropout(h2, params["res_dropout"])
+        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
 
@@ -517,23 +535,6 @@ def toy_model(features, labels, params, mesh, past=None):
     loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
     loss = mtf.reduce_mean(loss_batch)
 
-    # h = x
-    # for lnum in range(1, FLAGS.num_hidden_layers + 2):
-    #     if lnum + 1 == FLAGS.num_hidden_layers + 2:
-    #         # output layer
-    #         dim = sequence_dim
-    #     elif lnum % 2 == 0:
-    #         dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
-    #     else:
-    #         dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
-    #     h = mtf.layers.dense(
-    #         h, dim,
-    #         use_bias=False,
-    #         master_dtype=master_dtype,
-    #         slice_dtype=slice_dtype,
-    #         name='layer_%d' % lnum)
-    # y = h
-    # loss = mtf.reduce_mean(mtf.square(y - x))
     return logits, loss
 
 
