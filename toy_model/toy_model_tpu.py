@@ -35,10 +35,15 @@ FLAGS = flags.FLAGS
 
 tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
 tf.flags.DEFINE_integer('sequence_size', 128, 'Sequence Len')
+tf.flags.DEFINE_integer('hidden_size', 16, 'Size of each hidden layer.')
+tf.flags.DEFINE_integer('num_hidden_layers', 1, 'Number of layers.')
+tf.flags.DEFINE_string('master_dtype', 'float32', 'dtype for master vars.')
+tf.flags.DEFINE_string('slice_dtype', 'float32', 'dtype for slice vars.')
+tf.flags.DEFINE_string('activation_dtype', 'float32', 'dtype for activations.')
 tf.flags.DEFINE_string('optimizer', 'Adafactor', 'optimizer (SGD or Adafactor).')
 tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
 tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
-tf.flags.DEFINE_string('layout', 'embd_dim:all', 'layout rules')
+tf.flags.DEFINE_string('layout', 'hidden_odd:all', 'layout rules')
 tf.flags.DEFINE_integer('iterations', 500,
                         'Number of iterations per training loop.')
 tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
@@ -197,36 +202,16 @@ class TextInput(object):
 
 sentinel = object()
 
-def expand_tile(tensors, name='stacked_dim', axis=0):
-    """
-    given a list of mtf.tensors, and a name for the new Dimension stack them along the chosen axis.
 
-    :param tensors: list of mtf.Tensors
-    :param name: str
-    :param axis: int
-    :return:
-    """
-    out = mtf.stack(tensors, name, axis=axis)
-    return out
-
-def _expand_tile(value, newdim):
+def expand_tile(value, newdim):
     """Add a new axis of given size."""
-    out = mtf.broadcast(value,
-                         [newdim] + value.shape.dims)
-    return out   # shape.dims gets us a list which we need in order to concat
+    return mtf.broadcast(value,
+                         [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
 
-def _positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
-    nsteps = tokens.shape[1]
-    r = past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32)
-    return _expand_tile(r, batch_dim)
 
-def positions_for(tokens: mtf.Tensor, past_length: int, batch_size: int):
+def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
-    r = past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32)
-    rs = []
-    for n in range(batch_size):
-        rs.append(r)
-    return expand_tile(rs, 'batch')
+    return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
 
 def gelu(x):
@@ -308,8 +293,6 @@ def visible_pos(mesh, nd, ns):
 
 def attn(x, scope, n_state, *, past, params, block_offset=0, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
-    print('ATTN INPUT:')
-    print(x.shape)
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
     if past is not None:
@@ -440,6 +423,11 @@ def toy_model(features, labels, params, mesh, past=None):
     print(features.shape)
     results = {}
 
+    # define master dtypes
+    master_dtype = tf.as_dtype(FLAGS.master_dtype)
+    slice_dtype = tf.as_dtype(FLAGS.slice_dtype)
+    activation_dtype = tf.as_dtype(FLAGS.activation_dtype)
+
     # define mtf dims
     batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
     sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
@@ -448,44 +436,80 @@ def toy_model(features, labels, params, mesh, past=None):
 
     # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
+    x = mtf.cast(x, activation_dtype)  # TODO: is this necessary
 
-    wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
-                           initializer=tf.random_normal_initializer(stddev=0.01))
-    wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
-                           initializer=tf.random_normal_initializer(stddev=0.02))
+    # wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([sequence_dim, embd_dim]),  # Position encoding
+    #                        initializer=tf.random_normal_initializer(stddev=0.01))
+    # wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
+    #                        initializer=tf.random_normal_initializer(stddev=0.02))
 
-    past_length = 0 if past is None else mtf.Shape(past)[-2]
+    # past_length = 0 if past is None else mtf.Shape(past)[-2]
 
-    # if params["embed_dropout"] > 0:
-    #     TODO: if you get everything else working, add dropout
-    #     wpe = mtf.dropout(wpe, params["embed_dropout"])
-    #     wte = mtf.dropout(wte, params["embed_dropout"])
+    # # if params["embed_dropout"] > 0:
+    # #     TODO: if you get everything else working, add dropout
+    # #     wpe = mtf.dropout(wpe, params["embed_dropout"])
+    # #     wte = mtf.dropout(wte, params["embed_dropout"])
+    # h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), vocab_dim)
 
-    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, FLAGS.batch_size), vocab_dim)
+    # # Transformer
+    # presents = []
+    # # TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
+    # # just create a singleton?
+    # # but it's none if pasts is none anyway... think it should be fine?
+    # singleton = mtf.Dimension('singleton', 1)
+    # pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
+    # assert len(pasts) == params["n_layer"]
+    # print('PAST LENGTHS:')
+    # print(len(pasts))
 
-    # Transformer
-    presents = []
-    # TODO: sanity check - pretty sure dim in unstack needs to be a Dimension - since we're passing in dim 1,
-    # just create a singleton?
-    # but it's none if pasts is none anyway... think it should be fine?
-    singleton = mtf.Dimension('singleton', 1)
-    pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
-    assert len(pasts) == params["n_layer"]
+    # for layer, past in enumerate(pasts):
+    #     h, present = block(h, 'h%d' % layer, past=past, params=params,
+    #                        block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
+    #     presents.append(present)
 
-    for layer, past in enumerate(pasts):
-        h, present = block(h, 'h%d' % layer, past=past, params=params,
-                           block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
-        presents.append(present)
+    # dim_name = "results"
+    # results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
-    dim_name = "results"
-    results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
-    h = norm(h, 'ln_f', params=params)
+    # h = norm(h, 'ln_f', params=params)
+    # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+    # h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
 
-    dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
-    h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
+    # # h_flat :: [batch*seq, embd]
+    # # wte :: [vocab, embd]
+    # print('H_FLAT / WTE SHAPES:')
+    # print(h_flat.shape)
+    # print(wte.shape)
+    # print('OUTPUT SHAPE:')
+    # print([dim_combined_batch_sequence, vocab_dim])
 
-    logits = mtf.einsum([h_flat, wte], output_shape=[dim_combined_batch_sequence, vocab_dim])
-    logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
+    h = x
+    for lnum in range(1, FLAGS.num_hidden_layers + 2):
+        if lnum + 1 == FLAGS.num_hidden_layers + 2:
+            # output layer
+            dim = sequence_dim
+        elif lnum % 2 == 0:
+            dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
+        else:
+            dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
+        h = mtf.layers.dense(
+            h, dim,
+            use_bias=False,
+            master_dtype=master_dtype,
+            slice_dtype=slice_dtype,
+            name='layer_%d' % lnum)
+    y = h
+
+    # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+    # h = expand_tile(h, embd_dim)
+    # h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
+
+    logits = mtf.einsum([h, y], output_shape=[batch_dim, sequence_dim])
+    to_stack = []
+    for i in range(params["n_vocab"]):
+        to_stack.append(logits)
+    logits = mtf.stack(to_stack, 'stacked_dim', axis=2)
+    print(logits.shape.dims)
+    # logits = mtf.reshape(logits, [batch_dim, sequence_dim])
     results['logits'] = logits
 
     vdim = results["logits"].shape[2]
@@ -494,6 +518,23 @@ def toy_model(features, labels, params, mesh, past=None):
     loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
     loss = mtf.reduce_mean(loss_batch)
 
+    # h = x
+    # for lnum in range(1, FLAGS.num_hidden_layers + 2):
+    #     if lnum + 1 == FLAGS.num_hidden_layers + 2:
+    #         # output layer
+    #         dim = sequence_dim
+    #     elif lnum % 2 == 0:
+    #         dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
+    #     else:
+    #         dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
+    #     h = mtf.layers.dense(
+    #         h, dim,
+    #         use_bias=False,
+    #         master_dtype=master_dtype,
+    #         slice_dtype=slice_dtype,
+    #         name='layer_%d' % lnum)
+    # y = h
+    # loss = mtf.reduce_mean(mtf.square(y - x))
     return logits, loss
 
 
