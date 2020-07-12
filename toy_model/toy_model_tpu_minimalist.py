@@ -499,8 +499,8 @@ def toy_model(features, labels, params, mesh, past=None):
                            block_offset=(layer * params["layer_offset"]) % params["fixed_attn_block_size"])
         presents.append(present)
 
-    # dim_name = "results"
-    # results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
+    dim_name = "results"
+    results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # h = norm(h, 'ln_f', params=params)
     # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
@@ -523,27 +523,29 @@ def toy_model(features, labels, params, mesh, past=None):
     #    master_dtype=master_dtype,
     #    slice_dtype=slice_dtype,
     #    name='layer_%d' % lnum)
-    y = h
 
-    # dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
-    # h = expand_tile(h, embd_dim)
-    # h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
+    dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+    print('fdggfddbgffgvfdszzgrdzgrd', h)
+    #h = expand_tile(h, embd_dim)
+    h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
 
-    # logits = mtf.einsum([h, y], output_shape=[batch_dim, sequence_dim])
+    #logits = mtf.einsum([h, y], output_shape=[batch_dim, sequence_dim])
     # to_stack = []
     # for i in range(params["n_vocab"]):
     #     to_stack.append(logits)
     # logits = mtf.stack(to_stack, 'stacked_dim', axis=2)
     # # logits = mtf.reshape(logits, [batch_dim, sequence_dim])
     # results['logits'] = logits
+    logits = mtf.einsum([h_flat, wte], output_shape=[dim_combined_batch_sequence, vocab_dim])
+    logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
+    results['logits'] = logits
+    vdim = results["logits"].shape[2]
+    labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    # vdim = results["logits"].shape[2]
-    # labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
+    loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
+    loss = mtf.reduce_mean(loss_batch)
 
-    # loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
-    loss = mtf.reduce_mean(y)
-
-    return y, loss
+    return logits, loss
 
 
 def model_fn(features, labels, mode, params):
