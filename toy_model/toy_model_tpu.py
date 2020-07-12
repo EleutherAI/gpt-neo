@@ -22,7 +22,7 @@ from __future__ import print_function
 import mesh_tensorflow as mtf
 import numpy
 import tensorflow.compat.v1 as tf
-import os
+import os, json
 
 from tensorflow.python.data.ops.dataset_ops import Dataset
 from tensorflow.python.platform import flags
@@ -62,32 +62,31 @@ tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random
 tf.flags.DEFINE_integer('n_ctx', 128, ' ')
 
 # Optimizer settings
-tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optimizer')#beta1, beta2, epsilon
+tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optimizer')  # beta1, beta2, epsilon
 tf.flags.DEFINE_float('beta1', 0.9, 'beta1 setting for Adam optimizer')
 tf.flags.DEFINE_float('beta2', 0.98, 'beta2 setting for Adam optimizer')
 tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
 
-
 tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
-
+tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
 # Cloud TPU Cluster Resolvers
 tf.flags.DEFINE_string(
     'tpu',
     default=None,
     help='The Cloud TPU to use for training. This should be either the name '
-    'used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 url.')
+         'used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 url.')
 
 tf.flags.DEFINE_string(
     'gcp_project',
     default=None,
     help='Project name for the Cloud TPU-enabled project. If not specified, we '
-    'will attempt to automatically detect the GCE project from metadata.')
+         'will attempt to automatically detect the GCE project from metadata.')
 
 tf.flags.DEFINE_string(
     'tpu_zone',
     default=None,
     help='GCE zone where the Cloud TPU is located in. If not specified, we '
-    'will attempt to automatically detect the GCE project from metadata.')
+         'will attempt to automatically detect the GCE project from metadata.')
 
 
 def text_dataset(files, stitch, datatype, batch=True):
@@ -142,7 +141,8 @@ def text_dataset(files, stitch, datatype, batch=True):
                 r1 = tf.range(r, r + FLAGS.n_ctx)
                 r2 = tf.range(r + 1, (r + 1) + FLAGS.n_ctx)
                 r1 = tf.reshape(r1, [FLAGS.n_ctx])  # Somehow, this makes the compiler happy
-                r2 = tf.reshape(r2, [FLAGS.n_ctx])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
+                r2 = tf.reshape(r2, [
+                    FLAGS.n_ctx])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
                 vals1 = tf.gather(x, r1)
                 vals2 = tf.gather(x, r2)
 
@@ -168,10 +168,12 @@ def text_dataset(files, stitch, datatype, batch=True):
 
     return dataset
 
+
 def generic_text(eval=False, dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
     i = 0 if not eval else 1
-    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2], datatype=dataset[3], batch=False)
+    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2],
+                             datatype=dataset[3], batch=False)
                 for dataset in dsets]
     weights = [dataset[4] for dataset in dsets]
 
@@ -180,195 +182,208 @@ def generic_text(eval=False, dsets=[["bundestag_*.tfrecords", "", 10, "random_sa
 
     return dataset
 
+
 class TextInput(object):
 
-  def __init__(self):
-    self.dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
+    def __init__(self):
+        self.dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
 
-  def __call__(self, params):
-    dset = generic_text(dsets=self.dsets)
-    return dset
+    def __call__(self, params):
+        dset = generic_text(dsets=self.dsets)
+        return dset
 
-def toy_model(features, mesh):
-  """A toy model implemented by mesh tensorlfow."""
-  print('input details:')
-  print(features.shape)
-  batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
-  io_dim = mtf.Dimension('io', FLAGS.io_size)
 
-  master_dtype = tf.as_dtype(FLAGS.master_dtype)
-  slice_dtype = tf.as_dtype(FLAGS.slice_dtype)
-  activation_dtype = tf.as_dtype(FLAGS.activation_dtype)
+def toy_model(features, params, mesh):
+    """A toy model implemented by mesh tensorlfow."""
+    print('input details:')
+    print(features.shape)
 
-  x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, io_dim]))
-  x = mtf.cast(x, activation_dtype)
-  h = x
-  for lnum in range(1, FLAGS.num_hidden_layers + 2):
-    if lnum + 1 == FLAGS.num_hidden_layers + 2:
-      # output layer
-      dim = io_dim
-    elif lnum % 2 == 0:
-      dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
-    else:
-      dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
-    h = mtf.layers.dense(
-        h, dim,
-        use_bias=False,
-        master_dtype=master_dtype,
-        slice_dtype=slice_dtype,
-        name='layer_%d' % lnum)
-  y = h
-  g = tf.train.get_global_step()
-  loss = mtf.reduce_mean(mtf.square(y - x))
-  return y, loss
+    batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
+    io_dim = mtf.Dimension('io', FLAGS.io_size)
+
+    master_dtype = tf.as_dtype(FLAGS.master_dtype)
+    slice_dtype = tf.as_dtype(FLAGS.slice_dtype)
+    activation_dtype = tf.as_dtype(FLAGS.activation_dtype)
+
+    x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, io_dim]))
+    x = mtf.cast(x, activation_dtype)
+    h = x
+    for lnum in range(1, FLAGS.num_hidden_layers + 2):
+        if lnum + 1 == FLAGS.num_hidden_layers + 2:
+            # output layer
+            dim = io_dim
+        elif lnum % 2 == 0:
+            dim = mtf.Dimension('hidden_even', FLAGS.hidden_size)
+        else:
+            dim = mtf.Dimension('hidden_odd', FLAGS.hidden_size)
+        h = mtf.layers.dense(
+            h, dim,
+            use_bias=False,
+            master_dtype=master_dtype,
+            slice_dtype=slice_dtype,
+            name='layer_%d' % lnum)
+    y = h
+    g = tf.train.get_global_step()
+    loss = mtf.reduce_mean(mtf.square(y - x))
+    return y, loss
 
 
 def model_fn(features, labels, mode, params):
-  """A model is called by TpuEstimator."""
-  del labels
-  global_step = tf.train.get_global_step()
-  graph = mtf.Graph()
-  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-  layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
-  if FLAGS.use_tpu:
-    ctx = params['context']
-    num_hosts = ctx.num_hosts
-    host_placement_fn = ctx.tpu_host_placement_function
-    device_list = [host_placement_fn(host_id=t) for t in range(num_hosts)]
-    tf.logging.info('device_list = %s' % device_list,)
-    # TODO(ylc): Better estimation of replica cache size?
-    replica_cache_size = 300 * 1000000  # 300M per replica
-    # Worker 0 caches all the TPU binaries.
-    worker0_mem = replica_cache_size * ctx.num_replicas
-    devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
-    var_placer = mtf.utils.BalancedVariablePlacer(device_list,
-                                                  devices_memeory_usage)
-    mesh_devices = [''] * mesh_shape.size
-    mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-        mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
-  else:
-    var_placer = None
-    mesh_devices = [''] * mesh_shape.size
-    mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
-        mesh_shape, layout_rules, mesh_devices)
-  mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
+    """A model is called by TpuEstimator."""
+    del labels
+    global_step = tf.train.get_global_step()
+    graph = mtf.Graph()
+    mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
+    layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
+    print('PARAMS:')
+    print(params)
+    print('Loading other params from file')
+    # Read params of model
+    with open(FLAGS.model_params, "r") as f:
+        new_params = json.load(f)
+    params.update(new_params)
+    print('PARAMS AFTER LOAD FROM FILE:')
+    print(params)
+    if FLAGS.use_tpu:
+        ctx = params['context']
+        num_hosts = ctx.num_hosts
+        host_placement_fn = ctx.tpu_host_placement_function
+        device_list = [host_placement_fn(host_id=t) for t in range(num_hosts)]
+        tf.logging.info('device_list = %s' % device_list, )
+        # TODO(ylc): Better estimation of replica cache size?
+        replica_cache_size = 300 * 1000000  # 300M per replica
+        # Worker 0 caches all the TPU binaries.
+        worker0_mem = replica_cache_size * ctx.num_replicas
+        devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+        var_placer = mtf.utils.BalancedVariablePlacer(device_list,
+                                                      devices_memeory_usage)
+        mesh_devices = [''] * mesh_shape.size
+        mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
+            mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
+    else:
+        var_placer = None
+        mesh_devices = [''] * mesh_shape.size
+        mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
+            mesh_shape, layout_rules, mesh_devices)
+    mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
-  with mtf.utils.outside_all_rewrites():
-    logits, loss = toy_model(features, mesh)
+    with mtf.utils.outside_all_rewrites():
+        logits, loss = toy_model(features, params, mesh)
 
-  # TRAIN mode
-  if mode == tf.estimator.ModeKeys.TRAIN:
-    var_grads = mtf.gradients([loss],
-                              [v.outputs[0] for v in graph.trainable_variables])
-    optimizer = mtf.optimize.AdamWeightDecayOptimizer(
-        learning_rate=FLAGS.lr,
-        weight_decay_rate=FLAGS.lr * FLAGS.weight_decay,
-        beta_1=FLAGS.beta1,
-        beta_2=FLAGS.beta2,
-        epsilon=FLAGS.epsilon)
-    update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
-  else:
-    # for now, we can only export fully-replicated tensors.
-    fully_replicated_logits = mtf.anonymize(logits)
-
-  lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-
-  tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
-
-  if mode == tf.estimator.ModeKeys.TRAIN:
-    tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-    tf_update_ops.append(tf.assign_add(global_step, 1))
-    tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
-    train_op = tf.group(tf_update_ops)
-  else:
-    tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
-
-  with mtf.utils.outside_all_rewrites():
-    # Copy master variables to slices. Must be called first.
-    restore_hook = mtf.MtfRestoreHook(lowering)
+    # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
-      saver = tf.train.Saver(
-          tf.global_variables(),
-          sharded=True,
-          max_to_keep=10,
-          keep_checkpoint_every_n_hours=2,
-          defer_build=False,
-          save_relative_paths=True)
-      tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
-      saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-      saver_hook = tf.train.CheckpointSaverHook(
-          FLAGS.model_dir,
-          save_steps=1000,
-          saver=saver,
-          listeners=[saver_listener])
+        var_grads = mtf.gradients([loss],
+                                  [v.outputs[0] for v in graph.trainable_variables])
+        optimizer = mtf.optimize.AdamWeightDecayOptimizer(
+            learning_rate=FLAGS.lr,
+            weight_decay_rate=FLAGS.lr * FLAGS.weight_decay,
+            beta_1=FLAGS.beta1,
+            beta_2=FLAGS.beta2,
+            epsilon=FLAGS.epsilon)
+        update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+    else:
+        # for now, we can only export fully-replicated tensors.
+        fully_replicated_logits = mtf.anonymize(logits)
 
-      return tpu_estimator.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.TRAIN,
-          loss=tf_loss,
-          train_op=train_op,
-          training_hooks=[restore_hook, saver_hook])
-    elif mode == tf.estimator.ModeKeys.EVAL:
+    lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
-      def metric_fn(tf_logits):
-        mean_logits = tf.metrics.mean(tf_logits)
-        return {'mean_logits': mean_logits}
+    tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
 
-      eval_metrics = (metric_fn, [tf_logits])
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
+        tf_update_ops.append(tf.assign_add(global_step, 1))
+        tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
+        train_op = tf.group(tf_update_ops)
+    else:
+        tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
 
-      return tpu_estimator.TPUEstimatorSpec(
-          tf.estimator.ModeKeys.EVAL,
-          evaluation_hooks=[restore_hook],
-          loss=tf_loss,
-          eval_metrics=eval_metrics)
+    with mtf.utils.outside_all_rewrites():
+        # Copy master variables to slices. Must be called first.
+        restore_hook = mtf.MtfRestoreHook(lowering)
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            saver = tf.train.Saver(
+                tf.global_variables(),
+                sharded=True,
+                max_to_keep=10,
+                keep_checkpoint_every_n_hours=2,
+                defer_build=False,
+                save_relative_paths=True)
+            tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+            saver_listener = mtf.MtfCheckpointSaverListener(lowering)
+            saver_hook = tf.train.CheckpointSaverHook(
+                FLAGS.model_dir,
+                save_steps=1000,
+                saver=saver,
+                listeners=[saver_listener])
+
+            return tpu_estimator.TPUEstimatorSpec(
+                tf.estimator.ModeKeys.TRAIN,
+                loss=tf_loss,
+                train_op=train_op,
+                training_hooks=[restore_hook, saver_hook])
+        elif mode == tf.estimator.ModeKeys.EVAL:
+
+            def metric_fn(tf_logits):
+                mean_logits = tf.metrics.mean(tf_logits)
+                return {'mean_logits': mean_logits}
+
+            eval_metrics = (metric_fn, [tf_logits])
+
+            return tpu_estimator.TPUEstimatorSpec(
+                tf.estimator.ModeKeys.EVAL,
+                evaluation_hooks=[restore_hook],
+                loss=tf_loss,
+                eval_metrics=eval_metrics)
 
 
 def run_toy_model_tpu():
-  """Run a toy model on TPU."""
-  tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
-      FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
+    """Run a toy model on TPU."""
+    tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
+        FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
 
-  iterations_per_loop = FLAGS.iterations
-  mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-  config = tpu_config.RunConfig(
-      cluster=tpu_cluster_resolver,
-      model_dir=FLAGS.model_dir,
-      save_checkpoints_steps=None,  # Disable the default saver
-      save_checkpoints_secs=None,  # Disable the default saver
-      log_step_count_steps=iterations_per_loop,
-      save_summary_steps=iterations_per_loop,
-      tpu_config=tpu_config.TPUConfig(
-          num_shards=mesh_shape.size,
-          iterations_per_loop=iterations_per_loop,
-          num_cores_per_replica=1,
-          per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
-  classifier = tpu_estimator.TPUEstimator(
-      use_tpu=True,
-      model_fn=model_fn,
-      config=config,
-      train_batch_size=FLAGS.batch_size,
-      eval_batch_size=FLAGS.batch_size)
-  current_step = estimator_lib._load_global_step_from_checkpoint_dir(FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
-  logging.info('Current step %d', current_step)
-  if FLAGS.steps_per_checkpoint == 0:
-    classifier.train(input_fn=TextInput(), max_steps=FLAGS.train_steps)
-    return
-  while current_step < FLAGS.train_steps:
-    next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
-                          FLAGS.train_steps)
-    classifier.train(input_fn=TextInput(), max_steps=next_checkpoint)
-    current_step = next_checkpoint
-    logging.info('Starting to evaluate.')
-    eval_results = classifier.evaluate(
-        input_fn=TextInput(),
-        steps=156)  # since we have 10000 examples and batch_size = 64 per host
-    logging.info('Eval results: %s', eval_results)
+    iterations_per_loop = FLAGS.iterations
+    mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
+    config = tpu_config.RunConfig(
+        cluster=tpu_cluster_resolver,
+        model_dir=FLAGS.model_dir,
+        save_checkpoints_steps=None,  # Disable the default saver
+        save_checkpoints_secs=None,  # Disable the default saver
+        log_step_count_steps=iterations_per_loop,
+        save_summary_steps=iterations_per_loop,
+        tpu_config=tpu_config.TPUConfig(
+            num_shards=mesh_shape.size,
+            iterations_per_loop=iterations_per_loop,
+            num_cores_per_replica=1,
+            per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
+    classifier = tpu_estimator.TPUEstimator(
+        use_tpu=True,
+        model_fn=model_fn,
+        config=config,
+        train_batch_size=FLAGS.batch_size,
+        eval_batch_size=FLAGS.batch_size)
+    current_step = estimator_lib._load_global_step_from_checkpoint_dir(
+        FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
+    logging.info('Current step %d', current_step)
+    if FLAGS.steps_per_checkpoint == 0:
+        classifier.train(input_fn=TextInput(), max_steps=FLAGS.train_steps)
+        return
+    while current_step < FLAGS.train_steps:
+        next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
+                              FLAGS.train_steps)
+        classifier.train(input_fn=TextInput(), max_steps=next_checkpoint)
+        current_step = next_checkpoint
+        logging.info('Starting to evaluate.')
+        eval_results = classifier.evaluate(
+            input_fn=TextInput(),
+            steps=156)  # since we have 10000 examples and batch_size = 64 per host
+        logging.info('Eval results: %s', eval_results)
 
 
 def main(_):
-  run_toy_model_tpu()
+    run_toy_model_tpu()
 
 
 if __name__ == '__main__':
-  tf.disable_v2_behavior()
-  tf.logging.set_verbosity(tf.logging.INFO)
-  tf.app.run()
+    tf.disable_v2_behavior()
+    tf.logging.set_verbosity(tf.logging.INFO)
+    tf.app.run()
