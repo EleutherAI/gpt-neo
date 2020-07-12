@@ -259,11 +259,6 @@ def mtf_expand_dims(x, dim_name, axis, name=None):
 
 def expand_tile(value, newdim):
     """Add a new axis of given size."""
-    print('############')
-    print('HERE: ')
-    print(value)
-    print('############')
-
     return mtf.broadcast(value,
                          [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
 
