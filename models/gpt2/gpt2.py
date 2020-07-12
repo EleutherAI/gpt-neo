@@ -299,8 +299,8 @@ def model(X, params, mesh, labels=None, past=None, scope='model', reuse=False, t
         vocab_size = params["n_vocab"]
         batch_dim = mtf.Dimension("batch", batch_size)
         sequence_dim = mtf.Dimension("sequence", sequence_size)
-        vocab_dim = mtf.Dimension("vocab", vocab_size)
         embd_dim = mtf.Dimension("embd", features_len)
+        vocab_dim = mtf.Dimension("vocab", vocab_size)
 
         # convert input tensor to mtf tensor
         X = mtf.import_tf_tensor(mesh, X, mtf.Shape([batch_dim, sequence_dim]))
