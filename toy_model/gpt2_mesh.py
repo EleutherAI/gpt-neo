@@ -387,8 +387,8 @@ def block(x, scope, *, past, params, train=False):
         return x, present
 
 
-def toy_model(features, labels, params, mesh, past=None):
-    """A toy model implemented by mesh tensorlfow."""
+def gpt_model(features, labels, params, mesh, past=None):
+    """A GPT style model implemented in mesh tensorlfow."""
     results = {}
 
     # define mtf dims
@@ -456,7 +456,7 @@ def toy_model(features, labels, params, mesh, past=None):
     return logits, loss
 
 
-def model(features, labels, mode, params):
+def model_fn(features, labels, mode, params):
     """A model is called by TpuEstimator."""
     global_step = tf.train.get_global_step()
     graph = mtf.Graph()
@@ -493,7 +493,7 @@ def model(features, labels, mode, params):
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
     with mtf.utils.outside_all_rewrites():
-        logits, loss = toy_model(features, labels, params, mesh)
+        logits, loss = gpt_model(features, labels, params, mesh)
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -583,7 +583,7 @@ def run_model_tpu():
             per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
     classifier = tpu_estimator.TPUEstimator(
         use_tpu=True,
-        model_fn=model,
+        model_fn=model_fn,
         config=config,
         train_batch_size=FLAGS.batch_size,
         eval_batch_size=FLAGS.batch_size)
