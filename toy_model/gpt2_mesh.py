@@ -512,6 +512,20 @@ def model_fn(features, labels, mode, params):
         # TODO: this is mtf code - figure out what this does
         fully_replicated_logits = mtf.anonymize(logits)
 
+    print('\n')
+    print('#############')
+    print('N TRAINABLE VARS:')
+    total_parameters = 0
+    for variable in graph.trainable_variables:
+      shape = variable.shape.dims
+      variable_parameters = 1
+      for dim in shape:
+          variable_parameters *= dim.size
+      total_parameters += variable_parameters
+    print(total_parameters)
+    print('#############')
+    print('\n')
+
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
