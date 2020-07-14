@@ -119,32 +119,32 @@ def text_dataset(files, params, stitch, datatype, batch=True):
         if datatype == "random_sample":
             def _sample_text(x):
                 s = tf.size(x)
-                r = tf.random.uniform([], maxval=s - (FLAGS.n_ctx + 1), dtype=tf.dtypes.int32)
-                r1 = tf.range(r, r + FLAGS.n_ctx)
-                r2 = tf.range(r + 1, (r + 1) + FLAGS.n_ctx)
-                r1 = tf.reshape(r1, [FLAGS.n_ctx])  # Somehow, this makes the compiler happy
+                r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
+                r1 = tf.range(r, r + params["n_ctx"])
+                r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
+                r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
                 r2 = tf.reshape(r2, [
-                    FLAGS.n_ctx])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
+                    params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
                 vals1 = tf.gather(x, r1)
                 vals2 = tf.gather(x, r2)
 
-                vals1 = tf.reshape(vals1, [FLAGS.n_ctx])
-                vals2 = tf.reshape(vals2, [FLAGS.n_ctx])
+                vals1 = tf.reshape(vals1, [params["n_ctx"]])
+                vals2 = tf.reshape(vals2, [params["n_ctx"]])
                 return vals1, vals2
 
         else:
             def _sample_text(x):
-                vals1 = x[:FLAGS.n_ctx]
-                vals2 = x[1:FLAGS.n_ctx + 1]
+                vals1 = x[:params["n_ctx"]]
+                vals2 = x[1:params["n_ctx"] + 1]
 
-                vals1 = tf.reshape(vals1, [FLAGS.n_ctx])
-                vals2 = tf.reshape(vals2, [FLAGS.n_ctx])
+                vals1 = tf.reshape(vals1, [params["n_ctx"]])
+                vals2 = tf.reshape(vals2, [params["n_ctx"]])
                 return vals1, vals2
 
         dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if batch:
-        dataset = dataset.batch(FLAGS.batch_size, drop_remainder=True).prefetch(FLAGS.iterations * 2)
+        dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
 
     dataset = dataset.repeat()
 
@@ -166,7 +166,7 @@ def generic_text(params, eval=False):
     weights = [dataset[4] for dataset in params["datasets"]]
 
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
+    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
 
     return dataset
 
@@ -399,13 +399,13 @@ def gpt_model(features, labels, params, mesh, past=None):
     results = {}
 
     # define mtf dims
-    batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
-    sequence_dim = mtf.Dimension('sequence', FLAGS.sequence_size)
+    batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+    sequence_dim = mtf.Dimension('sequence', params["n_ctx"]) #TODO: sanity check
 
     # we need this because gathering when both the args have the same dimension in them it breaks stuff.
     # this dim is specifically for the weights
     # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
-    embed_sequence_dim = mtf.Dimension('embed_sequence', FLAGS.sequence_size)
+    embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"])
     embd_dim = mtf.Dimension("embd", params["n_embd"])
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
 
@@ -467,8 +467,8 @@ def model_fn(features, labels, mode, params):
     """A model is called by TpuEstimator."""
     global_step = tf.train.get_global_step()
     graph = mtf.Graph()
-    mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
-    layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
+    mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
+    layout_rules = mtf.convert_to_layout_rules(params["layout"])
 
     if FLAGS.use_tpu:
         ctx = params['context']
@@ -501,11 +501,11 @@ def model_fn(features, labels, mode, params):
         var_grads = mtf.gradients([loss],
                                   [v.outputs[0] for v in graph.trainable_variables])
         optimizer = mtf.optimize.AdamWeightDecayOptimizer(
-            learning_rate=FLAGS.lr,
-            weight_decay_rate=FLAGS.lr * FLAGS.weight_decay,
-            beta_1=FLAGS.beta1,
-            beta_2=FLAGS.beta2,
-            epsilon=FLAGS.epsilon)
+            learning_rate=params["lr"],
+            weight_decay_rate=params["lr"] * params["weight_decay"],
+            beta_1=params["beta1"],
+            beta_2=params["beta2"],
+            epsilon=params["epsilon"])
         update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
     else:
         # for now, we can only export fully-replicated tensors.
@@ -538,7 +538,7 @@ def model_fn(features, labels, mode, params):
             tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
             saver_hook = tf.train.CheckpointSaverHook(
-                FLAGS.model_dir,
+                params["model_path"],
                 save_steps=1000,
                 saver=saver,
                 listeners=[saver_listener])
@@ -568,17 +568,19 @@ def run_model_tpu():
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
         FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
 
-    iterations_per_loop = FLAGS.iterations
-    mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
+
 
     # Read params of model
     with open(FLAGS.model_params, "r") as f:
         params = json.load(f)
     tf.logging.info('params = %s' % params, )
 
+    iterations_per_loop = params["iterations"]
+    mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
+
     config = tpu_config.RunConfig(
         cluster=tpu_cluster_resolver,
-        model_dir=FLAGS.model_dir,
+        model_dir=params["model_path"],
         save_checkpoints_steps=None,  # Disable the default saver
         save_checkpoints_secs=None,  # Disable the default saver
         log_step_count_steps=iterations_per_loop,
@@ -592,18 +594,18 @@ def run_model_tpu():
         use_tpu=True,
         model_fn=model_fn,
         config=config,
-        train_batch_size=FLAGS.batch_size,
-        eval_batch_size=FLAGS.batch_size,
+        train_batch_size=params["train_batch_size"],
+        eval_batch_size=params["train_batch_size"],
         params=params)
     current_step = estimator_lib._load_global_step_from_checkpoint_dir(
-        FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
+        params["model_path"])  # pylint: disable=protected-access,line-too-long
     logging.info('Current step %d', current_step)
     if FLAGS.steps_per_checkpoint == 0:
-        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=FLAGS.train_steps)
+        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
         return
-    while current_step < FLAGS.train_steps:
+    while current_step < params["train_steps"]:
         next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
-                              FLAGS.train_steps)
+                              params["train_steps"])
         classifier.train(input_fn=partial(generic_text, eval=False), max_steps=next_checkpoint)
         current_step = next_checkpoint
         # logging.info('Starting to evaluate.')
