@@ -77,8 +77,9 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
 
     # TODO: verify that this is actually right
 
-    # rename the channels dim so we dont get a collision
-    x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
+    if x.shape[-1].name == nf.name:
+        # rename the channels dim so we dont get a collision
+        x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
 
     # not in the variable_scope because mtf already has a variable_scope in it
     c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
