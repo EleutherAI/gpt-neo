@@ -7,6 +7,7 @@ from __future__ import print_function
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import os, json, math
+from functools import partial
 
 from tensorflow.python.platform import flags
 from tensorflow.python.platform import tf_logging as logging
@@ -70,7 +71,7 @@ tf.flags.DEFINE_string(
 # --------------------------------------------------------------------------------
 # INPUT FNS:
 
-def text_dataset(files, stitch, datatype, batch=True):
+def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
     dataset = dataset.apply(
         tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
@@ -150,28 +151,34 @@ def text_dataset(files, stitch, datatype, batch=True):
     return dataset
 
 
-def generic_text(eval=False, dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]):
+def generic_text(params, eval=False):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
+    # , dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
     i = 0 if not eval else 1
-    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(FLAGS.data_path, dataset[i])), stitch=dataset[2],
-                             datatype=dataset[3], batch=False)
-                for dataset in dsets]
-    weights = [dataset[4] for dataset in dsets]
+    print('##############################')
+    print(params["data_path"])
+    print(params["datasets"])
+    print('##############################')
+
+    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(params["data_path"], dataset[i])),
+                params, stitch=dataset[2], datatype=dataset[3], batch=False)
+                for dataset in params["datasets"]]
+    weights = [dataset[4] for dataset in params["datasets"]]
 
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(FLAGS.batch_size, drop_remainder=True).prefetch(FLAGS.iterations * 2)
+    dataset = dataset.batch(params["batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
 
     return dataset
 
 
-class TextInput(object):
+# class TextInput(object):
 
-    def __init__(self):
-        self.dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
+#     def __init__(self):
+#         self.dsets = [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
 
-    def __call__(self, params):
-        dset = generic_text(dsets=self.dsets)
-        return dset
+#     def __call__(self, params):
+#         dset = generic_text(dsets=self.dsets)
+#         return dset
 
 
 # --------------------------------------------------------------------------------
@@ -463,12 +470,6 @@ def model_fn(features, labels, mode, params):
     mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
     layout_rules = mtf.convert_to_layout_rules(FLAGS.layout)
 
-    # Read params of model
-    with open(FLAGS.model_params, "r") as f:
-        new_params = json.load(f)
-    params.update(new_params)
-    tf.logging.info('params = %s' % params, )
-
     if FLAGS.use_tpu:
         ctx = params['context']
         num_hosts = ctx.num_hosts
@@ -569,6 +570,12 @@ def run_model_tpu():
 
     iterations_per_loop = FLAGS.iterations
     mesh_shape = mtf.convert_to_shape(FLAGS.mesh_shape)
+
+    # Read params of model
+    with open(FLAGS.model_params, "r") as f:
+        params = json.load(f)
+    tf.logging.info('params = %s' % params, )
+
     config = tpu_config.RunConfig(
         cluster=tpu_cluster_resolver,
         model_dir=FLAGS.model_dir,
@@ -586,23 +593,24 @@ def run_model_tpu():
         model_fn=model_fn,
         config=config,
         train_batch_size=FLAGS.batch_size,
-        eval_batch_size=FLAGS.batch_size)
+        eval_batch_size=FLAGS.batch_size,
+        params=params)
     current_step = estimator_lib._load_global_step_from_checkpoint_dir(
         FLAGS.model_dir)  # pylint: disable=protected-access,line-too-long
     logging.info('Current step %d', current_step)
     if FLAGS.steps_per_checkpoint == 0:
-        classifier.train(input_fn=TextInput(), max_steps=FLAGS.train_steps)
+        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=FLAGS.train_steps)
         return
     while current_step < FLAGS.train_steps:
         next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
                               FLAGS.train_steps)
-        classifier.train(input_fn=TextInput(), max_steps=next_checkpoint)
+        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=next_checkpoint)
         current_step = next_checkpoint
-        logging.info('Starting to evaluate.')
-        eval_results = classifier.evaluate(
-            input_fn=TextInput(),
-            steps=156)  # since we have 10000 examples and batch_size = 64 per host
-        logging.info('Eval results: %s', eval_results)
+        # logging.info('Starting to evaluate.')
+        # eval_results = classifier.evaluate(
+        #     input_fn=TextInput(),
+        #     steps=156)  # since we have 10000 examples and batch_size = 64 per host
+        # logging.info('Eval results: %s', eval_results)
 
 
 def main(_):
