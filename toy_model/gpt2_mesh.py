@@ -513,8 +513,6 @@ def model_fn(features, labels, mode, params):
         fully_replicated_logits = mtf.anonymize(logits)
 
     print('\n')
-    print('#############')
-    print('N TRAINABLE VARS:')
     total_parameters = 0
     for variable in graph.trainable_variables:
       shape = variable.shape.dims
@@ -522,8 +520,7 @@ def model_fn(features, labels, mode, params):
       for dim in shape:
           variable_parameters *= dim.size
       total_parameters += variable_parameters
-    print(total_parameters)
-    print('#############')
+    print(f"N TRAINABLE VARS: {total_parameters:,}")
     print('\n')
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
