@@ -500,12 +500,21 @@ def model_fn(features, labels, mode, params):
     if mode == tf.estimator.ModeKeys.TRAIN:
         var_grads = mtf.gradients([loss],
                                   [v.outputs[0] for v in graph.trainable_variables])
-        optimizer = mtf.optimize.AdamWeightDecayOptimizer(
-            learning_rate=params["lr"],
-            weight_decay_rate=params["lr"] * params["weight_decay"],
-            beta_1=params["beta1"],
-            beta_2=params["beta2"],
-            epsilon=params["epsilon"])
+        if params["opt_name"].lower() == "adam":
+            optimizer = mtf.optimize.AdamWeightDecayOptimizer(
+                learning_rate=params["lr"],
+                weight_decay_rate=params["lr"] * params["weight_decay"],
+                beta_1=params["beta1"],
+                beta_2=params["beta2"],
+                epsilon=params["epsilon"])
+        else:
+            optimizer = mtf.optimize.AdafactorOptimizer(
+                learning_rate=params["lr"],
+                decay_rate=params["lr"] * params["weight_decay"],
+                beta1=params["beta1"],
+                epsilon1=params["ada_epsilon1"],
+                epsilon2=params["ada_epsilon2"]
+            )
         update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
     else:
         # for now, we can only export fully-replicated tensors.
