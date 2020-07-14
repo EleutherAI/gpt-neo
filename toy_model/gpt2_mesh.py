@@ -529,7 +529,8 @@ def model_fn(features, labels, mode, params):
       for dim in shape:
           variable_parameters *= dim.size
       total_parameters += variable_parameters
-    print(f"N TRAINABLE VARS: {total_parameters:,}")
+    print(f"N TRAINABLE VARS:")
+    print('{:,}'.format(total_parameters))
     print('\n')
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
