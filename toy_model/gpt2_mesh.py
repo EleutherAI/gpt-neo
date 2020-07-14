@@ -15,6 +15,7 @@ from tensorflow.python.tpu import tpu_config  # pylint: disable=g-direct-tensorf
 from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 import mesh_tensorflow.transformer as mtf_transformer
+import mesh_tensorflow.auto_mtf
 
 FLAGS = flags.FLAGS
 tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
@@ -46,6 +47,9 @@ tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optim
 tf.flags.DEFINE_float('beta1', 0.9, 'beta1 setting for Adam optimizer')
 tf.flags.DEFINE_float('beta2', 0.98, 'beta2 setting for Adam optimizer')
 tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
+
+#Auto layout
+tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
 
 # Cloud TPU Cluster Resolvers
 tf.flags.DEFINE_string(
@@ -495,6 +499,13 @@ def model_fn(features, labels, mode, params):
 
     with mtf.utils.outside_all_rewrites():
         logits, loss = gpt_model(features, labels, params, mesh)
+
+    if FLAGS.auto_layout:
+        layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
+        print('Auto-selected layout:')
+        print(layout_rules)
+        print('Re-initialize graph with selected layout')
+        quit() #TODO: it should be easy to just reinitialize everything w selected layout
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
