@@ -450,13 +450,8 @@ def gpt_model(features, labels, params, mesh, past=None):
     # normalize & affine transform
     h = norm(h, 'ln_f', params=params)
 
-    # flatten
-    dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
-    h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
-
     # equivalent to tf.matmul
-    logits = mtf.einsum([h_flat, wte], output_shape=[dim_combined_batch_sequence, vocab_dim])
-    logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
+    logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
     results['logits'] = logits
 
     vdim = results["logits"].shape[2] # get vocab dimension
