@@ -50,6 +50,9 @@ tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
 
 #Auto layout
 tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
+tf.flags.DEFINE_bool('auto_layout_and_mesh_shape', False, 'set layout rules automatically')
+tf.flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores (required for auto_mesh_shape')
+
 
 # Cloud TPU Cluster Resolvers
 tf.flags.DEFINE_string(
@@ -495,6 +498,7 @@ def model_fn(features, labels, mode, params):
         mesh_devices = [''] * mesh_shape.size
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
             mesh_shape, layout_rules, mesh_devices)
+
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
     with mtf.utils.outside_all_rewrites():
@@ -505,6 +509,17 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected layout:')
         print(layout_rules)
         print('Re-initialize graph with selected layout')
+        quit() #TODO: it should be easy to just reinitialize everything w selected layout
+
+    if FLAGS.auto_layout_and_mesh_shape:
+        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, FLAGS.num_cores, [logits, loss])
+        print('Num cores:')
+        print(FLAGS.num_cores)
+        print('Auto-selected layout:')
+        print(layout_rules)
+        print('Auto-selected mesh shape:')
+        print(mesh_shape)
+        print('Re-initialize graph with selected layout & mesh shape')
         quit() #TODO: it should be easy to just reinitialize everything w selected layout
 
     # TRAIN mode
