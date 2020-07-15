@@ -487,9 +487,9 @@ def model_fn(features, labels, mode, params):
         replica_cache_size = 300 * 1000000  # 300M per replica
         # Worker 0 caches all the TPU binaries.
         worker0_mem = replica_cache_size * ctx.num_replicas
-        devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+        devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
         var_placer = mtf.utils.BalancedVariablePlacer(device_list,
-                                                      devices_memeory_usage)
+                                                      devices_memory_usage)
         mesh_devices = [''] * mesh_shape.size
         mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
             mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
