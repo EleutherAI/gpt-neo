@@ -440,12 +440,29 @@ def gpt_model(features, labels, params, mesh, past=None):
     pasts = [None] * params["n_layer"]
 
     # attn blocks
-    for layer, past in enumerate(pasts):
-        h, present = block(h, 'h%d' % layer, past=past, params=params)
-        presents.append(present)
+    # for layer, past in enumerate(pasts):
+    #     h, present = block(h, 'h%d' % layer, past=past, params=params)
+    #     presents.append(present)
 
-    dim_name = "results"
-    results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
+    Hparams = mtf.transformer.moe.HParams()
+    Hparams.add_hparam('moe_dropout_rate', 0.0) #TODO: add flag
+    mtf.transformer.moe.set_default_moe_hparams(Hparams)
+    output_dim = mtf.Dimension("moe_out", params["n_embd"])
+
+    # This function returns a small auxiliary loss that should be added to the training loss of the model.
+    # This loss helps to balance expert usage. Without the loss, it is very likely that a few experts will be trained and
+    # the rest will starve.
+    print('#########')
+    print('IN SHAPE:')
+    print(h)
+    h, loss = mtf.transformer.moe.transformer_moe_layer_v1(h, output_dim, Hparams, train=True,
+                                                           mesh_shape=FLAGS.mesh_shape, layout=FLAGS.layout,
+                                                           variable_dtype=tf.float32) #TODO: pass in layout
+    print('OUT SHAPE:')
+    print(h)
+
+    # dim_name = "results"
+    # results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # normalize & affine transform
     h = norm(h, 'ln_f', params=params)
@@ -487,9 +504,9 @@ def model_fn(features, labels, mode, params):
         replica_cache_size = 300 * 1000000  # 300M per replica
         # Worker 0 caches all the TPU binaries.
         worker0_mem = replica_cache_size * ctx.num_replicas
-        devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+        devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
         var_placer = mtf.utils.BalancedVariablePlacer(device_list,
-                                                      devices_memeory_usage)
+                                                      devices_memory_usage)
         mesh_devices = [''] * mesh_shape.size
         mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
             mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
