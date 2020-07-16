@@ -280,6 +280,7 @@ def attn(x, scope, n_state, *, past, params, train=False):
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
     def split_heads(x, last_dim):
+        with tf.variable_scope('split_heads'):
         # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
         # heads is split out of features!
         x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
@@ -287,10 +288,12 @@ def attn(x, scope, n_state, *, past, params, train=False):
         return x
 
     def merge_heads(x):
-        # Reverse of split_heads
-        # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
-        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
+        with tf.variable_scope('merge_heads'):
+
+            # Reverse of split_heads
+            # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
+            x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
+            x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
         return x
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
@@ -324,31 +327,32 @@ def attn(x, scope, n_state, *, past, params, train=False):
             k = tf.concat([pk, k], axis=-2)
             v = tf.concat([pv, v], axis=-2)
 
-        # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
-        if params["local"]:
-            # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
-            a = mtf_transformer.attention.local_attention_1d(
-                q, k, v,
-                length_dim=dim_seq,
-                key_dim=dim_features_per_head_key,
-                value_dim=dim_features_per_head_value,
-                length_dim_num_splits=1,
-                attention_kwargs={}
-                # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
-                # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
-            )
+        with tf.variable_scope('attention'):
+            # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
+            if params["local"]:
+                # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
+                a = mtf_transformer.attention.local_attention_1d(
+                    q, k, v,
+                    length_dim=dim_seq,
+                    key_dim=dim_features_per_head_key,
+                    value_dim=dim_features_per_head_value,
+                    length_dim_num_splits=1,
+                    attention_kwargs={}
+                    # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
+                    # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
+                )
 
-        else:
-            print('qkv shape', q.shape, k.shape, v.shape)
+            else:
+                print('qkv shape', q.shape, k.shape, v.shape)
 
-            # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
-            a = mtf_transformer.attention.attention(
-                q, k, v,
-                memory_length_dim=dim_seq,
-                key_dim=dim_features_per_head_key,
-                value_dim=dim_features_per_head_value,
-                bias=biasmask_attn_weights(q.mesh, q.dtype)
-            )
+                # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
+                a = mtf_transformer.attention.attention(
+                    q, k, v,
+                    memory_length_dim=dim_seq,
+                    key_dim=dim_features_per_head_key,
+                    value_dim=dim_features_per_head_value,
+                    bias=biasmask_attn_weights(q.mesh, q.dtype)
+                )
 
         a = merge_heads(a)
         a = conv1d(a, 'c_proj', dim_embd, params=params)
@@ -406,7 +410,10 @@ def gpt_model(features, labels, params, mesh, past=None):
     if params["embed_dropout"] > 0:
         wpe = mtf.dropout(wpe, params["embed_dropout"], name="wpe_dropout")
         wte = mtf.dropout(wte, params["embed_dropout"], name="wte_dropout")
-    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
+    with tf.variable_scope('token_embd'):
+        h = mtf.gather(wte, x, vocab_dim)
+    with tf.variable_scope('pos_embd'):
+        h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
     # # Transformer
     presents = []
 
@@ -427,8 +434,10 @@ def gpt_model(features, labels, params, mesh, past=None):
     # normalize & affine transform
     h = norm(h, 'ln_f', params=params)
 
-    # equivalent to tf.matmul
-    logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
+
+    with tf.variable_scope('wte_final_einsum'):
+        # equivalent to tf.matmul
+        logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
     results['logits'] = logits
 
     vdim = results["logits"].shape[2] # get vocab dimension
@@ -437,7 +446,10 @@ def gpt_model(features, labels, params, mesh, past=None):
     # this op is done in the input_fn
     labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
+    with tf.variable_scope('xentropy_final'):
+
+        loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
+    with tf.variable_scope('reduce_mean_final'):
     loss = mtf.reduce_mean(loss_batch)
     return logits, loss
 
