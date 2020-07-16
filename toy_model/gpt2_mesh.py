@@ -289,7 +289,6 @@ def attn(x, scope, n_state, *, past, params, train=False):
 
     def merge_heads(x):
         with tf.variable_scope('merge_heads'):
-
             # Reverse of split_heads
             # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
             x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
@@ -569,10 +568,6 @@ def model_fn(features, labels, mode, params):
                 save_relative_paths=True)
             tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-            profiler_hook = tpu_profiler_hook.TPUProfilerHook(
-                    save_secs=30,
-                    output_dir=params["model_path"],
-                    tpu=FLAGS.tpu)
             saver_hook = tf.train.CheckpointSaverHook(
                 params["model_path"],
                 save_steps=1000,
@@ -583,7 +578,7 @@ def model_fn(features, labels, mode, params):
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 train_op=train_op,
-                training_hooks=[restore_hook, saver_hook, profiler_hook])
+                training_hooks=[restore_hook, saver_hook])
         elif mode == tf.estimator.ModeKeys.EVAL:
 
             def metric_fn(tf_logits):
