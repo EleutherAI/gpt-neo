@@ -19,39 +19,16 @@ import mesh_tensorflow.auto_mtf
 
 FLAGS = flags.FLAGS
 tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
-
-tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
-tf.flags.DEFINE_integer('sequence_size', 128, 'Sequence Len')
-tf.flags.DEFINE_integer('hidden_size', 16, 'Size of each hidden layer.')
-tf.flags.DEFINE_integer('n_ctx', 128, 'Dimensionality of the causal mask.')
-tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
-tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
-tf.flags.DEFINE_string('layout', '', 'layout rules')
-tf.flags.DEFINE_integer('iterations', 500,
-                        'Number of iterations per training loop.')
-tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
 tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
-tf.flags.DEFINE_string(
-    'model_dir',
-    default='gs://datasets_storage_1/models/GPTNeo_prettybig',
-    help='The directory where the model will be stored.')
-tf.flags.DEFINE_string(
-    'data_path',
-    default='gs://datasets_storage_1/datasets/bundestag',
-    help='The directory where the data is stored.')
-tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random_sample",1.0', help="dataset details")
 
 # Optimizer settings
 tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
-tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optimizer')  # beta1, beta2, epsilon
-tf.flags.DEFINE_float('beta1', 0.9, 'beta1 setting for Adam optimizer')
-tf.flags.DEFINE_float('beta2', 0.98, 'beta2 setting for Adam optimizer')
-tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
 
 #Auto layout
 tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
 tf.flags.DEFINE_bool('auto_layout_and_mesh_shape', False, 'set layout rules automatically')
 tf.flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores (required for auto_mesh_shape')
+# steps_per, use_tpu, model_params, autolayouts
 
 
 # Cloud TPU Cluster Resolvers
@@ -73,10 +50,9 @@ tf.flags.DEFINE_string(
     help='GCE zone where the Cloud TPU is located in. If not specified, we '
          'will attempt to automatically detect the GCE project from metadata.')
 
-#TODO: standardize input to all run thru config.json (no more flags ? )
-
 # --------------------------------------------------------------------------------
 # INPUT FNS:
+
 
 def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
@@ -609,8 +585,6 @@ def run_model_tpu():
     """Run a GPT model on TPU."""
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
         FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
-
-
 
     # Read params of model
     with open(FLAGS.model_params, "r") as f:
