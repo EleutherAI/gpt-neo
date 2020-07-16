@@ -281,10 +281,10 @@ def attn(x, scope, n_state, *, past, params, train=False):
 
     def split_heads(x, last_dim):
         with tf.variable_scope('split_heads'):
-        # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
-        # heads is split out of features!
-        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
-        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
+            # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
+            # heads is split out of features!
+            x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
+            x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
         return x
 
     def merge_heads(x):
