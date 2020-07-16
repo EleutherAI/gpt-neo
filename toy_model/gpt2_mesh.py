@@ -388,7 +388,7 @@ def gpt_model(features, labels, params, mesh, past=None):
 
     # define mtf dims
     batch_dim = mtf.Dimension('batch', params["train_batch_size"])
-    sequence_dim = mtf.Dimension('sequence', params["n_ctx"]) #TODO: sanity check
+    sequence_dim = mtf.Dimension('sequence', params["n_ctx"])
 
     # we need this because gathering when both the args have the same dimension in them it breaks stuff.
     # this dim is specifically for the weights
@@ -450,7 +450,7 @@ def gpt_model(features, labels, params, mesh, past=None):
 
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
     with tf.variable_scope('reduce_mean_final'):
-    loss = mtf.reduce_mean(loss_batch)
+        loss = mtf.reduce_mean(loss_batch)
     return logits, loss
 
 
@@ -531,6 +531,7 @@ def model_fn(features, labels, mode, params):
         # TODO: this is mtf code - figure out what this does
         fully_replicated_logits = mtf.anonymize(logits)
 
+    # Getting total number of trainable vars
     print('\n')
     total_parameters = 0
     for variable in graph.trainable_variables:
