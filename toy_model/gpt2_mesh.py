@@ -251,8 +251,8 @@ def visible_pos(mesh, nd, ns):
     m = i >= j - ns + nd
     return m
 
-
-def attn(x, scope, n_state, *, past, params, train=False):
+# append dim = str to append onto all dim name to allow splitting i.e even / odd
+def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -271,9 +271,17 @@ def attn(x, scope, n_state, *, past, params, train=False):
     dim_seq = x_shape[1]
     dim_embd = x_shape[2]
 
+    # appending odd / even to out dimension name to avoid collison
+    attn_out_dim_name = "attn_out" + append_dim
+    attn_out_dim = mtf.Dimension(attn_out_dim_name, params["n_embd"]) # this is the same as n_embd
+
     dim_heads = mtf.Dimension("heads", params['n_head'])
-    dim_features_per_head_key = mtf.Dimension("features_per_head_key", params['n_embd'] // params['n_head'])
-    dim_features_per_head_value = mtf.Dimension("features_per_head_value", params['n_embd'] // params['n_head'])
+
+    # TODO: should append odd / even here
+    features_per_head_key_name = "features_per_head_key" + append_dim
+    features_per_head_value_name = "features_per_head_value" + append_dim
+    dim_features_per_head_key = mtf.Dimension(features_per_head_key_name, params['n_embd'] // params['n_head'])
+    dim_features_per_head_value = mtf.Dimension(features_per_head_value_name, params['n_embd'] // params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
@@ -310,7 +318,10 @@ def attn(x, scope, n_state, *, past, params, train=False):
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-        dim_qkv = mtf.Dimension("qkv", n_state.size * 3)
+
+        #TODO: should append odd / even here
+        dim_qkv_name = "qkv" + append_dim
+        dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
         conv_output_channels = c.shape[2]  # should be equal to dim_qkv
@@ -354,7 +365,9 @@ def attn(x, scope, n_state, *, past, params, train=False):
                 )
 
         a = merge_heads(a)
-        a = conv1d(a, 'c_proj', dim_embd, params=params)
+
+        # TODO: should append odd / even here
+        a = conv1d(a, 'c_proj', attn_out_dim, params=params)
         a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
 
         return a, present
@@ -368,11 +381,11 @@ def mlp(x, scope, n_state, *, params, train=False):
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
-
-def block(x, scope, *, past, params, train=False):
+# append dim = str to append onto all dim name to allow splitting i.e even / odd
+def block(x, scope, *, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,)
+        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
         x = x + a
 
         dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
@@ -425,9 +438,17 @@ def gpt_model(features, labels, params, mesh, past=None):
     pasts = [None] * params["n_layer"]
 
     # attn blocks
+    # TODO: implement odd / even here
+    # pass in even / odd then append to all relevant dimension names
+    lnum = 1
     for layer, past in enumerate(pasts):
-        h, present = block(h, 'h%d' % layer, past=past, params=params)
+        if lnum % 2 == 0:
+            append_dim = 'even'
+        else:
+            append_dim = 'odd'
+        h, present = block(h, 'h%d' % layer, append_dim=append_dim, past=past, params=params)
         presents.append(present)
+        lnum += 1
 
     dim_name = "results"
     results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
@@ -448,7 +469,6 @@ def gpt_model(features, labels, params, mesh, past=None):
     labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
     with tf.variable_scope('xentropy_final'):
-
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
     with tf.variable_scope('reduce_mean_final'):
         loss = mtf.reduce_mean(loss_batch)
