@@ -16,6 +16,7 @@ from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tens
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 import mesh_tensorflow.transformer as mtf_transformer
 import mesh_tensorflow.auto_mtf
+import tpu_profiler_hook
 
 FLAGS = flags.FLAGS
 tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
@@ -555,6 +556,10 @@ def model_fn(features, labels, mode, params):
                 save_relative_paths=True)
             tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
+            profiler_hook = tpu_profiler_hook.TPUProfilerHook(
+                    save_secs=30,
+                    output_dir=params["model_path"],
+                    tpu=FLAGS.tpu)
             saver_hook = tf.train.CheckpointSaverHook(
                 params["model_path"],
                 save_steps=1000,
@@ -565,7 +570,7 @@ def model_fn(features, labels, mode, params):
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 train_op=train_op,
-                training_hooks=[restore_hook, saver_hook])
+                training_hooks=[restore_hook, saver_hook, profiler_hook])
         elif mode == tf.estimator.ModeKeys.EVAL:
 
             def metric_fn(tf_logits):
