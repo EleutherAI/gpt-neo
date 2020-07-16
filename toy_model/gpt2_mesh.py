@@ -191,7 +191,7 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         n_state = x.shape[-1]
 
         # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
-        dt = tf.float32
+        dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
 
         g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
         b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
@@ -218,7 +218,7 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
 
     # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
-    dt = tf.float32
+    dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
 
     # TODO: verify that this is actually right
 
@@ -399,10 +399,12 @@ def gpt_model(features, labels, params, mesh, past=None):
     # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
 
+    encoding_dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
-                           initializer=tf.random_normal_initializer(stddev=0.01))
+                           initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
-                           initializer=tf.random_normal_initializer(stddev=0.02))
+                           initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
 
     past_length = 0 if past is None else mtf.Shape(past)[-2]
 
