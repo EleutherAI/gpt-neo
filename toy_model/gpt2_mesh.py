@@ -555,14 +555,25 @@ def model_fn(features, labels, mode, params):
     # Getting total number of trainable vars
     print('\n')
     total_parameters = 0
+    all_dim_names = []
     for variable in graph.trainable_variables:
       shape = variable.shape.dims
+      names = variable.shape.dimension_names
+      all_dim_names.append(names)
       variable_parameters = 1
       for dim in shape:
           variable_parameters *= dim.size
       total_parameters += variable_parameters
     print("N TRAINABLE VARS:")
     print('{:,}'.format(total_parameters))
+    print('\n')
+
+    # print all dim names in graph & write to file
+    print("ALL DIM NAMES:")
+    with open('all_dim_names.txt', 'w') as f:
+        for dim_name in all_dim_names:
+            f.write("%s\n" % dim_name)
+            print(dim_name)
     print('\n')
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
