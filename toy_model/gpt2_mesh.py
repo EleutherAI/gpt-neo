@@ -16,7 +16,6 @@ from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tens
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 import mesh_tensorflow.transformer as mtf_transformer
 import mesh_tensorflow.auto_mtf
-import tpu_profiler_hook
 
 FLAGS = flags.FLAGS
 tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
