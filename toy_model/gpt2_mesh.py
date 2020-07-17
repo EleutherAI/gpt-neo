@@ -565,14 +565,14 @@ def model_fn(features, labels, mode, params):
         if params["opt_name"].lower() == "adam":
             optimizer = mtf.optimize.AdamWeightDecayOptimizer(
                 learning_rate=params["lr"],
-                weight_decay_rate=params["lr"] * params["weight_decay"],
+                weight_decay_rate=params["weight_decay"],
                 beta_1=params["beta1"],
                 beta_2=params["beta2"],
                 epsilon=params["epsilon"])
         else:
             optimizer = mtf.optimize.AdafactorOptimizer(
                 learning_rate=params["lr"],
-                decay_rate=params["lr"] * params["weight_decay"],
+                decay_rate=params["weight_decay"],
                 beta1=params["beta1"],
                 epsilon1=params["ada_epsilon1"],
                 epsilon2=params["ada_epsilon2"]
@@ -669,8 +669,8 @@ def run_model_tpu():
         train_batch_size=params["train_batch_size"],
         eval_batch_size=params["train_batch_size"],
         params=params)
-    current_step = estimator_lib._load_global_step_from_checkpoint_dir(
-        params["model_path"])  # pylint: disable=protected-access,line-too-long
+    current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(
+        params["model_path"]))
     logging.info('Current step %d', current_step)
     if FLAGS.steps_per_checkpoint == 0:
         classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
