@@ -190,7 +190,8 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         n_state = x.shape[-1]
 
         # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
-        dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+        # dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+        dt = tf.float32
 
         g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
         b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
@@ -217,8 +218,8 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
 
     # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
-    dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
-
+    # dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+    dt = tf.float32
     # TODO: verify that this is actually right
 
     # rename the channels dim so we dont get a collision
@@ -253,7 +254,6 @@ def visible_pos(mesh, nd, ns):
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
-    print(x.shape)
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
     if past is not None:
@@ -272,8 +272,8 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     dim_embd = x_shape[2]
 
     # appending odd / even to out dimension name to avoid collison
-    attn_out_dim_name = "attn_out"
-    attn_out_dim = mtf.Dimension(attn_out_dim_name, params["n_embd"]) # this is the same as n_embd
+    # attn_out_dim_name = "attn_out"
+    # attn_out_dim = mtf.Dimension(attn_out_dim_name, params["n_embd"]) # this is the same as n_embd
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
@@ -441,7 +441,8 @@ def gpt_model(features, labels, params, mesh, past=None):
     # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
 
-    encoding_dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+    # encoding_dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
+    encoding_dt = tf.float32
 
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
                            initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
@@ -537,6 +538,7 @@ def model_fn(features, labels, mode, params):
 
     with mtf.utils.outside_all_rewrites():
         logits, loss = gpt_model(features, labels, params, mesh)
+
 
     if FLAGS.auto_layout:
         layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
