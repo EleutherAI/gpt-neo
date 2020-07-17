@@ -253,6 +253,7 @@ def visible_pos(mesh, nd, ns):
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
+    print(x.shape)
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
     if past is not None:
@@ -271,14 +272,14 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     dim_embd = x_shape[2]
 
     # appending odd / even to out dimension name to avoid collison
-    attn_out_dim_name = "attn_out" + append_dim
+    attn_out_dim_name = "attn_out"
     attn_out_dim = mtf.Dimension(attn_out_dim_name, params["n_embd"]) # this is the same as n_embd
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
     # TODO: should append odd / even here
-    features_per_head_key_name = "features_per_head_key" + append_dim
-    features_per_head_value_name = "features_per_head_value" + append_dim
+    features_per_head_key_name = "features_per_head_key"
+    features_per_head_value_name = "features_per_head_value"
     dim_features_per_head_key = mtf.Dimension(features_per_head_key_name, params['n_embd'] // params['n_head'])
     dim_features_per_head_value = mtf.Dimension(features_per_head_value_name, params['n_embd'] // params['n_head'])
 
@@ -294,7 +295,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
             x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
         return x
 
-    def merge_heads(x):
+    def merge_heads(x, merge_dim=None):
         with tf.variable_scope('merge_heads'):
             # Reverse of split_heads
             # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
@@ -319,7 +320,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
 
         #TODO: should append odd / even here
-        dim_qkv_name = "qkv" + append_dim
+        dim_qkv_name = "qkv"
         dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
@@ -328,7 +329,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension('features_per_head_key', 'features_per_head_value')), v], "kv", axis=1, name="stack_presents_attn")
+        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name, features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
 
         if past is not None:
             # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
@@ -366,7 +367,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         a = merge_heads(a)
 
         # TODO: should append odd / even here
-        a = conv1d(a, 'c_proj', attn_out_dim, params=params)
+        a = conv1d(a, 'c_proj', dim_embd, params=params)
         a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
 
         return a, present
@@ -397,10 +398,9 @@ def get_graph_info(graph):
     print('\n')
     total_parameters = 0
     all_dim_names = []
+
     for variable in graph.trainable_variables:
       shape = variable.shape.dims
-      names = variable.shape.dimension_names
-      all_dim_names.append(names)
       variable_parameters = 1
       for dim in shape:
           variable_parameters *= dim.size
@@ -409,10 +409,16 @@ def get_graph_info(graph):
     print('{:,}'.format(total_parameters))
     print('\n')
 
+    for variable in graph.all_variables:
+        names = variable.shape.dimension_names
+        all_dim_names.append(names)
+
     # print all dim names in graph & write to file
+    all_dim_names = [item for sublist in all_dim_names for item in sublist] # flatten all dims
+    unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
     with open('all_dim_names.txt', 'w') as f:
-        for dim_name in all_dim_names:
+        for dim_name in unique_dims:
             f.write("%s\n" % dim_name)
             print(dim_name)
     print('\n')
@@ -466,9 +472,9 @@ def gpt_model(features, labels, params, mesh, past=None):
     lnum = 1
     for layer, past in enumerate(pasts):
         if lnum % 2 == 0:
-            append_dim = 'even'
+            append_dim = '_even'
         else:
-            append_dim = 'odd'
+            append_dim = '_odd'
         h, present = block(h, 'h%d' % layer, append_dim=append_dim, past=past, params=params)
         presents.append(present)
         lnum += 1

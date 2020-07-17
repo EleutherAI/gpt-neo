@@ -33,5 +33,6 @@
     "layer_offset": 16,
     "local": true,
     "mesh_shape": "all:8",
-    "layout": "heads:all"
+    "layout": "heads:all",
+    "precision": "bfloat16"
 }
