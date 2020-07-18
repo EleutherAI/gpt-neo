@@ -27,9 +27,6 @@ tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
 #Auto layout
 tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
 tf.flags.DEFINE_bool('auto_layout_and_mesh_shape', False, 'set layout rules automatically')
-tf.flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores (required for auto_mesh_shape')
-# steps_per, use_tpu, model_params, autolayouts
-
 
 # Cloud TPU Cluster Resolvers
 tf.flags.DEFINE_string(
