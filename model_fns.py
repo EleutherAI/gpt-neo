@@ -48,7 +48,8 @@ def model_fn(features, labels, mode, params):
         with mtf.utils.outside_all_rewrites():
             logits, loss = gpt2moe.model(features, labels, params, mesh)
     else:
-        raise Exception(f"{params['model']} is not a valid model - please select from GPT2 or GPT2MOE")
+        print(params['model'])
+        raise Exception("is not a valid model - please select from GPT2 or GPT2MOE")
 
     if params["auto_layout"]:
         layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
