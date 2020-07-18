@@ -1,5 +1,5 @@
 {
-    "n_head": 12,
+    "n_head": 8,
     "encoder_path": "gs://datasets_storage_1/models/encoder",
     "n_vocab": 50257,
     "embed_dropout": 0.1,
@@ -10,7 +10,7 @@
     "epsilon": 1e-9,
     "opt_name": "adam",
     "weight_decay": 0.01,
-    "train_batch_size": 256,
+    "train_batch_size": 32,
     "attn_dropout": 0.1,
     "train_steps": 10000,
     "eval_steps": 0,
