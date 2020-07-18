@@ -29,7 +29,7 @@
     "model_path": "gs://neo-models/NEO_TEST_NEW_VOCAB",
     "n_ctx": 1024,
     "predict_path": "logs/predictions.txt",
-    "n_layer": 40,
+    "n_layer": 32,
     "scale_by_depth": true,
     "scale_by_in": true,
     "fixed_attn_block_size": 64,
