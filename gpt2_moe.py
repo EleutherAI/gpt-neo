@@ -18,17 +18,40 @@ import mesh_tensorflow.transformer as mtf_transformer
 import mesh_tensorflow.auto_mtf
 
 FLAGS = flags.FLAGS
-tf.flags.DEFINE_string('model_params', 'configs/GPT_NEO_TEST.json', help="path to model config")
+tf.flags.DEFINE_string('model_params', 'configs/colab.json', help="path to model config")
+
+tf.flags.DEFINE_integer('batch_size', 64, 'Training batch size.')
+tf.flags.DEFINE_integer('sequence_size', 128, 'Sequence Len')
+tf.flags.DEFINE_integer('hidden_size', 16, 'Size of each hidden layer.')
+tf.flags.DEFINE_integer('n_ctx', 128, 'Dimensionality of the causal mask.')
+tf.flags.DEFINE_float('lr', 1e-4, 'Learning rate.')
+tf.flags.DEFINE_string('mesh_shape', 'all:8', 'mesh shape')
+tf.flags.DEFINE_string('layout', '', 'layout rules')
+tf.flags.DEFINE_integer('iterations', 500,
+                        'Number of iterations per training loop.')
+tf.flags.DEFINE_integer('train_steps', 10000, 'max steps')
 tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
+tf.flags.DEFINE_string(
+    'model_dir',
+    default='gs://datasets_storage_1/models/GPTNeo_prettybig',
+    help='The directory where the model will be stored.')
+tf.flags.DEFINE_string(
+    'data_path',
+    default='gs://datasets_storage_1/datasets/bundestag',
+    help='The directory where the data is stored.')
+tf.flags.DEFINE_string('datasets', default='bundestag_*.tfrecords","",10,"random_sample",1.0', help="dataset details")
 
 # Optimizer settings
 tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
+tf.flags.DEFINE_float('weight_decay', 0.01, 'weight decay setting for Adam optimizer')  # beta1, beta2, epsilon
+tf.flags.DEFINE_float('beta1', 0.9, 'beta1 setting for Adam optimizer')
+tf.flags.DEFINE_float('beta2', 0.98, 'beta2 setting for Adam optimizer')
+tf.flags.DEFINE_float('epsilon', 1e-9, 'epsilon setting for Adam optimizer')
 
 #Auto layout
 tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
 tf.flags.DEFINE_bool('auto_layout_and_mesh_shape', False, 'set layout rules automatically')
 tf.flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores (required for auto_mesh_shape')
-# steps_per, use_tpu, model_params, autolayouts
 
 
 # Cloud TPU Cluster Resolvers
@@ -50,9 +73,10 @@ tf.flags.DEFINE_string(
     help='GCE zone where the Cloud TPU is located in. If not specified, we '
          'will attempt to automatically detect the GCE project from metadata.')
 
+#TODO: standardize input to all run thru config.json (no more flags ? )
+
 # --------------------------------------------------------------------------------
 # INPUT FNS:
-
 
 def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
@@ -190,7 +214,6 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         n_state = x.shape[-1]
 
         # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
-        # dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
         dt = tf.float32
 
         g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
@@ -218,8 +241,8 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
 
     # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
-    # dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
     dt = tf.float32
+
     # TODO: verify that this is actually right
 
     # rename the channels dim so we dont get a collision
@@ -251,8 +274,8 @@ def visible_pos(mesh, nd, ns):
     m = i >= j - ns + nd
     return m
 
-# append dim = str to append onto all dim name to allow splitting i.e even / odd
-def attn(x, scope, n_state, *, past, params, append_dim, train=False):
+
+def attn(x, scope, n_state, *, past, params, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -271,36 +294,26 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     dim_seq = x_shape[1]
     dim_embd = x_shape[2]
 
-    # appending odd / even to out dimension name to avoid collison
-    # attn_out_dim_name = "attn_out"
-    # attn_out_dim = mtf.Dimension(attn_out_dim_name, params["n_embd"]) # this is the same as n_embd
-
     dim_heads = mtf.Dimension("heads", params['n_head'])
-
-    # TODO: should append odd / even here
-    features_per_head_key_name = "features_per_head_key"
-    features_per_head_value_name = "features_per_head_value"
-    dim_features_per_head_key = mtf.Dimension(features_per_head_key_name, params['n_embd'] // params['n_head'])
-    dim_features_per_head_value = mtf.Dimension(features_per_head_value_name, params['n_embd'] // params['n_head'])
+    dim_features_per_head_key = mtf.Dimension("features_per_head_key", params['n_embd'] // params['n_head'])
+    dim_features_per_head_value = mtf.Dimension("features_per_head_value", params['n_embd'] // params['n_head'])
 
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
     def split_heads(x, last_dim):
-        with tf.variable_scope('split_heads'):
-            # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
-            # heads is split out of features!
-            x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
-            x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
+        # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
+        # heads is split out of features!
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
+        x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
         return x
 
-    def merge_heads(x, merge_dim=None):
-        with tf.variable_scope('merge_heads'):
-            # Reverse of split_heads
-            # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
-            x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
-            x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
+    def merge_heads(x):
+        # Reverse of split_heads
+        # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
+        x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
+        x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
         return x
 
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
@@ -318,10 +331,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-
-        #TODO: should append odd / even here
-        dim_qkv_name = "qkv"
-        dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
+        dim_qkv = mtf.Dimension("qkv", n_state.size * 3)
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
         conv_output_channels = c.shape[2]  # should be equal to dim_qkv
@@ -329,7 +339,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name, features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
+        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension('features_per_head_key', 'features_per_head_value')), v], "kv", axis=1, name="stack_presents_attn")
 
         if past is not None:
             # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
@@ -337,36 +347,33 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
             k = tf.concat([pk, k], axis=-2)
             v = tf.concat([pv, v], axis=-2)
 
-        with tf.variable_scope('attention'):
-            # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
-            if params["local"]:
-                # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
-                a = mtf_transformer.attention.local_attention_1d(
-                    q, k, v,
-                    length_dim=dim_seq,
-                    key_dim=dim_features_per_head_key,
-                    value_dim=dim_features_per_head_value,
-                    length_dim_num_splits=1,
-                    attention_kwargs={}
-                    # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
-                    # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
-                )
+        # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
+        if params["local"]:
+            # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
+            a = mtf_transformer.attention.local_attention_1d(
+                q, k, v,
+                length_dim=dim_seq,
+                key_dim=dim_features_per_head_key,
+                value_dim=dim_features_per_head_value,
+                length_dim_num_splits=1,
+                attention_kwargs={}
+                # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
+                # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
+            )
 
-            else:
-                print('qkv shape', q.shape, k.shape, v.shape)
+        else:
+            print('qkv shape', q.shape, k.shape, v.shape)
 
-                # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
-                a = mtf_transformer.attention.attention(
-                    q, k, v,
-                    memory_length_dim=dim_seq,
-                    key_dim=dim_features_per_head_key,
-                    value_dim=dim_features_per_head_value,
-                    bias=biasmask_attn_weights(q.mesh, q.dtype)
-                )
+            # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
+            a = mtf_transformer.attention.attention(
+                q, k, v,
+                memory_length_dim=dim_seq,
+                key_dim=dim_features_per_head_key,
+                value_dim=dim_features_per_head_value,
+                bias=biasmask_attn_weights(q.mesh, q.dtype)
+            )
 
         a = merge_heads(a)
-
-        # TODO: should append odd / even here
         a = conv1d(a, 'c_proj', dim_embd, params=params)
         a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
 
@@ -381,11 +388,11 @@ def mlp(x, scope, n_state, *, params, train=False):
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
-# append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(x, scope, *, past, params, append_dim, train=False):
+
+def block(x, scope, *, past, params, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
+        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,)
         x = x + a
 
         dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
@@ -393,43 +400,14 @@ def block(x, scope, *, past, params, append_dim, train=False):
         x = x + m
         return x, present
 
-def get_graph_info(graph):
-    # Getting total number of trainable vars
-    print('\n')
-    total_parameters = 0
-    all_dim_names = []
 
-    for variable in graph.trainable_variables:
-      shape = variable.shape.dims
-      variable_parameters = 1
-      for dim in shape:
-          variable_parameters *= dim.size
-      total_parameters += variable_parameters
-    print("N TRAINABLE VARS:")
-    print('{:,}'.format(total_parameters))
-    print('\n')
-
-    for variable in graph.all_variables:
-        names = variable.shape.dimension_names
-        all_dim_names.append(names)
-
-    # print all dim names in graph & write to file
-    all_dim_names = [item for sublist in all_dim_names for item in sublist] # flatten all dims
-    unique_dims = list(set(all_dim_names))
-    print("ALL DIM NAMES:")
-    with open('all_dim_names.txt', 'w') as f:
-        for dim_name in unique_dims:
-            f.write("%s\n" % dim_name)
-            print(dim_name)
-    print('\n')
-
-def gpt_model(features, labels, params, mesh, past=None):
+def gpt_moe_model(features, labels, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorlfow."""
     results = {}
 
     # define mtf dims
     batch_dim = mtf.Dimension('batch', params["train_batch_size"])
-    sequence_dim = mtf.Dimension('sequence', params["n_ctx"])
+    sequence_dim = mtf.Dimension('sequence', params["n_ctx"]) #TODO: sanity check
 
     # we need this because gathering when both the args have the same dimension in them it breaks stuff.
     # this dim is specifically for the weights
@@ -441,23 +419,17 @@ def gpt_model(features, labels, params, mesh, past=None):
     # convert input tensor to mtf tensor
     x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
 
-    # encoding_dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
-    encoding_dt = tf.float32
-
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
-                           initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+                           initializer=tf.random_normal_initializer(stddev=0.01))
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
-                           initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
+                           initializer=tf.random_normal_initializer(stddev=0.02))
 
     past_length = 0 if past is None else mtf.Shape(past)[-2]
 
     if params["embed_dropout"] > 0:
         wpe = mtf.dropout(wpe, params["embed_dropout"], name="wpe_dropout")
         wte = mtf.dropout(wte, params["embed_dropout"], name="wte_dropout")
-    with tf.variable_scope('token_embd'):
-        h = mtf.gather(wte, x, vocab_dim)
-    with tf.variable_scope('pos_embd'):
-        h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
+    h = mtf.gather(wte, x, vocab_dim) + mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
     # # Transformer
     presents = []
 
@@ -468,28 +440,40 @@ def gpt_model(features, labels, params, mesh, past=None):
     pasts = [None] * params["n_layer"]
 
     # attn blocks
-    # TODO: implement odd / even here
-    # pass in even / odd then append to all relevant dimension names
-    lnum = 1
-    for layer, past in enumerate(pasts):
-        if lnum % 2 == 0:
-            append_dim = '_even'
-        else:
-            append_dim = '_odd'
-        h, present = block(h, 'h%d' % layer, append_dim=append_dim, past=past, params=params)
-        presents.append(present)
-        lnum += 1
+    # for layer, past in enumerate(pasts):
+    #     h, present = block(h, 'h%d' % layer, past=past, params=params)
+    #     presents.append(present)
 
-    dim_name = "results"
-    results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
+    Hparams = mtf.transformer.moe.HParams()
+    Hparams.add_hparam('moe_dropout_rate', 0.0) #TODO: add flag
+    mtf.transformer.moe.set_default_moe_hparams(Hparams)
+    output_dim = mtf.Dimension("moe_out", params["n_embd"])
+
+    # This function returns a small auxiliary loss that should be added to the training loss of the model.
+    # This loss helps to balance expert usage. Without the loss, it is very likely that a few experts will be trained and
+    # the rest will starve.
+    print('#########')
+    print('IN SHAPE:')
+    print(h)
+    h, loss = mtf.transformer.moe.transformer_moe_layer_v1(h, output_dim, Hparams, train=True,
+                                                           mesh_shape=FLAGS.mesh_shape, layout=FLAGS.layout,
+                                                           variable_dtype=tf.float32) #TODO: pass in layout
+    print('OUT SHAPE:')
+    print(h)
+
+    # dim_name = "results"
+    # results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # normalize & affine transform
     h = norm(h, 'ln_f', params=params)
 
+    # flatten
+    dim_combined_batch_sequence = mtf.Dimension('combined_batch_sequence', batch_dim.size * sequence_dim.size)
+    h_flat = mtf.reshape(h, mtf.Shape([dim_combined_batch_sequence, embd_dim]))
 
-    with tf.variable_scope('wte_final_einsum'):
-        # equivalent to tf.matmul
-        logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
+    # equivalent to tf.matmul
+    logits = mtf.einsum([h_flat, wte], output_shape=[dim_combined_batch_sequence, vocab_dim])
+    logits = mtf.reshape(logits, [batch_dim, sequence_dim, vocab_dim])
     results['logits'] = logits
 
     vdim = results["logits"].shape[2] # get vocab dimension
@@ -498,10 +482,8 @@ def gpt_model(features, labels, params, mesh, past=None):
     # this op is done in the input_fn
     labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    with tf.variable_scope('xentropy_final'):
-        loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
-    with tf.variable_scope('reduce_mean_final'):
-        loss = mtf.reduce_mean(loss_batch)
+    loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
+    loss = mtf.reduce_mean(loss_batch)
     return logits, loss
 
 
@@ -522,9 +504,9 @@ def model_fn(features, labels, mode, params):
         replica_cache_size = 300 * 1000000  # 300M per replica
         # Worker 0 caches all the TPU binaries.
         worker0_mem = replica_cache_size * ctx.num_replicas
-        devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+        devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
         var_placer = mtf.utils.BalancedVariablePlacer(device_list,
-                                                      devices_memeory_usage)
+                                                      devices_memory_usage)
         mesh_devices = [''] * mesh_shape.size
         mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
             mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
@@ -538,7 +520,6 @@ def model_fn(features, labels, mode, params):
 
     with mtf.utils.outside_all_rewrites():
         logits, loss = gpt_model(features, labels, params, mesh)
-
 
     if FLAGS.auto_layout:
         layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
@@ -565,14 +546,14 @@ def model_fn(features, labels, mode, params):
         if params["opt_name"].lower() == "adam":
             optimizer = mtf.optimize.AdamWeightDecayOptimizer(
                 learning_rate=params["lr"],
-                weight_decay_rate=params["weight_decay"],
+                weight_decay_rate=params["lr"] * params["weight_decay"],
                 beta_1=params["beta1"],
                 beta_2=params["beta2"],
                 epsilon=params["epsilon"])
         else:
             optimizer = mtf.optimize.AdafactorOptimizer(
                 learning_rate=params["lr"],
-                decay_rate=params["weight_decay"],
+                decay_rate=params["lr"] * params["weight_decay"],
                 beta1=params["beta1"],
                 epsilon1=params["ada_epsilon1"],
                 epsilon2=params["ada_epsilon2"]
@@ -583,8 +564,17 @@ def model_fn(features, labels, mode, params):
         # TODO: this is mtf code - figure out what this does
         fully_replicated_logits = mtf.anonymize(logits)
 
-    # calculates n trainable vars & prints all dim_names to file
-    get_graph_info(graph)
+    print('\n')
+    total_parameters = 0
+    for variable in graph.trainable_variables:
+      shape = variable.shape.dims
+      variable_parameters = 1
+      for dim in shape:
+          variable_parameters *= dim.size
+      total_parameters += variable_parameters
+    print("N TRAINABLE VARS:")
+    print('{:,}'.format(total_parameters))
+    print('\n')
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
 
@@ -642,6 +632,8 @@ def run_model_tpu():
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
         FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
 
+
+
     # Read params of model
     with open(FLAGS.model_params, "r") as f:
         params = json.load(f)
@@ -669,8 +661,8 @@ def run_model_tpu():
         train_batch_size=params["train_batch_size"],
         eval_batch_size=params["train_batch_size"],
         params=params)
-    current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(
-        params["model_path"]))
+    current_step = estimator_lib._load_global_step_from_checkpoint_dir(
+        params["model_path"])  # pylint: disable=protected-access,line-too-long
     logging.info('Current step %d', current_step)
     if FLAGS.steps_per_checkpoint == 0:
         classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
