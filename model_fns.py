@@ -7,7 +7,6 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tensorflow-import
 
 import mesh_tensorflow.auto_mtf
-from models import gpt_model
 from utils import get_graph_info
 
 def model_fn(features, labels, mode, params):
@@ -40,10 +39,16 @@ def model_fn(features, labels, mode, params):
             mesh_shape, layout_rules, mesh_devices)
 
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
-
-    with mtf.utils.outside_all_rewrites():
-        logits, loss = gpt_model(features, labels, params, mesh)
-
+    if params["model"] == "GPT2":
+        from models.gpt2 import gpt2
+        with mtf.utils.outside_all_rewrites():
+            logits, loss = gpt2.model(features, labels, params, mesh)
+    elif params["model"] == "GPT2MOE":
+        from models.gpt2moe import gpt2moe
+        with mtf.utils.outside_all_rewrites():
+            logits, loss = gpt2moe.model(features, labels, params, mesh)
+    else:
+        raise Exception(f"{params['model']} is not a valid model - please select from GPT2 or GPT2MOE")
 
     if params["auto_layout"]:
         layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
