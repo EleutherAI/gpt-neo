@@ -6,7 +6,7 @@ from __future__ import print_function
 
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
-import os, json, math
+import json
 from functools import partial
 
 from tensorflow.python.platform import flags
@@ -14,10 +14,7 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.tpu import tpu_config  # pylint: disable=g-direct-tensorflow-import
 from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tensorflow-import
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-import mesh_tensorflow.auto_mtf
 from inputs import generic_text
-from models import gpt_model
-from utils import get_graph_info
 from model_fns import model_fn
 
 FLAGS = flags.FLAGS

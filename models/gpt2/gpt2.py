@@ -243,7 +243,7 @@ def block(x, scope, *, past, params, append_dim, train=False):
         return x, present
 
 
-def gpt_model(features, labels, params, mesh, past=None):
+def model(features, labels, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorlfow."""
     results = {}
 
