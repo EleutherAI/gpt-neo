@@ -1,187 +1,142 @@
-from functools import partial
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
 
-import numpy as np
-import tensorflow as tf
 import mesh_tensorflow as mtf
+import tensorflow.compat.v1 as tf
+from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tensorflow-import
 
-from optimizers import get_update_ops
-from metric_fns import *
+import mesh_tensorflow.auto_mtf
+from models import gpt_model
+from utils import get_graph_info
 
-
-def gpt2_model_mesh(features, labels, mode, params):
-    from models.gpt2 import gpt2
-
-    # define mtf graph / mesh
+def model_fn(features, labels, mode, params):
+    """A model is called by TpuEstimator."""
+    global_step = tf.train.get_global_step()
     graph = mtf.Graph()
+    mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
+    layout_rules = mtf.convert_to_layout_rules(params["layout"])
 
-    # example for 8 cores
-    mesh_shape = mtf.convert_to_shape('all:8') #TODO: if we get model working this hardcoding needs to go
-    mesh_size = mesh_shape.size
-    mesh_devices = [''] * mesh_size
+    if params["use_tpu"]:
+        ctx = params['context']
+        num_hosts = ctx.num_hosts
+        host_placement_fn = ctx.tpu_host_placement_function
+        device_list = [host_placement_fn(host_id=t) for t in range(num_hosts)]
+        tf.logging.info('device_list = %s' % device_list, )
+        # TODO(ylc): Better estimation of replica cache size?
+        replica_cache_size = 300 * 1000000  # 300M per replica
+        # Worker 0 caches all the TPU binaries.
+        worker0_mem = replica_cache_size * ctx.num_replicas
+        devices_memeory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+        var_placer = mtf.utils.BalancedVariablePlacer(device_list,
+                                                      devices_memeory_usage)
+        mesh_devices = [''] * mesh_shape.size
+        mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
+            mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
+    else:
+        var_placer = None
+        mesh_devices = [''] * mesh_shape.size
+        mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
+            mesh_shape, layout_rules, mesh_devices)
 
-    # model parallelism - distribute blocks across all cores
-    layout_rules = mtf.convert_to_layout_rules('blocks:all') #TODO: if we get model working this hardcoding needs to go
-
-    # distribute blocks according to layout rules
-    ctx = params['context']
-    num_hosts = ctx.num_hosts
-    host_placement_fn = ctx.tpu_host_placement_function
-    device_list = [host_placement_fn(host_id=t) for t in range(num_hosts)]
-    tf.logging.info('device_list = %s' % device_list, )
-    # TODO: Better estimation of replica cache size?
-    replica_cache_size = 300 * 1000000  # 300M per replica
-    # Worker 0 caches all the TPU binaries.
-    worker0_mem = replica_cache_size * ctx.num_replicas
-    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
-    var_placer = mtf.utils.BalancedVariablePlacer(device_list,
-                                                  devices_memory_usage)
-    mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-        mesh_shape, layout_rules, mesh_devices, ctx.device_assignment)
-    mesh = mtf.Mesh(graph, "my_mesh", var_placer)
-
-    if mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL:
-        if params["precision"] == 'bfloat16':
-            raise Exception('Not implemented') #TODO: implement bfloat precision
-            with tf.contrib.tpu.bfloat16_scope():
-                output = gpt2.model(X=features, params=params, mesh=mesh,
-                                    past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN)
-
-            output["logits"] = tf.cast(output["logits"], tf.float32)
-
-        else:
-
-            output = gpt2.model(X=features, params=params, mesh=mesh,
-                                    past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN)
-        
-        # TODO: cleanup: this code duplicates code in gpt2.py. We should try to import all the tensors at once eventually. 
-        batch_size = params["train_batch_size"]
-        sequence_size = params["n_ctx"]                       
-        batch_dim = mtf.Dimension("batch", batch_size)
-        sequence_dim = mtf.Dimension("sequence", sequence_size)
-        labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
-
-        # logits :: [batch, seq, vocab]
-        vdim = output["logits"].shape[2]
-        loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=output["logits"], targets=labels, vocab_dim=vdim)
-        loss = mtf.reduce_mean(loss_batch)
-
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        update_ops = get_update_ops(loss, params, graph)
-
-    lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    if mode != tf.estimator.ModeKeys.PREDICT:
-        tf_loss = lowering.export_to_tf_tensor(loss)
+    mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
     with mtf.utils.outside_all_rewrites():
-
-        if mode == tf.estimator.ModeKeys.TRAIN:
-            tf_update_ops = [lowering.lowered_operation(op) for op in update_ops] # lower mtf update ops to tf update ops
-            train_op = tf.group(tf_update_ops) # group update ops into train op
-            return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=tf_loss, train_op=train_op)
+        logits, loss = gpt_model(features, labels, params, mesh)
 
 
+    if params["auto_layout"]:
+        layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
+        print('Auto-selected layout:')
+        print(layout_rules)
+        print('Re-initialize graph with selected layout')
+        quit() #TODO: it should be easy to just reinitialize everything w selected layout
 
-        if mode == tf.estimator.ModeKeys.EVAL:
-            #TODO: implement EVAL
-            from metric_fns import perplexity_metric
+    if params["auto_layout_and_mesh_shape"]:
+        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"], [logits, loss])
+        print('Num cores:')
+        print(params["num_cores"])
+        print('Auto-selected layout:')
+        print(layout_rules)
+        print('Auto-selected mesh shape:')
+        print(mesh_shape)
+        print('Re-initialize graph with selected layout & mesh shape')
+        quit() #TODO: it should be easy to just reinitialize everything w selected layout
 
-            if params["use_tpu"]:
-                # Metric inputs are transferred to CPU and must preserve batch dimension
-                return tf.contrib.tpu.TPUEstimatorSpec(mode=mode,
-                    loss=loss, eval_metrics=(perplexity_metric, {"loss": loss_batch}))
-            else:
-                return tf.estimator.EstimatorSpec(mode=mode,
-                    loss=loss, eval_metric_ops=perplexity_metric(loss_batch))
-
-
-        if mode == tf.estimator.ModeKeys.PREDICT:
-            #TODO: implement predict / sample
-            from models.gpt2 import sample
-
-            if not "top_k" in params.keys():
-                params["top_k"] = 0
-
-            output = sample.sample_sequence(
-                params=params, length=params["n_ctx"],
-                context=features,
-                batch_size=params["batch_size"],
-                temperature=1.0, top_k=params["top_k"]
-            )
-
-            predictions = {
-                "tokens": output
-            }
-
-            if params["use_tpu"]:
-                return tf.contrib.tpu.TPUEstimatorSpec(mode, predictions=predictions)
-            else:
-                return tf.estimator.EstimatorSpec(mode, predictions=predictions)
-
-
-def gpt2_model(features, labels, mode, params):
-    from models.gpt2 import gpt2
-
-    if mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL:
-        if params["precision"] == 'bfloat16':
-            with tf.contrib.tpu.bfloat16_scope():
-                output = gpt2.model(X=features, params=params,
-                                    labels=labels,
-                                    past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
-
-            output["logits"] = tf.cast(output["logits"], tf.float32)
-
+    # TRAIN mode
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        var_grads = mtf.gradients([loss],
+                                  [v.outputs[0] for v in graph.trainable_variables])
+        if params["opt_name"].lower() == "adam":
+            optimizer = mtf.optimize.AdamWeightDecayOptimizer(
+                learning_rate=params["lr"],
+                weight_decay_rate=params["weight_decay"],
+                beta_1=params["beta1"],
+                beta_2=params["beta2"],
+                epsilon=params["epsilon"])
         else:
-            output = gpt2.model(X=features, params=params,
-                                    labels=labels,
-                                    past=None, reuse=tf.AUTO_REUSE,
-                                    train=mode==tf.estimator.ModeKeys.TRAIN, mesh=mesh)
+            optimizer = mtf.optimize.AdafactorOptimizer(
+                learning_rate=params["lr"],
+                decay_rate=params["weight_decay"],
+                beta1=params["beta1"],
+                epsilon1=params["ada_epsilon1"],
+                epsilon2=params["ada_epsilon2"]
+            )
+        update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+    else:
+        # for now, we can only export fully-replicated tensors.
+        # TODO: this is mtf code - figure out what this does
+        fully_replicated_logits = mtf.anonymize(logits)
 
-        loss_batch = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=output["logits"], labels=labels)
-        loss = tf.reduce_mean(loss_batch)
+    # gets info about no. trainable vars in the model & dimension names
+    get_graph_info(graph)
+
+    lowering = mtf.Lowering(graph, {mesh: mesh_impl})
+
+    tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
-        train_op = create_train_op(loss, params)
+        tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
+        tf_update_ops.append(tf.assign_add(global_step, 1))
+        tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
+        train_op = tf.group(tf_update_ops)
+    else:
+        tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
 
-        if params["use_tpu"]:
-            return tf.contrib.tpu.TPUEstimatorSpec(mode, loss=loss, train_op=train_op)
-        else:
-            return tf.estimator.EstimatorSpec(mode, loss=loss, train_op=train_op)
+    with mtf.utils.outside_all_rewrites():
+        # Copy master variables to slices. Must be called first.
+        restore_hook = mtf.MtfRestoreHook(lowering)
+        if mode == tf.estimator.ModeKeys.TRAIN:
+            saver = tf.train.Saver(
+                tf.global_variables(),
+                sharded=True,
+                max_to_keep=10,
+                keep_checkpoint_every_n_hours=2,
+                defer_build=False,
+                save_relative_paths=True)
+            tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+            saver_listener = mtf.MtfCheckpointSaverListener(lowering)
+            saver_hook = tf.train.CheckpointSaverHook(
+                params["model_path"],
+                save_steps=1000,
+                saver=saver,
+                listeners=[saver_listener])
 
+            return tpu_estimator.TPUEstimatorSpec(
+                tf.estimator.ModeKeys.TRAIN,
+                loss=tf_loss,
+                train_op=train_op,
+                training_hooks=[restore_hook, saver_hook])
+        elif mode == tf.estimator.ModeKeys.EVAL:
 
-    if mode == tf.estimator.ModeKeys.EVAL:
-        from metric_fns import perplexity_metric
+            def metric_fn(tf_logits):
+                mean_logits = tf.metrics.mean(tf_logits)
+                return {'mean_logits': mean_logits}
 
-        if params["use_tpu"]:
-            # Metric inputs are transferred to CPU and must preserve batch dimension
-            return tf.contrib.tpu.TPUEstimatorSpec(mode=mode,
-                loss=loss, eval_metrics=(perplexity_metric, {"loss": loss_batch}))
-        else:
-            return tf.estimator.EstimatorSpec(mode=mode,
-                loss=loss, eval_metric_ops=perplexity_metric(loss_batch))
+            eval_metrics = (metric_fn, [tf_logits])
 
-
-    if mode == tf.estimator.ModeKeys.PREDICT:
-
-        from models.gpt2 import sample
-
-        if not "top_k" in params.keys():
-            params["top_k"] = 0
-
-        output = sample.sample_sequence(
-            params=params, length=params["n_ctx"],
-            context=features,
-            batch_size=params["batch_size"],
-            temperature=1.0, top_k=params["top_k"]
-        )
-
-        predictions = {
-            "tokens": output
-        }
-
-        if params["use_tpu"]:
-            return tf.contrib.tpu.TPUEstimatorSpec(mode, predictions=predictions)
-        else:
-            return tf.estimator.EstimatorSpec(mode, predictions=predictions)
+            return tpu_estimator.TPUEstimatorSpec(
+                tf.estimator.ModeKeys.EVAL,
+                evaluation_hooks=[restore_hook],
+                loss=tf_loss,
+                eval_metrics=eval_metrics)

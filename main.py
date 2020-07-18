@@ -1,164 +1,120 @@
-import argparse
-import json
-import logging
-import sys
-import time
+"""GPT-like model in Mesh-Tensorflow"""
+
+from __future__ import absolute_import
+from __future__ import division
+from __future__ import print_function
+
+import mesh_tensorflow as mtf
+import tensorflow.compat.v1 as tf
+import os, json, math
 from functools import partial
-from pathlib import Path
 
-import tensorflow as tf
-
+from tensorflow.python.platform import flags
+from tensorflow.python.platform import tf_logging as logging
+from tensorflow.python.tpu import tpu_config  # pylint: disable=g-direct-tensorflow-import
+from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tensorflow-import
+from tensorflow_estimator.python.estimator import estimator as estimator_lib
+import mesh_tensorflow.auto_mtf
 from inputs import generic_text
-from model_fns import *
-from predict_fns import *
+from models import gpt_model
+from utils import get_graph_info
+from model_fns import model_fn
+
+FLAGS = flags.FLAGS
+tf.flags.DEFINE_string('model_params', 'configs/colab.json', help="path to model config")
+tf.flags.DEFINE_integer('steps_per_checkpoint', 200, 'steps_per_checkpoint')
+
+# Optimizer settings
+tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
+
+#Auto layout
+tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
+tf.flags.DEFINE_bool('auto_layout_and_mesh_shape', False, 'set layout rules automatically')
+tf.flags.DEFINE_integer('num_cores', 8, 'Number of TPU cores (required for auto_mesh_shape')
+# steps_per, use_tpu, model_params, autolayouts
 
 
-# This program was designed to function with multiple kinds of models, but currently only GPT2 is supported
-# The first element in the tupel is the model function, the second is the function called when predicting
-models = {
-    "GPT2": (gpt2_model, gpt2_predict),
-    "GPT2_mesh": (gpt2_model_mesh, gpt2_predict) #TODO: mesh predict fn
-}
+# Cloud TPU Cluster Resolvers
+tf.flags.DEFINE_string(
+    'tpu',
+    default=None,
+    help='The Cloud TPU to use for training. This should be either the name '
+         'used when creating the Cloud TPU, or a grpc://ip.address.of.tpu:8470 url.')
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--tpu', type=str, default="sparse") # Name of TPU to train on, if any
-    parser.add_argument('--model', type=str, default="configs/117M.json") # JSON file that contains model parameters
-    parser.add_argument("--predict_file", type=str) # File to take as input for predict
-    parser.add_argument("--predict_text", type=str) # Take string directly from args
-    parser.add_argument("--top_k", type=int) # Top K truncation parameter for text generation
-    args = parser.parse_args()
+tf.flags.DEFINE_string(
+    'gcp_project',
+    default=None,
+    help='Project name for the Cloud TPU-enabled project. If not specified, we '
+         'will attempt to automatically detect the GCE project from metadata.')
 
+tf.flags.DEFINE_string(
+    'tpu_zone',
+    default=None,
+    help='GCE zone where the Cloud TPU is located in. If not specified, we '
+         'will attempt to automatically detect the GCE project from metadata.')
+
+
+def run_model_tpu():
+    """Run a GPT model on TPU."""
+    tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(
+        FLAGS.tpu, zone=FLAGS.tpu_zone, project=FLAGS.gcp_project)
 
     # Read params of model
-    with open(args.model, "r") as f:
+    with open(FLAGS.model_params, "r") as f:
         params = json.load(f)
 
-    params["use_tpu"] = True if not args.tpu is None else False
+    iterations_per_loop = params["iterations"]
+    mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
 
-    # Get prediction text
-    predict_mode = False
-    if not params["use_tpu"]:
-      if args.predict_file is not None:
-          predict_mode = True
-          with open(args.predict_file) as f:
-              text = f.read()
-      elif args.predict_text is not None:
-          predict_mode = True
-          text = args.predict_text
-      elif args.predict_file is not None and args.predict_text is not None:
-          print("ERROR: Specify exactly one of --predict_file and --predict_text!")
-          sys.exit()
+    # add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
+    params["auto_layout"] = FLAGS.auto_layout
+    params["auto_layout_and_mesh_shape"] = FLAGS.auto_layout_and_mesh_shape
+    params["use_tpu"] = FLAGS.use_tpu
+    params["num_cores"] = mesh_shape.size
+    tf.logging.info('params = %s' % params, )
 
-
-    # Setup logging
-    Path("logs").mkdir(exist_ok=True)
-    tf.logging.set_verbosity(logging.INFO)
-    handlers = [
-        logging.FileHandler('logs/{}.log'.format(args.model.split("/")[-1])),
-        logging.StreamHandler(sys.stdout)
-    ]
-    logger = logging.getLogger('tensorflow')
-    logger.handlers = handlers
-
-    if args.top_k is not None:
-        params["top_k"] = args.top_k 
-
-    if not "precision" in params.keys():
-        params["precision"] = "float32" # Doesn't actually do anything since float32 is the default anyways. Only recognized other dtype is "bfloat16"
-
-    if not "iterations" in params.keys():
-        params["iterations"] = 1 # Because this controls how many samples are prefetched
-
-    logger.info(params)
-
-    model_fn = models[params["model"]][0]
-    predict_fn = models[params["model"]][1]
-
-    if params["use_tpu"] and not predict_mode:
-        # Resolve TPU cluster and runconfig
-        if args.tpu == 'colab_tpu':
-          tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver()
-        else:
-          tpu_cluster_resolver = tf.contrib.cluster_resolver.TPUClusterResolver(args.tpu)
-        # TFMESH STUFF:
-        mesh_shape = mtf.convert_to_shape('all:8')
-        config = tf.contrib.tpu.TPUConfig(num_shards=mesh_shape.size,
-                                          iterations_per_loop=params["iterations"],
-                                          num_cores_per_replica=1,
-                                          per_host_input_for_training=tf.compat.v1.estimator.tpu.InputPipelineConfig.BROADCAST)
-        run_config = tf.contrib.tpu.RunConfig(
-            model_dir=params["model_path"],
-            cluster=tpu_cluster_resolver,
-            save_checkpoints_secs=60*30,
-            session_config=tf.ConfigProto(
-                # allow_soft_placement=True,
-                # log_device_placement=True
-                ),
-                tpu_config=config
-        )
-
-        # Set up network
-        network = tf.contrib.tpu.TPUEstimator(
-                model_fn=model_fn,
-                use_tpu=True,
-                train_batch_size=params["train_batch_size"], # These are the global sizes, must be divisible by replicas
-                eval_batch_size=params["eval_batch_size"],
-                predict_batch_size=params["predict_batch_size"],
-                config=run_config,
-                params=params)
-
-    else:
-        # Non TPU setup
-        if not predict_mode:
-            params["batch_size"] = params["train_batch_size"]
-        else:
-            params["batch_size"] = params["predict_batch_size"]
-
-            from models.gpt2 import encoder
-            enc = encoder.get_encoder(params["encoder_path"])
-            tokens = enc.encode(text)
-            params["text_len"] = len(tokens)
-            if params["text_len"] > 1024:
-                params["text_len"] = 1024
-
-        run_config = tf.estimator.RunConfig(
-            model_dir=params["model_path"],
-            session_config=tf.ConfigProto(
-                # log_device_placement=True,
-                # allow_soft_placement=True
-            ),
-        )
-
-        network = tf.estimator.Estimator(
-            model_fn=model_fn,
-            config=run_config,
-            params=params)
-
-    if predict_mode:
-        logger.info("Generating predictions...")
-        predict_fn(network, text, params)
-        sys.exit()
-
-    # Train eval loop
-    while True:
-        start = time.time()
-
-        network.train(
-                input_fn=partial(generic_text, eval=False),
-                steps=params["train_steps"])
+    config = tpu_config.RunConfig(
+        cluster=tpu_cluster_resolver,
+        model_dir=params["model_path"],
+        save_checkpoints_steps=None,  # Disable the default saver
+        save_checkpoints_secs=None,  # Disable the default saver
+        log_step_count_steps=iterations_per_loop,
+        save_summary_steps=iterations_per_loop,
+        tpu_config=tpu_config.TPUConfig(
+            num_shards=mesh_shape.size,
+            iterations_per_loop=iterations_per_loop,
+            num_cores_per_replica=1,
+            per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
+    classifier = tpu_estimator.TPUEstimator(
+        use_tpu=True,
+        model_fn=model_fn,
+        config=config,
+        train_batch_size=params["train_batch_size"],
+        eval_batch_size=params["train_batch_size"],
+        params=params)
+    current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(
+        params["model_path"]))
+    logging.info('Current step %d', current_step)
+    if FLAGS.steps_per_checkpoint == 0:
+        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
+        return
+    while current_step < params["train_steps"]:
+        next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
+                              params["train_steps"])
+        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=next_checkpoint)
+        current_step = next_checkpoint
+        # logging.info('Starting to evaluate.')
+        # eval_results = classifier.evaluate(
+        #     input_fn=TextInput(),
+        #     steps=156)  # since we have 10000 examples and batch_size = 64 per host
+        # logging.info('Eval results: %s', eval_results)
 
 
-        end = time.time()
-        logger.info("\nTrain loop took {:.2f}s\n".format(end-start))
+def main(_):
+    run_model_tpu()
 
-        print('Skipping eval')
-        # eval_result = network.evaluate(
-        #    input_fn=partial(generic_text, eval=True),
-        #    steps=params["eval_steps"])
 
-        # logger.info("\nEval Results: {}\n".format(str(eval_result)))
-
-        if network.get_variable_value("global_step") > params["max_steps"]:
-            logger.info("Done!")
-            break
+if __name__ == '__main__':
+    tf.disable_v2_behavior()
+    tf.logging.set_verbosity(tf.logging.INFO)
+    tf.app.run()
