@@ -28,6 +28,11 @@ tf.flags.DEFINE_bool('use_tpu', True, 'use TPU')
 tf.flags.DEFINE_bool('auto_layout', False, 'set layout rules automatically')
 tf.flags.DEFINE_bool('auto_layout_and_mesh_shape', False, 'set layout rules automatically')
 
+#tfmesh optimizations
+tf.flags.DEFINE_bool('autostack', False, 'If True, then the graph gets rewritten to reduce the number of variables '
+                                         '(see rewrite_stack_variables()). This is a helpful performance optimization '
+                                         'for large meshes.')
+
 # Cloud TPU Cluster Resolvers
 tf.flags.DEFINE_string(
     'tpu',
