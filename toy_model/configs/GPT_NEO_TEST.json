@@ -34,5 +34,5 @@
     "local": true,
     "mesh_shape": "all:8",
     "layout": "heads:all",
-    "precision": "bfloat16"
+    "precision": "float32"
 }
