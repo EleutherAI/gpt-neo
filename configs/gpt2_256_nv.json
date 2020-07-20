@@ -3,7 +3,7 @@
     "encoder_path": "gs://datasets_storage_1/models/encoder",
     "n_vocab": 32768,
     "embed_dropout": 0.1,
-    "lr": 0.00025,
+    "lr": 0.0002,
     "warmup_steps": 0,
     "beta1_adam": 0.9,
     "beta1": 0,
