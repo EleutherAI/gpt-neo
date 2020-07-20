@@ -91,7 +91,10 @@ def model_fn(features, labels, mode, params):
         update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
     else:
         # for now, we can only export fully-replicated tensors.
+        # this has to be done before lowering or they will not be included in the graph
         fully_replicated_logits = mtf.anonymize(logits)
+        fully_replicated_loss_batch = mtf.anonymize(loss_batch)
+
 
     # gets info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
@@ -107,6 +110,8 @@ def model_fn(features, labels, mode, params):
         train_op = tf.group(tf_update_ops)
     else:
         tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
+        tf_loss_batch = tf.to_float(lowering.export_to_tf_tensor(fully_replicated_loss_batch))
+
 
     with mtf.utils.outside_all_rewrites():
         # Copy master variables to slices. Must be called first.
@@ -133,10 +138,6 @@ def model_fn(features, labels, mode, params):
                 train_op=train_op,
                 training_hooks=[restore_hook, saver_hook])
         elif mode == tf.estimator.ModeKeys.EVAL:
-
-            # remove dimension names and export to tf tensor
-            fully_replicated_loss_batch = mtf.anonymize(loss_batch)
-            tf_loss_batch = tf.to_float(lowering.export_to_tf_tensor(fully_replicated_loss_batch))
 
             def perplexity(tf_loss_batch):
                 loss = tf.reduce_mean(tf_loss_batch)

@@ -13,7 +13,7 @@
     "train_batch_size": 32,
     "attn_dropout": 0.1,
     "train_steps": 10000,
-    "eval_steps": 0,
+    "eval_steps": 156,
     "max_steps": 500000,
     "data_path": "gs://datasets_storage_1/datasets/bundestag",
     "res_dropout": 0.1,
