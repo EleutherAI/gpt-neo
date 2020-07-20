@@ -326,4 +326,4 @@ def model(features, labels, params, mesh, past=None):
 
     loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
     loss = mtf.reduce_mean(loss_batch)
-    return logits, loss
+    return logits, loss, loss_batch
