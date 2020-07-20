@@ -70,6 +70,7 @@ def run_model_tpu():
     params["auto_layout_and_mesh_shape"] = FLAGS.auto_layout_and_mesh_shape
     params["use_tpu"] = FLAGS.use_tpu
     params["num_cores"] = mesh_shape.size
+    params["steps_per_checkpoint"] = FLAGS.steps_per_checkpoint
     tf.logging.info('params = %s' % params, )
 
     config = tpu_config.RunConfig(
@@ -97,16 +98,24 @@ def run_model_tpu():
     if FLAGS.steps_per_checkpoint == 0:
         classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
         return
-    while current_step < params["train_steps"]:
-        next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
-                              params["train_steps"])
-        classifier.train(input_fn=partial(generic_text, eval=False), max_steps=next_checkpoint)
-        current_step = next_checkpoint
-        # logging.info('Starting to evaluate.')
-        # eval_results = classifier.evaluate(
-        #     input_fn=TextInput(),
-        #     steps=156)  # since we have 10000 examples and batch_size = 64 per host
-        # logging.info('Eval results: %s', eval_results)
+    if params["eval_steps"] > 0:
+        # if eval is on - stop and eval every ckpt
+        while current_step < params["train_steps"]:
+            next_checkpoint = min(current_step + FLAGS.steps_per_checkpoint,
+                                  params["train_steps"])
+            classifier.train(input_fn=partial(generic_text, eval=False), max_steps=next_checkpoint)
+            current_step = next_checkpoint
+            logging.info('Starting to evaluate.')
+            eval_results = classifier.evaluate(
+                input_fn=partial(generic_text, eval=False),
+                steps=params["eval_steps"])
+            logging.info('Eval results: %s', eval_results)
+    else:
+        while current_step < params["train_steps"]:
+            # else, don't stop and restart
+            classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_steps"])
+
+
 
 
 def main(_):

@@ -42,11 +42,11 @@ def model_fn(features, labels, mode, params):
     if params["model"] == "GPT2":
         from models.gpt2 import gpt2
         with mtf.utils.outside_all_rewrites():
-            logits, loss = gpt2.model(features, labels, params, mesh)
+            logits, loss, loss_batch = gpt2.model(features, labels, params, mesh)
     elif params["model"] == "GPT2MOE":
         from models.gpt2moe import gpt2moe
         with mtf.utils.outside_all_rewrites():
-            logits, loss = gpt2moe.model(features, labels, params, mesh)
+            logits, loss, loss_batch = gpt2moe.model(features, labels, params, mesh)
     else:
         print(params['model'])
         raise Exception("is not a valid model - please select from GPT2 or GPT2MOE")
@@ -91,7 +91,6 @@ def model_fn(features, labels, mode, params):
         update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
     else:
         # for now, we can only export fully-replicated tensors.
-        # TODO: this is mtf code - figure out what this does
         fully_replicated_logits = mtf.anonymize(logits)
 
     # gets info about no. trainable vars in the model & dimension names
@@ -124,7 +123,7 @@ def model_fn(features, labels, mode, params):
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
             saver_hook = tf.train.CheckpointSaverHook(
                 params["model_path"],
-                save_steps=1000,
+                save_steps=params["steps_per_checkpoint"], #TODO: why isn't this outputting ckpts when we want
                 saver=saver,
                 listeners=[saver_listener])
 
@@ -135,11 +134,21 @@ def model_fn(features, labels, mode, params):
                 training_hooks=[restore_hook, saver_hook])
         elif mode == tf.estimator.ModeKeys.EVAL:
 
-            def metric_fn(tf_logits):
-                mean_logits = tf.metrics.mean(tf_logits)
-                return {'mean_logits': mean_logits}
+            # remove dimension names and export to tf tensor
+            fully_replicated_loss_batch = mtf.anonymize(loss_batch)
+            tf_loss_batch = tf.to_float(lowering.export_to_tf_tensor(fully_replicated_loss_batch))
 
-            eval_metrics = (metric_fn, [tf_logits])
+            def perplexity(tf_loss_batch):
+                loss = tf.reduce_mean(tf_loss_batch)
+                perplexity = tf.exp(loss)
+                return tf.metrics.mean(perplexity)
+
+            def metric_fn(tf_logits, tf_loss_batch):
+                mean_logits = tf.metrics.mean(tf_logits)
+                perp = perplexity(tf_loss_batch)
+                return {'mean_logits': mean_logits, 'perplexity': perp}
+
+            eval_metrics = (metric_fn, [tf_logits, tf_loss_batch])
 
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.EVAL,
