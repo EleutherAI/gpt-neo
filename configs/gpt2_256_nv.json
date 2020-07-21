@@ -16,7 +16,7 @@
     "train_batch_size": 384,
     "attn_dropout": 0.1,
     "train_steps": 1000000,
-    "eval_steps": 156,
+    "eval_steps": 0,
     "max_steps": 500000,
     "res_dropout": 0.1,
     "predict_batch_size": 1,

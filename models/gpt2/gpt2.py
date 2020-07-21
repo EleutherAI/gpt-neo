@@ -233,10 +233,11 @@ def mlp(x, scope, n_state, *, params, train=False):
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def block(x, scope, *, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
-        nx = x.shape[-1]
+        nx = x.shape[-1] # grab last dimension from input
         a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
         x = x + a
 
+        # define intermediate layer of mlp - to split
         dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
         m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
         x = x + m

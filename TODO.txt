@@ -11,6 +11,6 @@ top_k sampling:
 https://github.com/tensorflow/mesh/blob/master/mesh_tensorflow/ops.py#L4983
 mtf._iterative_top_k()
 
-sample with temperature: (top_p?)
+sample with temperature:
 https://github.com/tensorflow/mesh/blob/master/mesh_tensorflow/ops.py#L5046
 mtf.sample_with_temperature()
