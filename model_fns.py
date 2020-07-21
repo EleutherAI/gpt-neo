@@ -98,8 +98,9 @@ def model_fn(features, labels, mode, params):
 
     # gets info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
-
-    lowering = mtf.Lowering(graph, {mesh: mesh_impl})
+    if params["autostack"]:
+        print('IMPLEMENTING AUTOSTACK')
+    lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=params["autostack"])
 
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
 
