@@ -7,7 +7,7 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator  # pylint: disable=g-direct-tensorflow-import
 
 import mesh_tensorflow.auto_mtf
-from utils import get_graph_info
+from utils import get_graph_info, TpuSummaries
 from optimizers import get_optimizer
 
 def model_fn(features, labels, mode, params):
@@ -16,6 +16,7 @@ def model_fn(features, labels, mode, params):
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
+    summary = TpuSummaries(params["model_dir"])
 
     if params["use_tpu"]:
         ctx = params['context']
@@ -72,26 +73,7 @@ def model_fn(features, labels, mode, params):
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
-        _, update_ops = get_optimizer(loss, params)
-
-        # var_grads = mtf.gradients([loss],
-        #                           [v.outputs[0] for v in graph.trainable_variables])
-        # if params["opt_name"].lower() == "adam":
-        #     optimizer = mtf.optimize.AdamWeightDecayOptimizer(
-        #         learning_rate=params["lr"],
-        #         weight_decay_rate=params["weight_decay"],
-        #         beta_1=params["beta1"],
-        #         beta_2=params["beta2"],
-        #         epsilon=params["epsilon"])
-        # else:
-        #     optimizer = mtf.optimize.AdafactorOptimizer(
-        #         learning_rate=params["lr"],
-        #         decay_rate=params["weight_decay"],
-        #         beta1=params["beta1"],
-        #         epsilon1=params["ada_epsilon1"],
-        #         epsilon2=params["ada_epsilon2"]
-        #     )
-        # update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+        _, update_ops = get_optimizer(loss, params, summary)
     else:
         # for now, we can only export fully-replicated tensors.
         # this has to be done before lowering or they will not be included in the graph
@@ -116,9 +98,6 @@ def model_fn(features, labels, mode, params):
         tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
         tf_loss_batch = tf.to_float(lowering.export_to_tf_tensor(fully_replicated_loss_batch))
 
-    # creates a host call that saves summaries
-    host_call = mtf.utils.create_host_call(params["model_path"])
-    mtf.utils.remove_summaries()
 
     with mtf.utils.outside_all_rewrites():
         # Copy master variables to slices. Must be called first.
@@ -142,7 +121,7 @@ def model_fn(features, labels, mode, params):
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
-                host_call=host_call,
+                host_call=summary.get_host_call(),
                 train_op=train_op,
                 training_hooks=[restore_hook, saver_hook])
         elif mode == tf.estimator.ModeKeys.EVAL:

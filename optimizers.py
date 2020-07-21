@@ -6,7 +6,7 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def get_optimizer(loss, params):
+def get_optimizer(loss, params, summary):
     """Creates and returns an optimizer training op."""
 
     global_step = tf.train.get_or_create_global_step() # get global step
@@ -37,10 +37,7 @@ def get_optimizer(loss, params):
         learning_rate = ((1.0 - is_warmup) * learning_rate +
                        is_warmup * warmup_learning_rate)
 
-
-    # This has to happen on CPU bc TPU can't handle summaries
-    mtf_learning_rate = mtf.import_tf_tensor(mesh, learning_rate, [])
-    mtf.scalar_summary("lr", mtf_learning_rate)
+    summary.scalar("lr", learning_rate)
 
     if params["opt_name"].lower() == "adam":
         optimizer = mtf.optimize.AdamWeightDecayOptimizer(
