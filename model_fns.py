@@ -16,7 +16,7 @@ def model_fn(features, labels, mode, params):
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
-    summary = TpuSummaries(params["model_dir"])
+    summary = TpuSummaries(params["model_path"])
 
     if params["use_tpu"]:
         ctx = params['context']
@@ -83,8 +83,6 @@ def model_fn(features, labels, mode, params):
 
     # gets info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
-    if params["autostack"]:
-        print('IMPLEMENTING AUTOSTACK')
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=params["autostack"])
 
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
