@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 
 
 def get_n_trainable_vars(graph):
@@ -82,10 +82,6 @@ Warning: The host call function will run every step. Writing large tensors to
 summaries can slow down your training. High ranking outfeed operations in your
 XProf profile can be an indication for this.
 """
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import collections
 
