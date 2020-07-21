@@ -68,6 +68,7 @@ def run_model_tpu():
     # add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     params["auto_layout"] = FLAGS.auto_layout
     params["auto_layout_and_mesh_shape"] = FLAGS.auto_layout_and_mesh_shape
+    params["autostack"] = FLAGS.autostack
     params["use_tpu"] = FLAGS.use_tpu
     params["num_cores"] = mesh_shape.size
     params["steps_per_checkpoint"] = FLAGS.steps_per_checkpoint

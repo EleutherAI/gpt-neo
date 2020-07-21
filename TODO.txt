@@ -1,5 +1,6 @@
 Implement warmup, example here:
 https://github.com/tensorflow/mesh/blob/master/mesh_tensorflow/bert/optimization.py#L47
+https://github.com/tensorflow/mesh/blob/0fe007b765f8efe4a3ebe6a97f05a2fc04e109a8/mesh_tensorflow/transformer/learning_rate_schedules.py#L88
 
 
 SAMPLING:
