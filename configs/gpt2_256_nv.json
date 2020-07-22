@@ -4,7 +4,7 @@
     "n_vocab": 32768,
     "embed_dropout": 0.1,
     "lr": 0.0002,
-    "lr_decay": "linear",
+    "lr_decay": "cosine",
     "warmup_steps": 3000,
     "beta1_adam": 0.9,
     "beta1": 0,
