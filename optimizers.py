@@ -14,7 +14,7 @@ def get_optimizer(loss, params, summary):
     graph = mesh.graph  # get graph info from mesh
     var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
     learning_rate = tf.constant(value=params["lr"], shape=[], dtype=tf.float32)
-    if params["linear_decay"]:
+    if params["lr_decay"] == "linear":
         learning_rate = tf.train.polynomial_decay(
             learning_rate,
             global_step,
@@ -22,6 +22,13 @@ def get_optimizer(loss, params, summary):
             end_learning_rate=params["lr"]*0.1, # decrease to 10% of initial LR according to GPT-3 paper
             power=1.0,
             cycle=False)
+    elif params["lr_decay"] == "cosine":
+        learning_rate = tf.train.cosine_decay(
+            learning_rate,
+            global_step,
+            params["train_steps"],
+            alpha=0.1  # alpha is min lr value as a fraction of init lr.
+        )
 
     if params["warmup_steps"] > 0:
         global_steps_int = tf.cast(global_step, tf.int32)
