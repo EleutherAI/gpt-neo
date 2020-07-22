@@ -2,6 +2,7 @@
 import argparse
 import json
 import logging
+import os
 import sys
 from functools import partial
 from pathlib import Path
@@ -31,7 +32,7 @@ def main():
     Path("logs").mkdir(exist_ok=True)
     tf.logging.set_verbosity(logging.INFO)
     handlers = [
-        logging.FileHandler('logs/{}.log'.format(args.model)),
+        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
         logging.StreamHandler(sys.stdout)
     ]
     logger = logging.getLogger('tensorflow')
