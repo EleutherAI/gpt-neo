@@ -8,7 +8,6 @@ from pathlib import Path
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.platform import flags
-from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 
