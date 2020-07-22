@@ -159,6 +159,8 @@ class TpuSummaries(object):
     step = step[0]
     logging.info("host_call_fn: args=%s", args)
     ops = []
+
+    # log images
     with summary.create_file_writer(os.path.join(self._log_dir, 'images')).as_default():
       offset = 0
       with summary.record_summaries_every_n_global_steps(
@@ -168,6 +170,8 @@ class TpuSummaries(object):
           e.summary_fn(e.name, value, step=step)
       offset += len(self._image_entries)
       ops.append(summary.all_summary_ops())
+
+    # log text
     with summary.create_file_writer(os.path.join(self._log_dir, 'scalars')).as_default():
       with summary.record_summaries_every_n_global_steps(
             self._save_summary_steps, step):
