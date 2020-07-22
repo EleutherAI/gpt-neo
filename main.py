@@ -10,6 +10,7 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.platform import flags
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
+import sys
 
 from inputs import generic_text
 from model_fns import model_fn
@@ -26,10 +27,18 @@ def main():
     parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
     args = parser.parse_args()
 
+    # Setup logging
+    Path("logs").mkdir(exist_ok=True)
+    tf.logging.set_verbosity(logging.INFO)
+    handlers = [
+        logging.FileHandler('logs/{}.log'.format(args.model)),
+        logging.StreamHandler(sys.stdout)
+    ]
     logger = logging.getLogger('tensorflow')
+    logger.handlers = handlers
 
     # Read params of model
-    with open(FLAGS.model_params, "r") as f:
+    with open(args.model, "r") as f:
         params = json.load(f)
 
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
@@ -88,20 +97,9 @@ def main():
     else:
         while current_step < params["train_steps"]:
             # Else, don't stop and restart
-            classifier.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_steps"])
+            estimator.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_steps"])
 
 
 if __name__ == '__main__':
     tf.disable_v2_behavior()
-
-    # Setup logging
-    Path("logs").mkdir(exist_ok=True)
-    tf.logging.set_verbosity(logging.INFO)
-    handlers = [
-        logging.FileHandler('logs/{}.log'.format(args.model)),
-        logging.StreamHandler(sys.stdout)
-    ]
-    logger = logging.getLogger('tensorflow')
-    logger.handlers = handlers
-
     main()
