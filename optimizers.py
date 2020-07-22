@@ -38,7 +38,7 @@ def get_optimizer(loss, params, summary):
         warmup_steps_float = tf.cast(warmup_steps_int, tf.float32)
 
         warmup_percent_done = global_steps_float / warmup_steps_float
-        warmup_learning_rate = params["lr"] * warmup_percent_done
+        warmup_learning_rate = learning_rate * warmup_percent_done
 
         is_warmup = tf.cast(global_steps_int < warmup_steps_int, tf.float32)
         learning_rate = ((1.0 - is_warmup) * learning_rate +
