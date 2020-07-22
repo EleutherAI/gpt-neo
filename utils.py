@@ -190,7 +190,7 @@ def get_auto_layout(graph, mesh_shape, logits, loss):
 def get_auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores, [logits, loss])
     print('Num cores:')
-    print(params["num_cores"])
+    print(num_cores)
     print('Auto-selected layout:')
     print(layout_rules)
     print('Auto-selected mesh shape:')
