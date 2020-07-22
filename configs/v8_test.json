@@ -10,7 +10,7 @@
     "epsilon": 1e-9,
     "opt_name": "adam",
     "weight_decay": 0.01,
-    "linear_decay": true,
+    "lr_decay": "linear",
     "train_batch_size": 32,
     "attn_dropout": 0.1,
     "train_steps": 10000,
