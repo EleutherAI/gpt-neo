@@ -1,4 +1,5 @@
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.contrib import summary
 import mesh_tensorflow as mtf
 
 
@@ -85,10 +86,6 @@ import collections
 
 from absl import logging
 import os
-
-
-summary = tf.summary  # TensorFlow Summary API v2.
-
 
 TpuSummaryEntry = collections.namedtuple(
     "TpuSummaryEntry", "summary_fn name tensor reduce_fn")
