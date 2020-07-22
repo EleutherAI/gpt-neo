@@ -2,6 +2,7 @@
 import argparse
 import json
 import logging
+import sys
 from functools import partial
 from pathlib import Path
 
@@ -10,7 +11,6 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.platform import flags
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-import sys
 
 from inputs import generic_text
 from model_fns import model_fn
