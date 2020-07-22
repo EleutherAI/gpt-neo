@@ -13,7 +13,9 @@ def get_optimizer(loss, params, summary):
     mesh = loss.mesh  # get mesh info from loss
     graph = mesh.graph  # get graph info from mesh
     var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
-    learning_rate = tf.constant(value=params["lr"], shape=[], dtype=tf.float32)
+
+    learning_rate = tf.constant(value=params["lr"], shape=[], dtype=tf.float32) # grab lr param
+
     if params["lr_decay"] == "linear":
         learning_rate = tf.train.polynomial_decay(
             learning_rate,
