@@ -101,6 +101,8 @@ def visible_pos(mesh, nd, ns):
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def attn(x, scope, n_state, *, past, params, append_dim, train=False):
+    # to understand a little better what's going on here:
+    # https://medium.com/analytics-vidhya/understanding-the-gpt-2-source-code-part-4-a5fbb89e5038
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -169,6 +171,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
 
         #TODO: should append odd / even here
         dim_qkv_name = "qkv"
+        # n_state is multiplied by 3 here as it will later be split into three parts (q,k,v) by mtf.split()
         dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
         c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
