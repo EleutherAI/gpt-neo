@@ -35,5 +35,6 @@
     "local": true,
     "mesh_shape": "all:8",
     "layout": "heads:all",
-    "precision": "float32"
+    "precision": "float32",
+    "activation_function": "gelu"
 }
