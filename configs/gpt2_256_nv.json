@@ -37,5 +37,6 @@
     "layer_offset": 16,
     "local": true,
     "mesh_shape": "x:128,y:2",
-    "layout": "query_block_length:y, batch:x, intermediate_expanded:y,embd:y"
+    "layout": "query_block_length:y, batch:x, intermediate_expanded:y,embd:y",
+    "activation_function": "gelu"
 }
