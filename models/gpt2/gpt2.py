@@ -1,9 +1,4 @@
 """GPT-like model in Mesh-Tensorflow"""
-
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
@@ -58,8 +53,7 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
 def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
 
-    if params[
-        "scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
+    if params["scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
@@ -73,8 +67,13 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
 
     # not in the variable_scope because mtf already has a variable_scope in it
-    c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
-                          filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
+    if not params["activation_function"] == "selu":
+        c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
+                            filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
+    else:
+        c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
+                            filter_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
+
     with tf.variable_scope(scope):
 
         b = mtf.get_variable(x.mesh, 'b', [nf], initializer=tf.constant_initializer(0, dtype=tf.float32), dtype=dt)
@@ -219,7 +218,10 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
 
         # TODO: should append odd / even here
         a = conv1d(a, 'c_proj', dim_embd, params=params)
-        a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
+        if not params["activation_function"] == "selu":
+            a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
+        else:
+            a = alpha_dropout(a, params["res_dropout"], name="attn_dropout")
 
         return a, present
 
@@ -227,22 +229,64 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
 def mlp(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        h = mtf.gelu(conv1d(x, 'c_fc', n_state, params=params))
+        if params["activation_function"] == "gelu":
+            h = mtf.gelu(conv1d(x, 'c_fc', n_state, params=params))
+        elif params["activation_function"] == "selu":
+            h = mtf.selu(conv1d(x, 'c_fc', n_state, params=params))
         h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
-        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        if not params["activation_function"] == "selu":
+            h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        else:
+            h2 = alpha_dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
+
+def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
+    if (keep_prob is None) == (rate is None):
+        raise ValueError("exactly one of keep_prob and rate should be set")
+    if keep_prob is None:
+        keep_prob = 1.0 - rate
+    noise_shape = mtf.ops.convert_to_shape(noise_shape)
+    if noise_shape is None:
+        noise_shape = x.shape
+
+    with tf.variable_scope(name, default_name="alpha_dropout"):
+        if keep_prob == 1.0:
+            return x
+
+        alpha = -1.7580993408473766
+
+        noise = mtf.ops.cast(mtf.ops.less(mtf.ops.random_uniform(
+                x.mesh, noise_shape,
+                dtype=(x.dtype if x.dtype.is_floating else tf.float32)),
+                            keep_prob), x.dtype)
+
+        # Mask
+        x = x * noise + alpha * (1 - noise)
+
+        # Affine transformation parameters
+        a = (keep_prob + keep_prob * (1 - keep_prob) * alpha ** 2) ** -0.5
+        b = -a * alpha * (1 - keep_prob)
+
+        # Affine transformation
+        return a * x + b
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def block(x, scope, *, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1] # grab last dimension from input
-        a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
+        if not params["activation_function"] == "selu":
+            a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
+        else:
+            a, present = attn(x, 'attn', nx, append_dim=append_dim, past=past, params=params,)
         x = x + a
 
         # define intermediate layer of mlp - to split
         dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
-        m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
+        if not params["activation_function"] == "selu":
+            m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
+        else:
+            m = mlp(x, 'mlp', dim_intermediate_expanded, params=params, train=train)
         x = x + m
         return x, present
 
@@ -308,7 +352,8 @@ def model(features, labels, params, mesh, past=None):
     results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # normalize & affine transform
-    h = norm(h, 'ln_f', params=params)
+    if not params["activation_function"] == "selu":
+        h = norm(h, 'ln_f', params=params)
 
 
     with tf.variable_scope('wte_final_einsum'):

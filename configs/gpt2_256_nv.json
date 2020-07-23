@@ -27,7 +27,7 @@
     "data_path": "gs://neo-datasets/openwebtext-new/",
     "datasets": [["openwebtext_*.tfrecords", "", 11, "random_sample", 1.0]],
     "model": "GPT2",
-    "model_path": "gs://neo-models/NEO_TEST_NEW_VOCAB",
+    "model_path": "gs://neo-models/1.5B_NV_LR_DECAY",
     "n_ctx": 1024,
     "predict_path": "logs/predictions.txt",
     "n_layer": 32,
@@ -37,5 +37,6 @@
     "layer_offset": 16,
     "local": true,
     "mesh_shape": "x:128,y:2",
-    "layout": "query_block_length:y, batch:x, intermediate_expanded:y,embd:y"
+    "layout": "query_block_length:y, batch:x, intermediate_expanded:y,embd:y",
+    "activation_function": "gelu"
 }
