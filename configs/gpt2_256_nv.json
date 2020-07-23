@@ -27,7 +27,7 @@
     "data_path": "gs://neo-datasets/openwebtext-new/",
     "datasets": [["openwebtext_*.tfrecords", "", 11, "random_sample", 1.0]],
     "model": "GPT2",
-    "model_path": "gs://neo-models/NEO_TEST_NEW_VOCAB",
+    "model_path": "gs://neo-models/1.5B_NV_LR_DECAY",
     "n_ctx": 1024,
     "predict_path": "logs/predictions.txt",
     "n_layer": 32,
