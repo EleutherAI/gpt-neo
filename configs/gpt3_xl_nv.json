@@ -1,5 +1,5 @@
 {
-    "n_head": 24,
+    "n_head": 32,
     "encoder_path": "gs://datasets_storage_1/models/encoder",
     "n_vocab": 32768,
     "embed_dropout": 0.1,
