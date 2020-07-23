@@ -22,7 +22,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
     parser.add_argument('--model', type=str) # JSON file that contains model parameters
-    parser.add_argument('--steps_per_checkpoint', type=int, default=2000)
+    parser.add_argument('--steps_per_checkpoint', type=int, default=20000)
     parser.add_argument('--autostack', action="store_false")
     parser.add_argument('--auto_layout', action="store_true")
     parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")

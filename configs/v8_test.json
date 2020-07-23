@@ -15,7 +15,7 @@
     "attn_dropout": 0.1,
     "train_steps": 10000,
     "eval_steps": 156,
-    "max_steps": 500000,
+    "max_steps": 10000,
     "data_path": "gs://neo-datasets/openwebtext-new/",
     "res_dropout": 0.1,
     "predict_batch_size": 1,

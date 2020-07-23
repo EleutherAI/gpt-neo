@@ -72,7 +72,7 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
                             filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
     else:
         c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
-                            filter_initializer=tf.variance_scaling_initializer(factor=1.0, mode='FAN_IN'))
+                            filter_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
 
     with tf.variable_scope(scope):
 
@@ -242,7 +242,7 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
         raise ValueError("exactly one of keep_prob and rate should be set")
     if keep_prob is None:
         keep_prob = 1.0 - rate
-    noise_shape = convert_to_shape(noise_shape)
+    noise_shape = mtf.ops.convert_to_shape(noise_shape)
     if noise_shape is None:
         noise_shape = x.shape
 
