@@ -72,10 +72,10 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # not in the variable_scope because mtf already has a variable_scope in it
     with tf.variable_scope('conv1d_main'):
         if not params["activation_function"] == "selu":
-            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True
+            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
                                 kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
         else:
-            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True
+            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
                                 kernel_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
 
         return c
