@@ -184,20 +184,3 @@ class TpuSummaries(object):
 
 
 TpuSummaries.inst = None
-
-def get_auto_layout(graph, mesh_shape, logits, loss):
-        layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
-        print('Auto-selected layout:')
-        print(layout_rules)
-        print('Re-initialize graph with selected layout')
-
-def get_auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
-    layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores, [logits, loss])
-    print('Num cores:')
-    print(num_cores)
-    print('Auto-selected layout:')
-    print(layout_rules)
-    print('Auto-selected mesh shape:')
-    print(mesh_shape)
-    print('Re-initialize graph with selected layout & mesh shape')
-    
