@@ -68,21 +68,24 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
 
     # not in the variable_scope because mtf already has a variable_scope in it
-    if not params["activation_function"] == "selu":
-        c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
-                            filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
-    else:
-        c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
-                            filter_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
+    with tf.variable_scope('conv1d_main'):
+        if not params["activation_function"] == "selu":
+            c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
+                                filter_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
+        else:
+            c = mtf.layers.conv1d(x, nf, name=scope, filter_size=1, stride=1,
+                                filter_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
 
     with tf.variable_scope(scope):
 
         b = mtf.get_variable(x.mesh, 'b', [nf], initializer=tf.constant_initializer(0, dtype=tf.float32), dtype=dt)
         # NWC
+        
+        with tf.variable_scope('conv1d_broadcast'):
+            b = mtf.broadcast(b, c.shape)
 
-        b = mtf.broadcast(b, c.shape)
-
-        c += b
+        with tf.variable_scope('conv1d_add'):
+            c += b
         return c
 
 
