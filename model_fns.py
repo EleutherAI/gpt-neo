@@ -1,8 +1,6 @@
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
-import mesh_tensorflow.auto_mtf
-
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info)
 
