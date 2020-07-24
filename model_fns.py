@@ -1,10 +1,10 @@
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
+import mesh_tensorflow.auto_mtf
 
 from optimizers import get_optimizer
-from utils import (TpuSummaries, get_auto_layout,
-                   get_auto_layout_and_mesh_shape, get_graph_info)
+from utils import (TpuSummaries, get_graph_info)
 
 
 def model_fn(features, labels, mode, params):
@@ -55,10 +55,20 @@ def model_fn(features, labels, mode, params):
 
     # Auto layout generation
     if params["auto_layout"]:
-        get_auto_layout(graph, mesh_shape, logits, loss)
+        layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
+        print('Auto-selected layout:')
+        print(layout_rules)
+        print('Re-initialize graph with selected layout')
         quit() #TODO: It should be easy to just reinitialize everything with selected layout
     if params["auto_layout_and_mesh_shape"]:
-        get_auto_layout_and_mesh_shape(graph, params["num_cores2"], logits, loss)
+        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"], [logits, loss])
+        print('Num cores:')
+        print(params["num_cores"])
+        print('Auto-selected layout:')
+        print(layout_rules)
+        print('Auto-selected mesh shape:')
+        print(mesh_shape)
+        print('Re-initialize graph with selected layout & mesh shape')
         quit() #TODO: It should be easy to just reinitialize everything wwith selected layout
 
     # TRAIN mode
