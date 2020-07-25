@@ -216,7 +216,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                 )
 
         print(a.shape)
-        a = merge_heads(a)
+        a = mtfparams.compute_output(a)
 
         # TODO: should append odd / even here
         a = conv1d(a, 'c_proj', dim_embd, params=params)
