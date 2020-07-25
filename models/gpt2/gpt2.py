@@ -163,15 +163,15 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-        dim_kv = mtf.Dimension("features_per_head", params['n_embd'] / params['n_head'])
+        dim_kv = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
         dim_heads = mtf.Dimension("heads", params['n_head'])
 
         mtfparams = mtf.transformer.attention.attention_params_simple(
             x.mesh,
-            dim_embd,
-            dim_kv,
-            dim_heads,
-            mtf.VariableDType() # TODO: set dtype here
+            io_dim=dim_embd,
+            kv_dim=dim_kv,
+            heads_dim=dim_heads,
+            variable_dtype=mtf.VariableDType() # TODO: set dtype here
         )
 
         q = mtfparams.compute_q(x)
@@ -196,8 +196,8 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
                     length_dim=dim_seq,
-                    key_dim=dim_features_per_head_key,
-                    value_dim=dim_features_per_head_value,
+                    key_dim=dim_kv,
+                    value_dim=dim_kv,
                     length_dim_num_splits=1,
                     attention_kwargs={}
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
@@ -215,6 +215,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                     bias=biasmask_attn_weights(q.mesh, q.dtype)
                 )
 
+        print(a.shape)
         a = merge_heads(a)
 
         # TODO: should append odd / even here
