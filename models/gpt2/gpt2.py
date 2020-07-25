@@ -169,8 +169,6 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         # n_state is multiplied by 3 here as it will later be split into three parts (q,k,v) by mtf.split()
         dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
 
-        conv_output_channels = c.shape[2]  # should be equal to dim_qkv
-
         q = conv1d(x, 'c_attn_q', dim_embd, params=params)
         k = conv1d(x, 'c_attn_k', dim_embd, params=params)
         v = conv1d(x, 'c_attn_v', dim_embd, params=params)
