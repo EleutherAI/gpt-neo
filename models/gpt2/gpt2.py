@@ -163,25 +163,31 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
+        dim_kv = mtf.Dimension("features_per_head", params['n_embd'] / params['n_head'])
+        dim_heads = mtf.Dimension("heads", params['n_head'])
 
-        #TODO: should append odd / even here
-        dim_qkv_name = "embd_alt"
-        # n_state is multiplied by 3 here as it will later be split into three parts (q,k,v) by mtf.split()
-        dim_embd_alt = mtf.Dimension(dim_qkv_name, n_state.size)
+        mtfparams = mtf.transformer.attention.attention_params_simple(
+            x.mesh,
+            dim_embd,
+            dim_kv,
+            dim_heads,
+            mtf.VariableDType() # TODO: set dtype here
+        )
 
-        q = conv1d(x, 'c_attn_q', dim_embd_alt, params=params)
-        k = conv1d(x, 'c_attn_k', dim_embd_alt, params=params)
-        v = conv1d(x, 'c_attn_v', dim_embd_alt, params=params)
-        q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
+        q = mtfparams.compute_q(x)
+        k = mtfparams.compute_k(x)
+        v = mtfparams.compute_v(x)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name, features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
+        #present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name, features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
+        present = None
 
-        if past is not None:
-            # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
-            pk, pv = tf.unstack(past, axis=1)
-            k = tf.concat([pk, k], axis=-2)
-            v = tf.concat([pv, v], axis=-2)
+        #if past is not None:
+        #    # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
+        #    pk, pv = tf.unstack(past, axis=1)
+        #    k = tf.concat([pk, k], axis=-2)
+        #    v = tf.concat([pv, v], axis=-2)
+        print('qkv shape', q.shape, k.shape, v.shape)
 
         with tf.variable_scope('attention'):
             # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
@@ -199,7 +205,6 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                 )
 
             else:
-                print('qkv shape', q.shape, k.shape, v.shape)
 
                 # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
                 a = mtf_transformer.attention.attention(
