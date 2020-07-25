@@ -262,23 +262,25 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(x, scope, past, params, append_dim, train=False):
-    with tf.variable_scope(scope):
-        nx = x.shape[-1] # grab last dimension from input
-        if not params["activation_function"] == "selu":
-            a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
-        else:
-            a, present = attn(x, 'attn', nx, append_dim=append_dim, past=past, params=params,)
-        x = x + a
+def block(params):
+    # train param doesnt seem to do anything?
+    def fn(x, scope, past, append_dim, train=False):
+        with tf.variable_scope(scope):
+            nx = x.shape[-1] # grab last dimension from input
+            if not params["activation_function"] == "selu":
+                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
+            else:
+                a, present = attn(x, 'attn', nx, append_dim=append_dim, past=past, params=params,)
+            x = x + a
 
-        # define intermediate layer of mlp - to split
-        dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
-        if not params["activation_function"] == "selu":
-            m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
-        else:
-            m = mlp(x, 'mlp', dim_intermediate_expanded, params=params, train=train)
-        x = x + m
-        return x
+            # define intermediate layer of mlp - to split
+            dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
+            if not params["activation_function"] == "selu":
+                m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
+            else:
+                m = mlp(x, 'mlp', dim_intermediate_expanded, params=params, train=train)
+            x = x + m
+            return x
 
 
 def model(features, labels, params, mesh, past=None):
@@ -334,7 +336,7 @@ def model(features, labels, params, mesh, past=None):
             append_dim = '_even'
         else:
             append_dim = '_odd'
-        h = mtf.recompute_grad(block, [h, 'h%d' % layer, past, params, append_dim])
+        h = mtf.recompute_grad(block(params), [h, 'h%d' % layer, past, append_dim])
         #presents.append(present)
         lnum += 1
 
