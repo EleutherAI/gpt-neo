@@ -199,7 +199,9 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     length_dim_num_splits=1,
-                    attention_kwargs={}
+                    attention_kwargs=dict(
+                        dropout_rate=params["res_dropout"] if not params["activation_function"] == "selu" else 0
+                    )
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
                 )
@@ -212,16 +214,18 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                     memory_length_dim=dim_seq,
                     key_dim=dim_features_per_head_key,
                     value_dim=dim_features_per_head_value,
-                    bias=biasmask_attn_weights(q.mesh, q.dtype)
+                    bias=biasmask_attn_weights(q.mesh, q.dtype),
+                    dropout_rate=params["res_dropout"] if not params["activation_function"] == "selu" else 0
                 )
 
         print(a.shape)
         a = mtfparams.compute_output(a)
 
         # TODO: should append odd / even here
-        a = conv1d(a, 'c_proj', dim_embd, params=params)
+        #a = conv1d(a, 'c_proj', dim_embd, params=params)
         if not params["activation_function"] == "selu":
-            a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
+            #a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
+            ...
         else:
             a = alpha_dropout(a, params["res_dropout"], name="attn_dropout")
 
