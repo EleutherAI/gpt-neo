@@ -132,22 +132,6 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    def split_heads(x, last_dim):
-        with tf.variable_scope('split_heads'):
-            # From [batch, sequence, features] to [batch, heads, sequence, features_per_head]
-            # heads is split out of features!
-            x = mtf.reshape(x, [dim_batch, dim_seq, dim_heads, last_dim], name="split_heads_reshape")
-            x = mtf.transpose(x, [dim_batch, dim_heads, dim_seq, last_dim], name="split_heads_transpose")
-        return x
-
-    def merge_heads(x, merge_dim=None):
-        with tf.variable_scope('merge_heads'):
-            # Reverse of split_heads
-            # from [batch, heads, sequence, features_per_head] to [batch, sequence, features_per_head]
-            x = mtf.transpose(x, [dim_batch, dim_seq, dim_heads, dim_features_per_head_value], name="merge_heads_transpose")
-            x = mtf.reshape(x, [dim_batch, dim_seq, dim_embd], name="merge_heads_reshape")
-        return x
-
     # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
     def biasmask_attn_weights(mesh, dtype):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
@@ -278,7 +262,7 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(x, scope, *, past, params, append_dim, train=False):
+def block(x, scope, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1] # grab last dimension from input
         if not params["activation_function"] == "selu":
@@ -294,7 +278,7 @@ def block(x, scope, *, past, params, append_dim, train=False):
         else:
             m = mlp(x, 'mlp', dim_intermediate_expanded, params=params, train=train)
         x = x + m
-        return x, present
+        return x
 
 
 def model(features, labels, params, mesh, past=None):
@@ -350,8 +334,8 @@ def model(features, labels, params, mesh, past=None):
             append_dim = '_even'
         else:
             append_dim = '_odd'
-        h, present = block(h, 'h%d' % layer, append_dim=append_dim, past=past, params=params)
-        presents.append(present)
+        h = mtf.recompute_grad(block, [h, 'h%d' % layer, past=past, params=params, append_dim=append_dim])
+        #presents.append(present)
         lnum += 1
 
     dim_name = "results"
