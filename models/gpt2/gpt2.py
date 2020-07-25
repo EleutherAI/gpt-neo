@@ -351,7 +351,7 @@ def model(features, labels, params, mesh, past=None):
         lnum += 1
 
     dim_name = "results"
-    results['present'] = mtf.stack(presents, dim_name=dim_name, axis=1)
+    results['present'] = None#mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # normalize & affine transform
     if not params["activation_function"] == "selu":
