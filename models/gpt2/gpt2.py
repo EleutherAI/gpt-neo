@@ -72,10 +72,10 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # not in the variable_scope because mtf already has a variable_scope in it
     with tf.variable_scope('conv1d_main'):
         if not params["activation_function"] == "selu":
-            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=False,
+            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
                                 kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
         else:
-            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=False,
+            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
                                 kernel_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
 
         return c
@@ -165,13 +165,13 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
 
         #TODO: should append odd / even here
-        dim_qkv_name = "qkv"
+        dim_qkv_name = "embd_alt"
         # n_state is multiplied by 3 here as it will later be split into three parts (q,k,v) by mtf.split()
-        dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
+        dim_embd_alt = mtf.Dimension(dim_qkv_name, n_state.size)
 
-        q = conv1d(x, 'c_attn_q', dim_embd, params=params)
-        k = conv1d(x, 'c_attn_k', dim_embd, params=params)
-        v = conv1d(x, 'c_attn_v', dim_embd, params=params)
+        q = conv1d(x, 'c_attn_q', dim_embd_alt, params=params)
+        k = conv1d(x, 'c_attn_k', dim_embd_alt, params=params)
+        v = conv1d(x, 'c_attn_v', dim_embd_alt, params=params)
         q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
