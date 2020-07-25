@@ -262,9 +262,9 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params):
+def block(params, scope, past, append_dim, train=False):
     # train param doesnt seem to do anything?
-    def fn(x, scope, past, append_dim, train=False):
+    def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1] # grab last dimension from input
             if not params["activation_function"] == "selu":
@@ -281,6 +281,7 @@ def block(params):
                 m = mlp(x, 'mlp', dim_intermediate_expanded, params=params, train=train)
             x = x + m
             return x
+    return fn
 
 
 def model(features, labels, params, mesh, past=None):
@@ -336,7 +337,7 @@ def model(features, labels, params, mesh, past=None):
             append_dim = '_even'
         else:
             append_dim = '_odd'
-        h = mtf.recompute_grad(block(params), [h, 'h%d' % layer, past, append_dim])
+        h = mtf.recompute_grad(block(params, 'h%d' % layer, past, append_dim), [h])
         #presents.append(present)
         lnum += 1
 
