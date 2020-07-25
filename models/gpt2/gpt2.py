@@ -334,7 +334,7 @@ def model(features, labels, params, mesh, past=None):
             append_dim = '_even'
         else:
             append_dim = '_odd'
-        h = mtf.recompute_grad(block, [h, 'h%d' % layer, past=past, params=params, append_dim=append_dim])
+        h = mtf.recompute_grad(block, [h, 'h%d' % layer, past, params, append_dim])
         #presents.append(present)
         lnum += 1
 
