@@ -168,10 +168,12 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         dim_qkv_name = "qkv"
         # n_state is multiplied by 3 here as it will later be split into three parts (q,k,v) by mtf.split()
         dim_qkv = mtf.Dimension(dim_qkv_name, n_state.size * 3)
-        c = conv1d(x, 'c_attn', dim_qkv, params=params)
 
         conv_output_channels = c.shape[2]  # should be equal to dim_qkv
-        q, k, v = mtf.split(c, conv_output_channels, 3)
+
+        q = conv1d(x, 'c_attn_q', dim_embd, params=params)
+        k = conv1d(x, 'c_attn_k', dim_embd, params=params)
+        v = conv1d(x, 'c_attn_v', dim_embd, params=params)
         q, k, v = split_heads(q, dim_features_per_head_key), split_heads(k, dim_features_per_head_key), split_heads(v, dim_features_per_head_value)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
