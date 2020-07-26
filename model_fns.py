@@ -52,7 +52,7 @@ def model_fn(features, labels, mode, params):
                                                   sequence_length=sequence_length_dict,
                                                   mesh_shape=mesh_shape,
                                                   layout_rules=layout_rules,
-                                                  tokens_per_microbatch_per_replica=256)
+                                                  tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"])
 
     params["num_microbatches"] = num_microbatches
 
