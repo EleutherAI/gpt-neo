@@ -108,3 +108,5 @@ logs/
 test_*
 test/
 .vscode
+datasets/*.tfrecords
+all_dim_names.txt
