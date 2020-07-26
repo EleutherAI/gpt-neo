@@ -14,10 +14,10 @@ def get_optimizer(loss, params, summary, inp_var_grads=None):
     graph = mesh.graph  # get graph info from mesh
     print('INP VAR GRADS: ')
     print(inp_var_grads)
-    # if inp_var_grads is not None:
-    #     var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
-    # else:
-    #     var_grads = inp_var_grads
+    if inp_var_grads is None:
+        var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
+    else:
+        var_grads = inp_var_grads
 
     learning_rate = tf.constant(value=params["lr"], shape=[], dtype=tf.float32) # grab lr param
 
@@ -69,7 +69,6 @@ def get_optimizer(loss, params, summary, inp_var_grads=None):
             epsilon2=params["ada_epsilon2"]
         )
 
-    print(inp_var_grads)
-    update_ops = optimizer.apply_grads(inp_var_grads, graph.trainable_variables)
+    update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
 
     return loss, update_ops
