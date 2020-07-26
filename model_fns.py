@@ -57,11 +57,10 @@ def model_fn(features, labels, mode, params):
     params["num_microbatches"] = num_microbatches
 
     if num_microbatches > 1:
+        # if num_microbatches > 1, we need to pack inputs into a dict to pass into serialize_training_step
         mtf_features = {}
         for key, x in features_dict.items():
-            print(key, x)
             feature_length = sequence_length_dict[key]
-            print(feature_length)
             length_dim = mtf.Dimension("sequence", feature_length)
             feature_shape = mtf.Shape(batch_dims + [length_dim])
             x = tf.cast(features_dict[key], tf.int32)
@@ -69,24 +68,6 @@ def model_fn(features, labels, mode, params):
             mtf_features[key] = mtf.import_fully_replicated(
                 mesh, x, feature_shape, name=key)
 
-        print('MTF FEATURES: ')
-        print(mtf_features)
-
-
-
-    # if num_microbatches > 1:
-    #     def serialized_fn(mtf_features):
-    #         return {"loss": logits_and_loss(mtf_features, num_microbatches)[1]}
-    #
-    #     var_grads, loss_dict = mtf.serialize_training_step(
-    #         mtf_features, serialized_fn, batch_dim, num_microbatches)
-    #     loss = loss_dict["loss"]
-    # else:
-    #     loss = logits_and_loss(mtf_features)[1]
-    #     var_grads = mtf.gradients(
-    #         [loss], [v.outputs[0] for v in graph.trainable_variables])
-
-    if num_microbatches > 1:
         def serialized_fn(mtf_features):
             from models.gpt2 import gpt2
             if params["model"] == "GPT2":
@@ -97,11 +78,14 @@ def model_fn(features, labels, mode, params):
                 logits, loss, loss_batch = gpt2moe.model(mtf_features, labels, params, mesh)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
 
+        # serialize the training step - Gradients are accumulated locally and reduced once.
         var_grads, output_dict = mtf.serialize_training_step(
             mtf_features, serialized_fn, batch_dim, num_microbatches)
+
         loss = output_dict["loss"]
         loss_batch = output_dict["loss_batch"]
         logits = output_dict["logits"]
+
     else:
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
@@ -120,9 +104,10 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected layout:')
         print(layout_rules)
         print('Re-initialize graph with selected layout')
-        quit() #TODO: It should be easy to just reinitialize everything with selected layout
+        quit() # TODO: It should be easy to just reinitialize everything with selected layout
     if params["auto_layout_and_mesh_shape"]:
-        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"], [logits, loss])
+        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"],
+                                                                      [logits, loss], max_mesh_shape_dimensions=4)
         print('Num cores:')
         print(params["num_cores"])
         print('Auto-selected layout:')
@@ -130,7 +115,7 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected mesh shape:')
         print(mesh_shape)
         print('Re-initialize graph with selected layout & mesh shape')
-        quit() #TODO: It should be easy to just reinitialize everything wwith selected layout
+        quit() # TODO: It should be easy to just reinitialize everything wwith selected layout
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
