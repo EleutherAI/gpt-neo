@@ -2,9 +2,7 @@
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
-
 import mesh_tensorflow.transformer as mtf_transformer
-
 
 # --------------------------------------------------------------------------------
 # LAYERS:
@@ -52,7 +50,6 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
 # TODO: this isnt actually a convolution, rename it to something more appropriate
 def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
-
     if params["scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
@@ -61,13 +58,6 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # assuming we never do fp16 training, only bf16 or fp32. change if we someday do GPU training
     # dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
     dt = tf.float32
-    # TODO: verify that this is actually right
-
-    #with tf.variable_scope('tmp_channels_reshape'):
-    #    # rename the channels dim so we dont get a collision
-    #    # note: after change to dense, this is no longer techincally necessary, 
-    #    # because dense does the rename for you anyways. but this way we kee pmore control over the name of the temporary dim.
-    #    x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
 
     # not in the variable_scope because mtf already has a variable_scope in it
     with tf.variable_scope('conv1d_main'):
@@ -94,12 +84,8 @@ def visible_pos(mesh, nd, ns):
     return m
 
 
-# append dim = str to append onto all dim name to allow splitting i.e even / odd
-def attn(x, scope, n_state, *, past, params, append_dim, train=False):
-    # to understand a little better what's going on here:
-    # https://medium.com/analytics-vidhya/understanding-the-gpt-2-source-code-part-4-a5fbb89e5038
+def attn(x, scope, n_state, *, past, params, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
-    print(x.shape)
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
     if past is not None:
@@ -117,13 +103,8 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     dim_seq = x_shape[1]
     dim_embd = x_shape[2]
 
-    # appending odd / even to out dimension name to avoid collison
-    # attn_out_dim_name = "attn_out"
-    # attn_out_dim = mtf.Dimension(attn_out_dim_name, params["n_embd"]) # this is the same as n_embd
-
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
-    # TODO: should append odd / even here
     features_per_head_key_name = "features_per_head_key"
     features_per_head_value_name = "features_per_head_value"
     dim_features_per_head_key = mtf.Dimension(features_per_head_key_name, params['n_embd'] // params['n_head'])
@@ -164,15 +145,15 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
         v = mtfparams.compute_v(x)
 
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        #present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name, features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
+        # present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name,
+        # features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
         present = None
 
-        #if past is not None:
+        # if past is not None:
         #    # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
         #    pk, pv = tf.unstack(past, axis=1)
         #    k = tf.concat([pk, k], axis=-2)
         #    v = tf.concat([pv, v], axis=-2)
-        print('qkv shape', q.shape, k.shape, v.shape)
 
         with tf.variable_scope('attention'):
             # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
@@ -201,16 +182,13 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                     dropout_rate=0
                 )
 
-        print(a.shape)
         with tf.variable_scope('compute_output'):
             a = mtfparams.compute_output(a)
         
         with tf.variable_scope('compute_output_bias'):
-            b = mtf.get_variable(x.mesh, 'o_b', [dim_embd], initializer=tf.constant_initializer(0, dtype=tf.float32), dtype=dt)
+            b = mtf.get_variable(x.mesh, 'o_b', [dim_embd], initializer=tf.constant_initializer(0, dtype=tf.float32), dtype=tf.float32)
             a += b
 
-        # TODO: should append odd / even here
-        #a = conv1d(a, 'c_proj', dim_embd, params=params)
         if not params["activation_function"] == "selu":
             a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
         else:
@@ -233,7 +211,9 @@ def mlp(x, scope, n_state, *, params, train=False):
             h2 = alpha_dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
+
 def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
+    # alpha dropout - used for SELU activation
     if (keep_prob is None) == (rate is None):
         raise ValueError("exactly one of keep_prob and rate should be set")
     if keep_prob is None:
@@ -265,15 +245,15 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params, scope, past, append_dim, train=False):
+def block(params, scope, past, train=False):
     # train param doesnt seem to do anything?
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1] # grab last dimension from input
             if not params["activation_function"] == "selu":
-                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
+                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,)
             else:
-                a, present = attn(x, 'attn', nx, append_dim=append_dim, past=past, params=params,)
+                a, present = attn(x, 'attn', nx, past=past, params=params,)
             x = x + a
 
             # define intermediate layer of mlp - to split
@@ -286,37 +266,36 @@ def block(params, scope, past, append_dim, train=False):
             return x
     return fn
 
+# --------------------------------------------------------------------------------
+# MODEL:
 
 def model(features, labels, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorlfow."""
     results = {}
-    sequence_dim = mtf.Dimension('sequence', params["n_ctx"])
-    if params["num_microbatches"] > 1:
-        x = features["inputs"]
-        labels = features["labels"]
-        batch_dim = x.shape[0]
-    else:
-      batch_dim = mtf.Dimension('batch', params["train_batch_size"])
-      x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
-      # In this case, labels are simply input shifted one token to the right
-      # this op is done in the input_fn
-      # define mtf dims
-      labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-
-    # we need this because gathering when both the args have the same dimension in them it breaks stuff.
+    # Define mtf Dimensions
+    sequence_dim = mtf.Dimension('sequence', params["n_ctx"]) # define seq length dim
+    # we need this because gathering when both the args have the same dimension in them breaks things
     # this dim is specifically for the weights
     # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
     embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"])
     embd_dim = mtf.Dimension("embd", params["n_embd"])
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
 
-    # convert input tensor to mtf tensor
-    # x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
+    if params["num_microbatches"] > 1:
+        # if num_microbatches > 1, the inputs will be in dict form.
+        # this parses features and labels from the mesh_features input dict
+        x = features["inputs"]
+        labels = features["labels"]
+        batch_dim = x.shape[0]
+    else:
+        batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+        x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
+        # In this case, labels are simply input shifted one token to the right
+        # this op is done in the input_fn
+        labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    # encoding_dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
     encoding_dt = tf.float32
-
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
                            initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
@@ -331,45 +310,34 @@ def model(features, labels, params, mesh, past=None):
         h = mtf.gather(wte, x, vocab_dim)
     with tf.variable_scope('pos_embd'):
         h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
-    # # Transformer
-    presents = []
 
+
+    # # Transformer
     # TODO: we will need this code for sampling
     # singleton = mtf.Dimension('singleton', 1)
     # pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
     # assert len(pasts) == params["n_layer"]
     pasts = [None] * params["n_layer"]
-
+    presents = []
     # attn blocks
-    # TODO: implement odd / even here
-    # pass in even / odd then append to all relevant dimension names
-    lnum = 1
     for layer, past in enumerate(pasts):
-        if lnum % 2 == 0:
-            append_dim = '_even'
-        else:
-            append_dim = '_odd'
-        h = mtf.recompute_grad(block(params, 'h%d' % layer, past, append_dim), [h])
+        h = mtf.recompute_grad(block(params, 'h%d' % layer, past), [h])
         #presents.append(present)
-        lnum += 1
 
-    dim_name = "results"
-    results['present'] = None#mtf.stack(presents, dim_name=dim_name, axis=1)
+    results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # normalize & affine transform
     if not params["activation_function"] == "selu":
         h = norm(h, 'ln_f', params=params)
 
-
     with tf.variable_scope('wte_final_einsum'):
         # equivalent to tf.matmul
         logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
-    results['logits'] = logits
 
-    vdim = results["logits"].shape[2] # get vocab dimension
+    vdim = logits.shape[2] # get vocab dimension
 
     with tf.variable_scope('xentropy_final'):
-        loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
+        loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
     with tf.variable_scope('reduce_mean_final'):
         loss = mtf.reduce_mean(loss_batch)
     return logits, loss, loss_batch
