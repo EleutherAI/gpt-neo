@@ -63,11 +63,11 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     dt = tf.float32
     # TODO: verify that this is actually right
 
-    with tf.variable_scope('tmp_channels_reshape'):
-        # rename the channels dim so we dont get a collision
-        # note: after change to dense, this is no longer techincally necessary, 
-        # because dense does the rename for you anyways. but this way we kee pmore control over the name of the temporary dim.
-        x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
+    #with tf.variable_scope('tmp_channels_reshape'):
+    #    # rename the channels dim so we dont get a collision
+    #    # note: after change to dense, this is no longer techincally necessary, 
+    #    # because dense does the rename for you anyways. but this way we kee pmore control over the name of the temporary dim.
+    #    x = mtf.reshape(x, x.shape.rename_dimension(x.shape[-1].name, 'tmp_channels'))
 
     # not in the variable_scope because mtf already has a variable_scope in it
     with tf.variable_scope('conv1d_main'):
