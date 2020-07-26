@@ -95,7 +95,7 @@ def visible_pos(mesh, nd, ns):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def attn(x, scope, n_state, *, past, params, append_dim, train=False):
+def attn(x, scope, n_state, *, layer_num, past, params, append_dim, train=False):
     # to understand a little better what's going on here:
     # https://medium.com/analytics-vidhya/understanding-the-gpt-2-source-code-part-4-a5fbb89e5038
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
@@ -185,7 +185,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
 
         with tf.variable_scope('attention'):
             # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
-            if params["local"]:
+            if params["attention_types"][layer_num] == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
@@ -197,7 +197,6 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
                 )
-
             else:
                 print('qkv shape', q.shape, k.shape, v.shape)
 
@@ -268,11 +267,11 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(x, scope, *, past, params, append_dim, train=False):
+def block(x, scope, *, layer_num, past, params, append_dim, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1] # grab last dimension from input
         if not params["activation_function"] == "selu":
-            a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, append_dim=append_dim, past=past, params=params,)
+            a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, append_dim=append_dim, past=past, params=params,)
         else:
             a, present = attn(x, 'attn', nx, append_dim=append_dim, past=past, params=params,)
         x = x + a
@@ -340,7 +339,7 @@ def model(features, labels, params, mesh, past=None):
             append_dim = '_even'
         else:
             append_dim = '_odd'
-        h, present = block(h, 'h%d' % layer, append_dim=append_dim, past=past, params=params)
+        h, present = block(h, 'h%d' % layer, layer_num = layer, append_dim=append_dim, past=past, params=params)
         presents.append(present)
         lnum += 1
 
