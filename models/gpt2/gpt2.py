@@ -288,21 +288,19 @@ def block(params, scope, past, append_dim, train=False):
 def model(features, labels, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorlfow."""
     results = {}
+    sequence_dim = mtf.Dimension('sequence', params["n_ctx"])
     if params["num_microbatches"] > 1:
         x = features["inputs"]
         labels = features["labels"]
         batch_dim = x.shape[0]
-
-
     else:
+      batch_dim = mtf.Dimension('batch', params["train_batch_size"])
       x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
       # In this case, labels are simply input shifted one token to the right
       # this op is done in the input_fn
       # define mtf dims
-      batch_dim = mtf.Dimension('batch', params["train_batch_size"])
       labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    sequence_dim = mtf.Dimension('sequence', params["n_ctx"])
 
     # we need this because gathering when both the args have the same dimension in them it breaks stuff.
     # this dim is specifically for the weights
