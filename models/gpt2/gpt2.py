@@ -99,6 +99,7 @@ def attn(x, scope, n_state, *, past, params, append_dim, train=False):
     # to understand a little better what's going on here:
     # https://medium.com/analytics-vidhya/understanding-the-gpt-2-source-code-part-4-a5fbb89e5038
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
+    print(x.shape)
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
     if past is not None:
@@ -287,9 +288,20 @@ def block(params, scope, past, append_dim, train=False):
 def model(features, labels, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorlfow."""
     results = {}
+    if params["num_microbatches"] > 1:
+        x = features["inputs"]
+        labels = features["labels"]
+        batch_dim = x.shape[0]
 
-    # define mtf dims
-    batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+
+    else:
+      x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
+      # In this case, labels are simply input shifted one token to the right
+      # this op is done in the input_fn
+      # define mtf dims
+      batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+      labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
+
     sequence_dim = mtf.Dimension('sequence', params["n_ctx"])
 
     # we need this because gathering when both the args have the same dimension in them it breaks stuff.
@@ -300,7 +312,7 @@ def model(features, labels, params, mesh, past=None):
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
 
     # convert input tensor to mtf tensor
-    x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
+    # x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
 
     # encoding_dt = tf.bfloat16 if params["precision"] == "bfloat16" else tf.float32
     encoding_dt = tf.float32
@@ -355,10 +367,6 @@ def model(features, labels, params, mesh, past=None):
     results['logits'] = logits
 
     vdim = results["logits"].shape[2] # get vocab dimension
-
-    # In this case, labels are simply input shifted one token to the right
-    # this op is done in the input_fn
-    labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
     with tf.variable_scope('xentropy_final'):
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=results["logits"], targets=labels, vocab_dim=vdim)
