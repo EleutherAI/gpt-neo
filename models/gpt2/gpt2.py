@@ -127,6 +127,9 @@ def attn(x, scope, n_state, *, past, params, train=False):
     def biasmask_attn_weights(mesh, dtype):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
         # n_src and n_dest are both the same, i.e equal to sequence length
+        
+        # we rename ns because we want bias to have shape [batch, heads, memory_length, sequence] to match up with QK^T
+        # information flows from k and v (memory_length) to q (sequence)
         ns = mtf.Dimension('memory_length', params["n_ctx"])
         nd = dim_seq
 
@@ -134,6 +137,9 @@ def attn(x, scope, n_state, *, past, params, train=False):
 
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
         # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
+        
+        # broadcast can't handle bool.
+        # TODO: file bug report.
         vis = mtf.cast(vis, tf.float32)
         vis = mtf.broadcast(vis, [dim_batch, dim_heads, nd, ns])
         vis = mtf.cast(vis, tf.bool)
@@ -189,6 +195,16 @@ def attn(x, scope, n_state, *, past, params, train=False):
                 #   mesh_shape = mtf.convert_to_shape(context.model.mesh_shape)
                 #   layout_rules = mtf.convert_to_layout_rules(context.model.layout)
                 # we should create a fake context, and pass to attention for the efficiency
+                
+                # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims. 
+                #
+                # the reason they rename memory_length (k and v) instead of q, which we originally were going to do 
+                # because renaming less seems better, is because q's length dim is the one left at the end.
+                #
+                # QK^T (logits, in the `attention` code) has shape [batch, heads, sequence, memory_length]
+                # V has shape [batch, heads, sequence, memory_length]
+                # s(QK^T)V eliminates memory_length and we're left with sequence again
+                
                 k = mtf.rename_dimension(k, "sequence", "memory_length")
                 v = mtf.rename_dimension(v, "sequence", "memory_length")
                 a = mtf_transformer.attention.attention(
@@ -201,6 +217,7 @@ def attn(x, scope, n_state, *, past, params, train=False):
                 )
 
         with tf.variable_scope('compute_output'):
+            # passing in x_shape here might not be necessary. we're just doing it because this is what mtf does in their SelfAttention layer. 
             a = mtfparams.compute_output(a, x_shape)
         
         with tf.variable_scope('compute_output_bias'):
