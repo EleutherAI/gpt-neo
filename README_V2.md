@@ -29,7 +29,7 @@ Encode data in tfrecords:
 - ask @daj
 - lookup https://github.com/ConnorJL/GPTNeo/blob/tfmesh/datasets/openwebtext/create_tfrecords.py
 
-## Training & Parameters
+## Parameters
 
 Pick a valid config for you from `/configs`. Then change these parameters:
 
@@ -72,12 +72,15 @@ Pick a valid config for you from `/configs`. Then change these parameters:
 - `precision`: `float32` (use this for now) or `bf16` (change some variables to bf16 for better performance, not working yet)
 - `microbatches_per_batch`: if > 1, will split the batch up into smaller microbatches to avoid OOMs. Gradients are accumulated locally and reduced once.
 
+## Training
+
+Connect to your VM, clone this repo and cd into the folder.
+
+To run: `python3 main.py --model configs/your_config.json --steps_per_checkpoint n --tpu tpu-name`
 
 - `tpu`: name of the tpu to use (passed by CLI for now)
 - `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
-- `--auto_layout` and `--auto_layout_and_mesh_shape`: CLI flags that make main generate a `layout` (and `mesh_shape`)
-
-To run: `python3 main.py --model configs/your_config.json --steps_per_checkpoint n --tpu tpu-name`
+- Optional: `--auto_layout` and `--auto_layout_and_mesh_shape`: CLI flags that auto generate a memory efficient `layout` (and `mesh_shape`)
 
 To monitor: `tensorboard --logdir model_path`
 
@@ -92,3 +95,11 @@ Host GptVM
  User your_user
 ```
 Then, you'll be able to access tensorboard on your browser by doing `localhost:6006`.
+
+## Downloading Pretrained Models
+
+TODO
+
+## Generating Text
+
+TODO
