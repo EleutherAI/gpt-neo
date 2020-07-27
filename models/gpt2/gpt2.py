@@ -174,6 +174,11 @@ def attn(x, scope, n_state, *, past, params, train=False):
             else:
 
                 # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
+                # TODO: the only use of context within attention is in _maybe_reshape...
+                # in that fn, context just needs to contain mesh / layout details:
+                #   mesh_shape = mtf.convert_to_shape(context.model.mesh_shape)
+                #   layout_rules = mtf.convert_to_layout_rules(context.model.layout)
+                # we should create a fake context, and pass to attention for the efficiency
                 a = mtf_transformer.attention.attention(
                     q, k, v,
                     memory_length_dim=dim_seq,
@@ -187,6 +192,7 @@ def attn(x, scope, n_state, *, past, params, train=False):
             a = mtfparams.compute_output(a)
         
         with tf.variable_scope('compute_output_bias'):
+            # TODO: bfloat16 should work here
             b = mtf.get_variable(x.mesh, 'o_b', [dim_embd], initializer=tf.constant_initializer(0, dtype=tf.float32), dtype=tf.float32)
             a += b
 
@@ -296,7 +302,7 @@ def model(features, labels, params, mesh, past=None):
         # this op is done in the input_fn
         labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
 
-    encoding_dt = tf.float32
+    encoding_dt = tf.float32 # TODO: bfloat should apply here?
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
                            initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
