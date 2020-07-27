@@ -74,6 +74,8 @@ def text_dataset(files, params, stitch, datatype, batch=True):
 
                 vals1 = tf.reshape(vals1, [params["n_ctx"]])
                 vals2 = tf.reshape(vals2, [params["n_ctx"]])
+                vals1 = tf.cast(vals1, dtype=tf.int32)
+                vals2 = tf.cast(vals2, dtype=tf.int32)
                 return vals1, vals2
 
         else:
@@ -83,6 +85,8 @@ def text_dataset(files, params, stitch, datatype, batch=True):
 
                 vals1 = tf.reshape(vals1, [params["n_ctx"]])
                 vals2 = tf.reshape(vals2, [params["n_ctx"]])
+                vals1 = tf.cast(vals1, dtype=tf.int32)
+                vals2 = tf.cast(vals2, dtype=tf.int32)
                 return vals1, vals2
 
         dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
