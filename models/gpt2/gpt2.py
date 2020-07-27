@@ -79,9 +79,18 @@ def visible_pos(mesh, nd, ns):
 
     UPDATE: modified for mtf
     """
-    i = mtf.range(mesh, nd, tf.int32)[:, None]
+    print('INPUTS:')
+    i = mtf.range(mesh, nd, tf.int32)
+    print(i)
+    # TODO: I'm sure this is a maximally inefficient way of doing this, also these values could probably be hardcoded
+    singleton = mtf.Dimension('singleton', 1)
+    i = expand_tile(i, singleton)
+    print(i)
     j = mtf.range(mesh, ns, tf.int32)
+    print(j)
     m = i >= j - ns + nd
+    print(m)
+    raise Exception('Done')
     return m
 
 
@@ -184,7 +193,7 @@ def attn(x, scope, n_state, *, past, params, train=False):
                     memory_length_dim=dim_seq,
                     key_dim=dim_kv,
                     value_dim=dim_kv,
-                    #bias=biasmask_attn_weights(q.mesh, q.dtype),
+                    bias=biasmask_attn_weights(q.mesh, q.dtype),
                     dropout_rate=0
                 )
 
