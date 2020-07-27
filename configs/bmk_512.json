@@ -41,7 +41,7 @@
     "mesh_shape": "x:64,y:4,z:2",
     "layout": "query_block_length:y, tmp_channels:y, embed_sequence:y, batch:x, intermediate_expanded:z,features_per_head_key:z,embd:z",
     "activation_function": "gelu",
-    "tokens_per_mb_per_replica": 4096
+    "microbatches_per_batch": 8
 }
 
 

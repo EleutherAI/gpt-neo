@@ -4,7 +4,6 @@ from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
 
-
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info)
 
@@ -43,18 +42,20 @@ def model_fn(features, labels, mode, params):
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
+    # build features / seq length dict for getting number of microbatches
     features_dict = {"inputs": features, "labels": labels}
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
     batch_dim = mtf.Dimension('batch', params["train_batch_size"])
     batch_dims = [batch_dim]
-
+    assert params["train_batch_size"] % params["microbatches_per_batch"] == 0
+    tokens_per_batch = params["train_batch_size"] * params["n_ctx"]
+    tokens_per_mb_per_replica = tokens_per_batch / params["microbatches_per_batch"]
     num_microbatches = mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
-                                                  sequence_length=sequence_length_dict,
-                                                  mesh_shape=mesh_shape,
-                                                  layout_rules=layout_rules,
-                                                  tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"])
-
-    params["num_microbatches"] = num_microbatches
+                                                                        sequence_length=sequence_length_dict,
+                                                                        mesh_shape=mesh_shape,
+                                                                        layout_rules=layout_rules,
+                                                                        tokens_per_microbatch_per_replica=tokens_per_mb_per_replica)
+    params["num_microbatches"] = num_microbatches  # add num microbatches to params
 
     if num_microbatches > 1:
         # if num_microbatches > 1, we need to pack inputs into a dict to pass into serialize_training_step
@@ -85,7 +86,6 @@ def model_fn(features, labels, mode, params):
         loss = output_dict["loss"]
         loss_batch = output_dict["loss_batch"]
         logits = output_dict["logits"]
-
     else:
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
@@ -104,7 +104,7 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected layout:')
         print(layout_rules)
         print('Re-initialize graph with selected layout')
-        quit() # TODO: It should be easy to just reinitialize everything with selected layout
+        quit()  # TODO: It should be easy to just reinitialize everything with selected layout
     if params["auto_layout_and_mesh_shape"]:
         layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"],
                                                                       [logits, loss], max_mesh_shape_dimensions=4)
@@ -115,7 +115,7 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected mesh shape:')
         print(mesh_shape)
         print('Re-initialize graph with selected layout & mesh shape')
-        quit() # TODO: It should be easy to just reinitialize everything wwith selected layout
+        quit()  # TODO: It should be easy to just reinitialize everything wwith selected layout
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -137,7 +137,7 @@ def model_fn(features, labels, mode, params):
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-        tf_update_ops.append(tf.assign_add(global_step, 1)) # Need to manually increment global_step
+        tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
         tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
         train_op = tf.group(tf_update_ops)
     else:
@@ -159,7 +159,7 @@ def model_fn(features, labels, mode, params):
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
             saver_hook = tf.train.CheckpointSaverHook(
                 params["model_path"],
-                save_steps=params["steps_per_checkpoint"], #TODO: why isn't this outputting ckpts when we want
+                save_steps=params["steps_per_checkpoint"],  # TODO: why isn't this outputting ckpts when we want
                 saver=saver,
                 listeners=[saver_listener])
 
@@ -171,6 +171,7 @@ def model_fn(features, labels, mode, params):
                 training_hooks=[restore_hook, saver_hook])
 
         elif mode == tf.estimator.ModeKeys.EVAL:
+
             def _perplexity(tf_loss_batch):
                 loss = tf.reduce_mean(tf_loss_batch)
                 perplexity = tf.exp(loss)

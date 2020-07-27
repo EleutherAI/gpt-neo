@@ -37,5 +37,5 @@
     "layout": "heads:all",
     "precision": "float32",
     "activation_function": "gelu",
-    "tokens_per_mb_per_replica": 4096
+    "microbatches_per_batch": 8
 }
