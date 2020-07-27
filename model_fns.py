@@ -121,7 +121,7 @@ def model_fn(features, labels, mode, params):
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
-        if num_microbatches > 1:
+        if params["num_microbatches"] > 1:
             _, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
         else:
             _, update_ops = get_optimizer(loss, params, summary)

@@ -11,10 +11,13 @@ from utils import loss_denominator
 sentinel = object()
 
 
-def expand_tile(value, newdim):
+def expand_tile(value, newdim, axis=0):
     """Add a new axis of given size."""
-    return mtf.broadcast(value,
-                         [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
+    if axis == 0:
+        return mtf.broadcast(value,
+                             [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
+    if axis == 1:
+        return mtf.broadcast(value, value.shape.dims + [newdim])
 
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
@@ -80,17 +83,13 @@ def visible_pos(mesh, nd, ns):
     UPDATE: modified for mtf
     """
     print('INPUTS:')
-    i = mtf.range(mesh, nd, tf.int32)
-    print(i)
     # TODO: I'm sure this is a maximally inefficient way of doing this, also these values could probably be hardcoded
-    singleton = mtf.Dimension('singleton', 1)
-    i = expand_tile(i, singleton)
-    print(i)
+    i = mtf.range(mesh, nd, tf.int32)
+    i = expand_tile(i, ns, axis=0)
     j = mtf.range(mesh, ns, tf.int32)
-    print(j)
-    m = i >= j - ns + nd
+    j = expand_tile(j, nd, axis=1)
+    m = mtf.greater_equal(i, j)
     print(m)
-    raise Exception('Done')
     return m
 
 
