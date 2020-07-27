@@ -14,7 +14,7 @@
     "ada_epsilon2": 1e-3,
     "opt_name": "adafactor",
     "weight_decay": 0.10,
-    "train_batch_size": 640,
+    "train_batch_size": 64,
     "attn_dropout": 0.1,
     "train_steps": 300000,
     "eval_steps": 0,
@@ -36,8 +36,8 @@
     "fixed_attn_block_size": 64,
     "layer_offset": 16,
     "local": false,
-    "mesh_shape": "a:2,b:16,c:2,d:2",
-    "layout": "vocab:a,intermediate_expanded:b,embd:c,embed_sequence:d,heads:d",
+    "mesh_shape": "x:32,y:4",
+    "layout": "vocab:x,embd:y",
     "activation_function": "gelu",
     "microbatches_per_batch": 1
 }
