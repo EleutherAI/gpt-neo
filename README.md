@@ -1,165 +1,105 @@
 # GPT Neo
 
-1T or bust my dudes
+1T or bust my dudes.
 
-An implementation of training for [GPT2](https://openai.com/blog/better-language-models/)/[GPT3](https://arxiv.org/abs/2005.14165)-like models. Supports both GPUs and TPUs. The dataset scripts are a bit hacky and will probably need to be adapted to your needs. 
-## Requirements
-For GPUs:
+An implementation of training for [GPT2](https://openai.com/blog/better-language-models/)/[GPT3](https://arxiv.org/abs/2005.14165)-like models, with the facilities to train even larger models, using the Tensorflow Mesh library. Currently only TPU training is supported.
 
-`pip3 install tensorflow-gpu==1.15.2 regex`
+No pretrained model yet, everything has to be built from scratch!
 
-For TPUs:
+# Requirements
 
-`pip3 install tensorflow==1.15.2 regex google-api-python-client oauth2client`
+`pip3 install tensorflow==1.15.2 mesh-tensorflow==0.1.16 tensorflow-datasets ortools google-api-python-client oauth2client`
+(TODO: put into a `requirements.txt`)
 
-For downloading the models:
+# TPU Setup
 
-`pip3 install requests tqdm`
+Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
-For generating the dataset (in addition to Tensorflow):
+Create your VM through a google shell (`ssh.google.com`) with `ctpu up --vm-only` so that it is connected to your Google bucket.
 
-`pip3 install ftfy tqdm newspaper3k`
+To train using some dummy data:
 
-## Downloading Pretrained Models
-If you want to use my models, I currently have "117M", "PrettyBig" and "1.5B" to offer. 117M was trained on a single v2 TPU for a week (probably less than the original OpenAI model), PrettyBig is slightly bigger than 345M and was trained on a v2-256 pod for a week. ~~I was originally also planning to release my version of the 1.5B model, but have decided against it. You can read about my reasoning [here](https://medium.com/@NPCollapse/the-hacker-learns-to-trust-62f3c1490f51).~~ Since OpenAI has released their model, I have now also released my (inferior) 1.5B model, which was trained on a v3-512 pod for a week.
+Some dummy data: `wget -P datasets/ https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
 
-`python3 download_model.py PrettyBig`
+Then `gsutil cp src dst`, with dst being the gs:// path to your bucket datasets folder.
 
-This will create two directories, one named as the model and another named "encoder". Change the "model_dir" and "encoder_path" parameters in the .json corresponding to your model to point to these paths, respectively.
+## Generating your own Dataset
+ TODO(@Daj) 
+Encode data in tfrecords:
+- ask @daj
+- lookup https://github.com/ConnorJL/GPTNeo/blob/tfmesh/datasets/openwebtext/create_tfrecords.py
 
-If you only want the encoder, use:
+## Parameters
 
-`python3 download_model.py encoder`
+Pick a valid config for you from `/configs`. Then change these parameters:
 
-## Generating Text
-To predict you can either pass the prompt directly in the command line, or have it read from a file. (This is useful for prompts that include newlines) Text is output to the console and the file specified in the "predict_path" parameter. You need a model checkpoint and a copy of the BPE encoder at an accessible location for this to work. (Change the "model_dir" and "encoder_path" parameters in the .json)
-
-From command line:
-
-`python3 main.py --model Your-Model.json [--top_k Top-K-Truncation] --predict_text "Hello there! My name is"`
-
-From file:
-
-`python3 main.py --model Your-Model.json [--top_k Top-K-Truncation] --predict_file input.txt`
-
-The optional top_k parameter causes the model to only consider the top k most likely tokens at each step. Setting this around 40 tends to create better results, but with less variety. 
-
-Prediction on TPUs is not supported.
-
+- `n_heads`: the number of attention heads
+- `n_embd`: size of the hidden layers, must be divisible by `n_heads`
+- `encoder_path`: unused (TODO: double check & delete.)
+- `n_vocab`: vocabulary size
+- `embed_dropout`: Dropout chance on the word embedding, set to 0 to disable (default: 0.1)
+- `lr`: learning rate, defaults will vary depending on model size. use [this](https://i.imgur.com/g5jKbjT.png) from the GPT3 paper as a guide.
+- `warmup_steps`: number of steps before full learning rate is reached (linear ramp from `0` to `lr`).
+- `lr_decay`: `cosine` (used by OA) or `linear`, According to OpenAI's scaling paper, the choice of setting here doesn't matter too much as long as it decays to above 0 over a suitable length of time. (diminish `lr` over time)
+- `opt_name`: `adam` or `adafactor`. choice of optimizer. `adam` is considered better but takes 2-3x the amount of memory.
+- `beta1`, `beta2` and `epsilon`: `adam` optimizer params.
+- `beta1_adam`: unused (TODO: make params for different optimizers more clear.)
+- `beta1`, `ada_epsilon1` and `ada_epsilon2`: `adafactor` optimizer params.
+- `weight_decay`: Weight decay parameter, if not present no weight decay is used (the weight decay fix for Adam is used) (default: 0.01) (optional).
+- `train_batch_size`: Batch size during training phase.
+- `attn_dropout`: Dropout chance on attention layers, set to 0 to disable (default: 0.1).
+- `train_steps`: number of training steps (batches), set to roughly ~1 epoch for now (total number of tokens in your dataset / number of tokens per batch (= `train_batch_size` / `n_ctx`)).
+- `eval_steps`: set to `0` for no eval. each `steps_per_checkpoint`, the model is tested for `eval_steps` (`steps_per_checkpoint` is set with the CLI rn)
+- `max_steps`, `res_dropout` and `predict_batch_size`: unused (TODO: double check and delete).
+- `iterations`: number of steps queued to the TPU (also used for Tensorboard summaries), must be smaller than `steps_per_checkpoint`.
+- `datapath`: path to the google storage folder containing the dataset.
+- `datasets`: list of individual tfrecords files. dataset is like this: `[regex , ?? , ?? , sampling_type]`. example: `[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]`
+    + `regex`: `regex` matching the names of the datasets
+    + ??: ask @Daj
+    + `sampling_type`: `document` (sequential order) or `random_sample` (chunks of length `n_ctx` in random order)
+- `model`: `GPT2`, regular GPT model, WIP: 'GPT2MOE' GPT model with Mixture of Experts
+- `model_path`: Google storage location to save model checkpoints.
+- `n_ctx`: Size of context window. In smaller models, this is set to 1024. For larger models, this is 2048
+- `predict_path`: unused (TODO: double check & delete.)
+- `n_layer`: number of layers (blocks) in the model.
+- `scale_by_depth` and `scale_by_in`: unused, i think? ask @daj (TODO: double check & delete.)
+- `mesh_shape`: A Mesh is a n-dimensional array of processors with named dimensions. Each Tensor is assigned to a Mesh, instead of a device. The 'mesh_shape' is the shape of this array. E.G, for a TPU v3-128 "mesh_shape": “x:16,y:8”.
+- `layout`: A Tensor is laid out on its mesh with one slice on each processor. A Tensor "layout", is an injective partial map specifying which dimensions of the tensor are (evenly) split across which dimensions of the mesh. No dimension of a tensor may be split across two dimensions of its mesh and no two dimensions of a tensor may be split across the same dimension of its mesh. The user defines a global set of layout rules in the form of (tensor-dimension-name, mesh-dimension-name) pairs. A dimension of a tensor is split across a dimension of its mesh if there is a matching rule. E.G (for the above example mesh_shape: "layout":"batch:x,heads:y"
+- `activation_function`: `selu` (self normalizing) or `gelu` (used by OA), activation function for feed-forward passes
+- `fixed_attn_block_size`: unused (computed internally)(TODO: double check and delete).
+- `layer_offset`: unused (TODO: double check and delete).
+- `local`: `true` (local attention) or `false` (global attention)
+- `precision`: `float32` (use this for now) or `bf16` (change some variables to bf16 for better performance, not working yet)
+- `microbatches_per_batch`: if > 1, will split the batch up into smaller microbatches to avoid OOMs. Gradients are accumulated locally and reduced once.
 
 ## Training
-To train a model, define its parameters in a .json file (see examples) and then simply call
 
-`python3 main.py --model Your-Model.json [--tpu Your-TPU-Name]`
+Connect to your VM, clone this repo and cd into the folder.
 
-Using a TPU is optional, it runs fine on GPUs without modification. (Note: Evaluation doesn't work on TPU pods and must be commented out) 
+To run: `python3 main.py --model configs/your_config.json --steps_per_checkpoint n --tpu tpu-name`
 
-This assumes you have a version of the openwebtext corpus stored in an accessible location. If you don't, see below how to generate your own version.
+- `tpu`: name of the tpu to use (passed by CLI for now)
+- `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
+- Optional: `--auto_layout` and `--auto_layout_and_mesh_shape`: CLI flags that auto generate a memory efficient `layout` (and `mesh_shape`)
 
+To monitor: `tensorboard --logdir model_path`
 
-
-## Generating the Dataset
-GPT2 is trained on the webtext corpus, which is basically all websites linked to from Reddit with at least 3 Karma. Since the database is huge and contains a lot of copyrighted material, I can't provide a download here. Instead, I'll describe how I got it. Be aware it cost me around ~500€ in cloud compute resources to download and process the whole thing, but I'm not claiming I was optimally efficient. 
-1. Use the download script from [here](https://github.com/jcpeterson/openwebtext) to download the archives (I used the prefiltered URLs file)
-2. Use *datasets/openwebtext/
-run_newspaper_extract.py* to extract the text
-3. Once you have the raw .txt files use *datasets/openwebtext/
-create_tfrecords.py* to encode them into .tfrecords files (Requires a copy of the encoder, see Downloading Pretrained Models)
-4. Place the .tfrecords files into an accessible folder or Google Storage bucket (Placing in a Google Storage bucket is mandatory if you're using TPUs)
-5. Change the "data_path" parameter in your .json to point to where your .tfrecords files are located and, if necessary, adapt the functions in *inputs.py* to open the correct filenames, in case you changed them
-
-## Using Your Own Data
-You can also use your own text files as training data, but you'll need to modify some code by hand.
-1. Modify the parameters in *datasets/openwebtext/create_tfrecords.py*:
-
-```python
-base_dir = "/home/connor/my_text_dir" # Path to where your .txt files are located
-files_per = 175000 # How many txt files to put in one tfrecord, not too important
-name = "my-custom-data" # Name of output files will be name_i.tfrecords where i is the number of the file
-output_dir = "/home/connor/output" # Where to place the .tfrecords files
-log_dir = "logs" # Some logs will be placed here to support restarting if the encoding is interrupted
-files = glob.glob(os.path.join(base_dir, "**/*.txt")) # This needs to result in a list of paths to all of your txt files
-processes = 64 # Number of encoding processes to run
-encoder_path = "/home/connor/encoder" # Path to encoder files
-minimum_size = 128 # The minimum length (in BPE tokens) a file is allowed to have, otherwise it is discarded.
+Tensorboard exposes an http server on port `6006`. To access it on the remote machine, just do `localhost:6006`.
+However, the remote machine will usually just have a terminal. If you want to actually look at the webpage.
+To do so, you'll need to forward the port through SSH so that you can access it in your client machine.
+An easy way to do port forwarding, is to add in your client machine `~/.ssh/config`:
+```s
+Host GptVM
+ LocalForward 6006 localhost:6006
+ HostName your_vm_ip
+ User your_user
 ```
-2. Run the script. This will result in a bunch of name_i.tfrecords files. Put these somewhere accessible (must be in a Google Storage bucket if you're using TPUs).
-3. Create a new input function in *inputs.py*. Any input function should have the signature *function_name(params, eval=False)*. The **stitch** value controls how many texts are concatenated so that you never end up with a sample that is too small. It should be: **ceil((n_ctx+1) / minimum_size)** So for example, if my minimum size is 128 and my n_ctx is 1024, stitch should be 9.
+Then, you'll be able to access tensorboard on your browser by doing `localhost:6006`.
 
-```python
-def my_input(params, eval=False):
-    if not eval:
-        numbers = [0, 3, 4, 5, 6, 7, 8, 9] # A random subset of files for train
-    else:
-        numbers = [1, 2] # Random subset for eval
-    files = [os.path.join(params["data_path"], "my-custom-data_{}.tfrecords".format(str(i))) for i in numbers] # Generates the list of files
+## Downloading Pretrained Models
 
-    return bpe_text(params["batch_size"], files, amount=params["n_ctx"], iterations=params["iterations"], stitch=9, batch=True)
-```
-4. Register your new input in *main.py*.
+TODO
 
-```python
-inputs = {
-    "openwebtext": openwebtext, # Standard OpenWebtext input
-    "openwebtext_longbiased": openwebtext_longbiased, # OpenWebtext with a bias towards showing more long (>512 tokens) examples
-    "openwebtext_long": openwebtext_long, # Openwebtext that only shows long examples
-    "my_input": my_input,
-}
-```
-5. Set your .json to use the new input.
-```python
-[...]
-    "iterations": 500,
-    "n_embd": 768,
-    "input": "my_input",
-    "model": "GPT2",
-[...]
-```
-6. You're done. The input described here should be as close to GPT2 as possible and run perfectly on TPUs.
+## Generating Text
 
-## Explanation of Parameters
-Because passing two dozen parameters over the command line would be tedious, you pass all the model parameters in a .json file. Note that any paths also support Google Storage paths and *must* be gs:// paths if you're running on TPUs.
-
-Values you'll definitely want to change:
-* **model_path**: Where to save and load checkpoints from
-* **data_path**: Where your .tfrecords files are located
-* **encoder_path**: Path to the BPE encoder files. To get this, use the download_model.py script to download any model (or just the encoder). You will get a folder called "encoder". This is what you want this to point to (only required for prediction)
-* **datasets**: A list of tuples of the form (train file glob, eval file glob, stitch parameter, dataset type, weight of this dataset)
-
-Values you'll probably want to change:
-* **train_batch_size**: Batch size during training phase
-* **eval_batch_size**: Batch size during evaluation
-* **predict_batch_size**: Batch size during prediction
-* **predict_path**: Where to save predictions (point this to a text file to append to)
-
-Model parameters:
-* **model**: A string that refers to which model to use. This should always just be "GPT2" (no other models are implemented here)
-* **n_ctx**: Number of tokens the model looks at (default: 1024)
-* **n_vocab**: Size of vocabulary (default: 50257)
-* **n_embd**: Dimension of embedding layers
-* **n_layer**: Number of layers in the model
-* **n_head**: Number of attention heads (default: n_embd / 64)
-* **scale_by_depth**: Whether or not to scale init by the number of layers (Default: true)
-* **scale_by_in**: Whether to scale init by the number of input channels (Default: true)
-* **local**: Whether or not to use local attention (default: false) 
-* **fixed_attn_block_size**: Size of the attention blocks, should be a multiple of 128 on TPUs for performance reasons (default: 128)
-* **layer_offset**: (default: 16)
-
-Training parameters:
-* **precision**: Whether to use float32 or bfloat16 variables (use "bfloat16" when training very large models) (optional, defaults to float32)
-* **lr**: Learning rate (default: 0.00025)
-* **warmup_steps**: Number of warmup steps. If this is set, a linear warmup + cosine decay schedule is used (default: 2000) (optional)
-* **opt_name**: Name of optimizer, currently there are "adam" and "adafactor" (default: "adam")
-* **weight_decay**: Weight decay parameter, if not present no weight decay is used (the weight decay fix for Adam is used) (default: 0.01) (optional)
-* **beta1**: Adam/Adafactor beta1 parameter (adam default: 0.9, adafactor default: 0.0)
-* **beta2**: Adam/Adafactor beta2 parameter (default: 0.98) (optional for adafactor with pow decay type)
-* **epsilon**: Adam epsilon parameter (default: 1e-9)
-* **decay_type**: Adafactor decay type, either "pow" or "adam" (default: "pow")
-* **decay_exponent**: Adafactor pow decay exponent (default: 0.8)
-* **train_steps**: Number of training steps to take between evaluations
-* **eval_steps**: Number of steps per evaluation
-* **max_steps**: The maximum number of training steps (important for declining lr)
-* **iterations**: Number of iterations to perform on TPUs (Default: 100) (Only required for TPUs)
-* **embed_dropout**: Dropout chance on the word embedding, set to 0 to disable (default: 0.1)
-* **attn_dropout**: Dropout chance on attention layers, set to 0 to disable (default: 0.1)
-* **res_dropout**: Dropout chance on residual connections, set to 0 to disable (default: 0.1)
+TODO
