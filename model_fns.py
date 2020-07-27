@@ -50,11 +50,11 @@ def model_fn(features, labels, mode, params):
     assert params["train_batch_size"] % params["microbatches_per_batch"] == 0
     tokens_per_batch = params["train_batch_size"] * params["n_ctx"]
     tokens_per_mb_per_replica = tokens_per_batch / params["microbatches_per_batch"]
-    num_microbatches = mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
                                                                         sequence_length=sequence_length_dict,
                                                                         mesh_shape=mesh_shape,
                                                                         layout_rules=layout_rules,
-                                                                        tokens_per_microbatch_per_replica=tokens_per_mb_per_replica)
+                                                                        tokens_per_microbatch_per_replica=tokens_per_mb_per_replica))
     params["num_microbatches"] = num_microbatches  # add num microbatches to params
 
     if num_microbatches > 1:

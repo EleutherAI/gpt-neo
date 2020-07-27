@@ -182,9 +182,9 @@ def attn(x, scope, n_state, *, past, params, train=False):
                 a = mtf_transformer.attention.attention(
                     q, k, v,
                     memory_length_dim=dim_seq,
-                    key_dim=dim_features_per_head_key,
-                    value_dim=dim_features_per_head_value,
-                    bias=biasmask_attn_weights(q.mesh, q.dtype),
+                    key_dim=dim_kv,
+                    value_dim=dim_kv,
+                    #bias=biasmask_attn_weights(q.mesh, q.dtype),
                     dropout_rate=0
                 )
 
