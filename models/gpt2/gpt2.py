@@ -3,6 +3,7 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
 import mesh_tensorflow.transformer as mtf_transformer
+from utils import loss_denominator
 
 # --------------------------------------------------------------------------------
 # LAYERS:
@@ -339,5 +340,6 @@ def model(features, labels, params, mesh, past=None):
     with tf.variable_scope('xentropy_final'):
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
     with tf.variable_scope('reduce_mean_final'):
+        # TODO: divide loss by loss_denominator if necessary
         loss = mtf.reduce_mean(loss_batch)
     return logits, loss, loss_batch
