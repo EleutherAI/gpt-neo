@@ -42,50 +42,51 @@ def model_fn(features, labels, mode, params):
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
-    # build features / seq length dict for getting number of microbatches
-    features_dict = {"inputs": features, "labels": labels}
-    sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
-    batch_dim = mtf.Dimension('batch', params["train_batch_size"])
-    batch_dims = [batch_dim]
-    assert params["train_batch_size"] % params["microbatches_per_batch"] == 0
-    tokens_per_batch = params["train_batch_size"] * params["n_ctx"]
-    tokens_per_mb_per_replica = tokens_per_batch / params["microbatches_per_batch"]
-    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
-                                                                        sequence_length=sequence_length_dict,
-                                                                        mesh_shape=mesh_shape,
-                                                                        layout_rules=layout_rules,
-                                                                        tokens_per_microbatch_per_replica=tokens_per_mb_per_replica))
-    params["num_microbatches"] = num_microbatches  # add num microbatches to params
+    if params["microbatches_per_batch"] > 1:
+        # build features / seq length dict for getting number of microbatches
+        features_dict = {"inputs": features, "labels": labels}
+        sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
+        batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+        batch_dims = [batch_dim]
+        assert params["train_batch_size"] % params["microbatches_per_batch"] == 0
+        tokens_per_batch = params["train_batch_size"] * params["n_ctx"]
+        tokens_per_mb_per_replica = tokens_per_batch / params["microbatches_per_batch"]
+        num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+                                                                            sequence_length=sequence_length_dict,
+                                                                            mesh_shape=mesh_shape,
+                                                                            layout_rules=layout_rules,
+                                                                            tokens_per_microbatch_per_replica=tokens_per_mb_per_replica))
+        params["num_microbatches"] = num_microbatches  # add num microbatches to params
 
-    if num_microbatches > 1:
-        # if num_microbatches > 1, we need to pack inputs into a dict to pass into serialize_training_step
-        mtf_features = {}
-        for key, x in features_dict.items():
-            feature_length = sequence_length_dict[key]
-            length_dim = mtf.Dimension("sequence", feature_length)
-            feature_shape = mtf.Shape(batch_dims + [length_dim])
-            x = tf.cast(features_dict[key], tf.int32)
-            x = tf.reshape(x, feature_shape.to_integer_list)
-            mtf_features[key] = mtf.import_fully_replicated(
-                mesh, x, feature_shape, name=key)
+        if num_microbatches > 1:
+            # if num_microbatches > 1, we need to pack inputs into a dict to pass into serialize_training_step
+            mtf_features = {}
+            for key, x in features_dict.items():
+                feature_length = sequence_length_dict[key]
+                length_dim = mtf.Dimension("sequence", feature_length)
+                feature_shape = mtf.Shape(batch_dims + [length_dim])
+                x = tf.cast(features_dict[key], tf.int32)
+                x = tf.reshape(x, feature_shape.to_integer_list)
+                mtf_features[key] = mtf.import_fully_replicated(
+                    mesh, x, feature_shape, name=key)
 
-        def serialized_fn(mtf_features):
-            from models.gpt2 import gpt2
-            if params["model"] == "GPT2":
-                logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh)
-                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
-            elif params["model"] == "GPT2MOE":
-                from models.gpt2moe import gpt2moe
-                logits, loss, loss_batch = gpt2moe.model(mtf_features, labels, params, mesh)
-                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+            def serialized_fn(mtf_features):
+                from models.gpt2 import gpt2
+                if params["model"] == "GPT2":
+                    logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh)
+                    return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+                elif params["model"] == "GPT2MOE":
+                    from models.gpt2moe import gpt2moe
+                    logits, loss, loss_batch = gpt2moe.model(mtf_features, labels, params, mesh)
+                    return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
 
-        # serialize the training step - Gradients are accumulated locally and reduced once.
-        var_grads, output_dict = mtf.serialize_training_step(
-            mtf_features, serialized_fn, batch_dim, num_microbatches)
+            # serialize the training step - Gradients are accumulated locally and reduced once.
+            var_grads, output_dict = mtf.serialize_training_step(
+                mtf_features, serialized_fn, batch_dim, num_microbatches)
 
-        loss = output_dict["loss"]
-        loss_batch = output_dict["loss_batch"]
-        logits = output_dict["logits"]
+            loss = output_dict["loss"]
+            loss_batch = output_dict["loss_batch"]
+            logits = output_dict["logits"]
     else:
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
