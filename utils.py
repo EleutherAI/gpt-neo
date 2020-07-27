@@ -58,6 +58,24 @@ def get_graph_info(graph):
     print_dim_names(graph)
 
 
+def loss_denominator(targets, num_microbatches):
+    """Denominator applied to losses.
+
+    This is usually the size of the targets tensor (omitting ensemble
+    dimensions).  Alternitively, it is an override value passed to the
+    class constructor.
+
+    Args:
+      targets: a mtf.Tensor
+      num_microbatches: an integer - greater than one if the step has been
+        serialized into multiple microbatches to save memory.
+    Returns:
+      a float
+    """
+    ret = float(targets.shape.size) * num_microbatches
+    return float(ret)
+
+
 """Provide a helper class for using summaries on TPU via a host call.
 
 TPUEstimator does not support writing TF summaries out of the box and TPUs can't
