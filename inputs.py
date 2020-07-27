@@ -6,7 +6,6 @@ def generic_text(params, eval=False):
     # , dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
     i = 0 if not eval else 1
     print('##############################')
-    print(params["data_path"])
     print(params["datasets"])
     print('##############################')
 
