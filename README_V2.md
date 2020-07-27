@@ -1,25 +1,40 @@
-# Various Things
+# GPT Neo
+
+1t or bust my dudes.
+
+An implementation of training for [GPT2](https://openai.com/blog/better-language-models/)/[GPT3](https://arxiv.org/abs/2005.14165)-like models, with the facilities to train even larger models, using the Tensorflow Mesh library. Currently only TPU training is supported.
 
 No pretrained model yet, everything has to be built from scratch!
 
-Those are python dependencies:
-`pip3 install tensorflow==1.15.2 mesh-tensorflow==0.1.16 mesh-tensorflow tensorflow-datasets ortools google-api-python-client oauth2client`
-(put into a `requirements.txt`)
+# Requirements
+
+`pip3 install tensorflow==1.15.2 mesh-tensorflow==0.1.16 tensorflow-datasets ortools google-api-python-client oauth2client`
+(TODO: put into a `requirements.txt`)
+
+# TPU Setup
+
+Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
 Create your VM through a google shell (`ssh.google.com`) with `ctpu up --vm-only` so that it is connected to your Google bucket.
 
-Download data into `gs://your_bucket/datasets`
+To train using some dummy data:
 
 Some dummy data: `wget -P datasets/ https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
 
-Then `gsutil cp src dst` to copy.
+Then `gsutil cp src dst`, with dst being the gs:// path to your bucket datasets folder.
 
-Pick a valid config for you from `/configs`. Then you can change those parameters:
+## Generating your own Dataset
+ TODO
+
+## Training & Parameters
+
+Pick a valid config for you from `/configs`. Then change these parameters:
+
 - `n_heads`: the number of attention heads
 - `n_embd`: size of the hidden layers, must be divisible by `n_heads`
-- `encoder_path`: unused
+- `encoder_path`: unused (TODO: double check & delete.)
 - `n_vocab`: vocabulary size
-- `embed_dropout`: dropout of the embed layer
+- `embed_dropout`: Dropout chance on the word embedding, set to 0 to disable (default: 0.1)
 - `lr`: learning rate, use [https://i.imgur.com/g5jKbjT.png](this from GPT3)
 - `warmup_steps`: number of batches before full learning rate (linear ramp from `0` to `lr`)
 - `lr_decay`: `cosine` (used by OA) or `linear`, either doesn't seem to matter much. essential to good learning (diminish `lr` over time)
