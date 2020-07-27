@@ -1,6 +1,6 @@
 # GPT Neo
 
-1t or bust my dudes.
+1T or bust my dudes.
 
 An implementation of training for [GPT2](https://openai.com/blog/better-language-models/)/[GPT3](https://arxiv.org/abs/2005.14165)-like models, with the facilities to train even larger models, using the Tensorflow Mesh library. Currently only TPU training is supported.
 
