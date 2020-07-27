@@ -41,6 +41,7 @@ def model_fn(features, labels, mode, params):
 
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
+    params["num_microbatches"] = 1
 
     if params["microbatches_per_batch"] > 1:
         # build features / seq length dict for getting number of microbatches
