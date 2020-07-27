@@ -127,14 +127,16 @@ def attn(x, scope, n_state, *, past, params, train=False):
     def biasmask_attn_weights(mesh, dtype):
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
         # n_src and n_dest are both the same, i.e equal to sequence length
-        ns = dim_seq
+        ns = mtf.Dimension('memory_length', params["n_ctx"])
         nd = dim_seq
 
         vis = visible_pos(mesh, nd, ns)
 
         # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
         # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
+        vis = mtf.cast(vis, tf.float32)
         vis = mtf.broadcast(vis, [dim_batch, dim_heads, nd, ns])
+        vis = mtf.cast(vis, tf.bool)
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
@@ -187,6 +189,8 @@ def attn(x, scope, n_state, *, past, params, train=False):
                 #   mesh_shape = mtf.convert_to_shape(context.model.mesh_shape)
                 #   layout_rules = mtf.convert_to_layout_rules(context.model.layout)
                 # we should create a fake context, and pass to attention for the efficiency
+                k = mtf.rename_dimension(k, "sequence", "memory_length")
+                v = mtf.rename_dimension(v, "sequence", "memory_length")
                 a = mtf_transformer.attention.attention(
                     q, k, v,
                     memory_length_dim=dim_seq,
@@ -197,7 +201,7 @@ def attn(x, scope, n_state, *, past, params, train=False):
                 )
 
         with tf.variable_scope('compute_output'):
-            a = mtfparams.compute_output(a)
+            a = mtfparams.compute_output(a, x_shape)
         
         with tf.variable_scope('compute_output_bias'):
             # TODO: bfloat16 should work here
