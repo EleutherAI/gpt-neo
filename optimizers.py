@@ -12,8 +12,7 @@ def get_optimizer(loss, params, summary, inp_var_grads=None):
     global_step = tf.train.get_or_create_global_step() # get global step
     mesh = loss.mesh  # get mesh info from loss
     graph = mesh.graph  # get graph info from mesh
-    print('INP VAR GRADS: ')
-    print(inp_var_grads)
+
     if inp_var_grads is None:
         var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
     else:
