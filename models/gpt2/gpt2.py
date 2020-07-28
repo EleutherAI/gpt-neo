@@ -82,14 +82,12 @@ def visible_pos(mesh, nd, ns):
 
     UPDATE: modified for mtf
     """
-    print('INPUTS:')
     # TODO: I'm sure this is a maximally inefficient way of doing this, also these values could probably be hardcoded
     i = mtf.range(mesh, nd, tf.int32)
-    i = expand_tile(i, ns, axis=0)
+    i = expand_tile(i, ns, axis=1)
     j = mtf.range(mesh, ns, tf.int32)
-    j = expand_tile(j, nd, axis=1)
+    j = expand_tile(j, nd, axis=0)
     m = mtf.greater_equal(i, j)
-    print(m)
     return m
 
 
