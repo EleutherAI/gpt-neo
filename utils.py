@@ -5,8 +5,8 @@ from tensorflow.contrib import summary
 def save_config(text, logdir):
     print('saving config to {}'.format(logdir))
     sess = tf.InteractiveSession()
-    summary_op = tf.summary.text('text', tf.convert_to_tensor(text))
-    summary_writer = tf.summary.FileWriter("{}/text".format(logdir), sess.graph)
+    summary_op = tf.summary.text('run_config', tf.convert_to_tensor(text))
+    summary_writer = tf.summary.FileWriter("{}/config".format(logdir), sess.graph)
     text = sess.run(summary_op)
     summary_writer.add_summary(text, 0)
     summary_writer.flush()
