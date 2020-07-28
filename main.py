@@ -11,9 +11,10 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-
+from utils import save_config
 from inputs import generic_text
 from model_fns import model_fn
+import pprint
 
 
 def main():
@@ -40,6 +41,9 @@ def main():
     # Read params of model
     with open(args.model, "r") as f:
         params = json.load(f)
+
+    # saves config to logdir for experiment management
+    save_config(pprint.pformat(params), params["model_path"])
 
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
 
