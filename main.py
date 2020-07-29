@@ -57,7 +57,7 @@ def main():
     params["num_microbatches"] = 1
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
-    assert len(params["attention_types"]) == params["n_layers"]  # assert that the length of expanded list = num layers
+    assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
     logger.info('params = {}'.format(params))
 
     # Set up TPUs and Estimator
