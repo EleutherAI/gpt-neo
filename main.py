@@ -43,7 +43,8 @@ def main():
         params = json.load(f)
 
     # saves config to logdir for experiment management
-    save_config(pprint.pformat(params), params["model_path"])
+    # save_config(pprint.pformat(params), params["model_path"])
+    save_config(params, params["model_path"])
 
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
 
