@@ -173,7 +173,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
                 )
-            else:
+            elif params["attention_types"][layer_num] == "global":
 
                 # TODO: the only use of context within attention is in _maybe_reshape...
                 #   in that fn, context just needs to contain mesh / layout details:
@@ -201,6 +201,8 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                     bias=bias,
                     dropout_rate=0
                 )
+            else:
+                raise NotImplementedError("Unknown attention type {}!".format(params["attention_types"][layer_num]))
 
         with tf.variable_scope('compute_output'):
             a = mtfparams.compute_output(a, x_shape)
