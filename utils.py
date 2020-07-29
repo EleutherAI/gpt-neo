@@ -14,6 +14,15 @@ def save_config(text, logdir):
     tf.reset_default_graph()
     print('Done!')
 
+
+def expand_attention_types_params(params_list):
+    newlist = []
+    for item in params_list:
+        for _ in range(item[1]):
+            newlist.extend(item[0])
+    return newlist
+
+
 def get_n_trainable_vars(graph):
     """
     gets number of trainable vars in a MTF model.

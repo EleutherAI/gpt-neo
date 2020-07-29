@@ -11,17 +11,11 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from utils import save_config
+from utils import save_config, expand_attention_types_params
 from inputs import generic_text
 from model_fns import model_fn
 import pprint
 
-def expand_attention_types_params(params_list):
-    newlist = []
-    for item in params_list:
-        for _ in range(item[1]):
-            newlist.extend(item[0])
-    return newlist
 
 def main():
     # Parse command line arguments
@@ -62,6 +56,7 @@ def main():
     params["steps_per_checkpoint"] = args.steps_per_checkpoint
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
+    assert len(params["attention_types"]) == params["n_layers"]  # assert that the length of expanded list = num layers
     logger.info('params = {}'.format(params))
 
     # Set up TPUs and Estimator
