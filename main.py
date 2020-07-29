@@ -18,10 +18,9 @@ from model_fns import model_fn
 
 def expand_attention_types_params(params_list):
     newlist = []
-    for index, item in enumerate(params_list):
-        if type(item) == int:
-            for _ in range(item):
-                newlist.extend(params_list[index-1])
+    for item in params_list:
+        for _ in range(item[1]):
+            newlist.extend(item[0])
     return newlist
 
 def main():
