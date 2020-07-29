@@ -9,20 +9,27 @@ from utils import (TpuSummaries, get_graph_info)
 
 
 def model_fn(features, labels, mode, params):
+    # grab global step no.
     global_step = tf.train.get_global_step()
+
+    # construct mtf graph + mesh from params
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
+
+    # init summary class
     summary = TpuSummaries(params["model_path"])
 
-    # Mesh stuff 
+    # Mesh stuff
+    # TODO: does use tpu even need to be a param? are we gonna have gpu training?
     if params["use_tpu"]:
+        # construct SimdMesh function - instructions on how to evenly split tensors across all cores
         num_hosts = params['context'].num_hosts
         host_placement_fn = params['context'].tpu_host_placement_function
         device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
         tf.logging.info('device_list = {}'.format(device_list))
 
-        # TODO(ylc): Better estimation of replica cache size?
+        # TODO: Better estimation of replica cache size?
         replica_cache_size = 300 * 1000000  # 300M per replica
 
         # Worker 0 caches all the TPU binaries.
@@ -32,7 +39,6 @@ def model_fn(features, labels, mode, params):
         mesh_devices = [''] * mesh_shape.size
         mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
             mesh_shape, layout_rules, mesh_devices, params['context'].device_assignment)
-
     else:
         var_placer = None
         mesh_devices = [''] * mesh_shape.size
@@ -41,7 +47,6 @@ def model_fn(features, labels, mode, params):
 
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
-    params["num_microbatches"] = 1
 
     if params["microbatches_per_batch"] > 1:
         # build features / seq length dict for getting number of microbatches
@@ -72,6 +77,7 @@ def model_fn(features, labels, mode, params):
                     mesh, x, feature_shape, name=key)
 
             def serialized_fn(mtf_features):
+                # for serialize_training_step we need to modify the model to output results in a dict
                 from models.gpt2 import gpt2
                 if params["model"] == "GPT2":
                     logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh)
@@ -84,11 +90,11 @@ def model_fn(features, labels, mode, params):
             # serialize the training step - Gradients are accumulated locally and reduced once.
             var_grads, output_dict = mtf.serialize_training_step(
                 mtf_features, serialized_fn, batch_dim, num_microbatches)
-
             loss = output_dict["loss"]
             loss_batch = output_dict["loss_batch"]
             logits = output_dict["logits"]
     else:
+        # if we're not splitting into microbatches, return logits & loss as is
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
@@ -101,6 +107,7 @@ def model_fn(features, labels, mode, params):
             raise Exception("{} is not a valid model - please select from GPT2 or GPT2MOE".format(params['model']))
 
     # Auto layout generation
+    # TODO: move to utils
     if params["auto_layout"]:
         layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
         print('Auto-selected layout:')
@@ -122,8 +129,11 @@ def model_fn(features, labels, mode, params):
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
         if params["num_microbatches"] > 1:
+            # if we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
+            # so we pass them in here
             _, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
         else:
+            # otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
             _, update_ops = get_optimizer(loss, params, summary)
     else:
         # For now, we can only export fully-replicated tensors.
@@ -134,10 +144,12 @@ def model_fn(features, labels, mode, params):
     # Gets info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
 
+    # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=params["autostack"])
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
+        # creates update ops to pass into optimizer
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
         tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
         tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
@@ -161,7 +173,7 @@ def model_fn(features, labels, mode, params):
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
             saver_hook = tf.train.CheckpointSaverHook(
                 params["model_path"],
-                save_steps=params["steps_per_checkpoint"],  # TODO: why isn't this outputting ckpts when we want
+                save_steps=params["steps_per_checkpoint"],
                 saver=saver,
                 listeners=[saver_listener])
 
@@ -173,6 +185,7 @@ def model_fn(features, labels, mode, params):
                 training_hooks=[restore_hook, saver_hook])
 
         elif mode == tf.estimator.ModeKeys.EVAL:
+            # evaluation metrics
 
             def _perplexity(tf_loss_batch):
                 loss = tf.reduce_mean(tf_loss_batch)
