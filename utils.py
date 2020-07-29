@@ -1,9 +1,27 @@
 import tensorflow.compat.v1 as tf
 from tensorflow.contrib import summary
+import re
 
 
-def save_config(text, logdir):
+def save_config(params_dict, logdir):
     print('saving config to {}'.format(logdir))
+    text = '{\n\n'
+    total_params = len(params_dict)
+    for count, key in enumerate(params_dict):
+        config_value = str(params_dict[key])
+        if re.search('[a-zA-Z]', config_value):
+            if config_value.lower() != 'true':
+                if config_value.lower() != 'false':
+                    if config_value[0] != '[':
+                        # TODO: making a manual exception for parsing epsilon rn since it's the only number in
+                        #       scientific notation. Should fix this.
+                        if key != "epsilon":
+                            config_value = '"{}"'.format(config_value)
+        if count == total_params - 1:
+            text += '"{}"'.format(str(key)) + ' : ' + config_value + '\n\n'
+        else:
+            text += '"{}"'.format(str(key))  + ' : ' + config_value + ',\n\n'
+    text += '\n\n}'
     sess = tf.InteractiveSession()
     summary_op = tf.summary.text('run_config', tf.convert_to_tensor(text))
     summary_writer = tf.summary.FileWriter("{}/config".format(logdir), sess.graph)
@@ -138,33 +156,21 @@ class TpuSummaries(object):
   all the TPU cores.
   """
 
-  def __init__(self, log_dir, save_summary_steps=10, save_image_steps=50):
+  def __init__(self, log_dir, save_summary_steps=10):
     self._log_dir = log_dir
-    self._image_entries = []
     self._scalar_entries = []
     # While False no summary entries will be added. On TPU we unroll the graph
     # and don't want to add multiple summaries per step.
     self.record = True
     self._save_summary_steps = save_summary_steps
-    self._save_image_steps = save_image_steps
     #assert TpuSummaries.inst is None
     TpuSummaries.inst = self
 
   def has(self, name):
-    for entry in self._image_entries + self._scalar_entries:
+    for entry in self._scalar_entries:
       if entry.name == name:
         return True
     return False
-
-  def image(self, name, tensor, reduce_fn):
-    """Add a summary for images. Tensor must be of 4-D tensor."""
-    if not self.record:
-      return
-    if self.has(name):
-      logging.info("TpuSummaries.image: skipping duplicate %s", name)
-    else:
-      self._image_entries.append(
-          TpuSummaryEntry(summary.image, name, tensor, reduce_fn))
 
   def scalar(self, name, tensor, reduce_fn=tf.math.reduce_mean):
     """Add a summary for a scalar tensor."""
@@ -185,7 +191,6 @@ class TpuSummaries(object):
     # All tensors are streamed to the host machine (mind the band width).
     global_step = tf.train.get_or_create_global_step()
     host_call_args = [tf.expand_dims(global_step, 0)]
-    host_call_args.extend([e.tensor for e in self._image_entries])
     host_call_args.extend([e.tensor for e in self._scalar_entries])
     logging.info("host_call_args: %s", host_call_args)
     return (self._host_call_fn, host_call_args)
@@ -198,19 +203,9 @@ class TpuSummaries(object):
     logging.info("host_call_fn: args=%s", args)
     ops = []
 
-    # log images
-    with summary.create_file_writer(os.path.join(self._log_dir, 'images')).as_default():
-      offset = 0
-      with summary.record_summaries_every_n_global_steps(
-              self._save_image_steps, step):
-        for i, e in enumerate(self._image_entries):
-          value = e.reduce_fn(args[i + offset])
-          e.summary_fn(e.name, value, step=step)
-      offset += len(self._image_entries)
-      ops.append(summary.all_summary_ops())
-
-    # log text
+    # log scalars
     with summary.create_file_writer(os.path.join(self._log_dir, 'scalars')).as_default():
+      offset = 0
       with summary.record_summaries_every_n_global_steps(
             self._save_summary_steps, step):
         for i, e in enumerate(self._scalar_entries):
