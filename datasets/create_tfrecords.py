@@ -26,7 +26,7 @@ parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenize
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
 parser.add_argument("--seperator", type=str, default="[0]", help="Seperator to place between files in chunk mode")
-parser.add_argument("--chunk_size", type=int, default=1024, help="How big a chunk should be in chunkmode")
+parser.add_argument("--chunk_size", type=int, default=1024, help="How big a chunk should be in chunk mode")
 args = parser.parse_args()
 
 

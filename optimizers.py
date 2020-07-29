@@ -6,13 +6,17 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def get_optimizer(loss, params, summary):
+def get_optimizer(loss, params, summary, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
 
     global_step = tf.train.get_or_create_global_step() # get global step
     mesh = loss.mesh  # get mesh info from loss
     graph = mesh.graph  # get graph info from mesh
-    var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
+
+    if inp_var_grads is None:
+        var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
+    else:
+        var_grads = inp_var_grads
 
     learning_rate = tf.constant(value=params["lr"], shape=[], dtype=tf.float32) # grab lr param
 

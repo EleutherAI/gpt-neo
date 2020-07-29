@@ -1,7 +1,18 @@
 import tensorflow.compat.v1 as tf
 from tensorflow.contrib import summary
-import mesh_tensorflow as mtf
 
+
+def save_config(text, logdir):
+    print('saving config to {}'.format(logdir))
+    sess = tf.InteractiveSession()
+    summary_op = tf.summary.text('run_config', tf.convert_to_tensor(text))
+    summary_writer = tf.summary.FileWriter("{}/config".format(logdir), sess.graph)
+    text = sess.run(summary_op)
+    summary_writer.add_summary(text, 0)
+    summary_writer.flush()
+    summary_writer.close()
+    tf.reset_default_graph()
+    print('Done!')
 
 def get_n_trainable_vars(graph):
     """
@@ -56,6 +67,24 @@ def get_graph_info(graph):
     """
     get_n_trainable_vars(graph)
     print_dim_names(graph)
+
+
+def loss_denominator(targets, num_microbatches):
+    """Denominator applied to losses.
+
+    This is usually the size of the targets tensor (omitting ensemble
+    dimensions).  Alternitively, it is an override value passed to the
+    class constructor.
+
+    Args:
+      targets: a mtf.Tensor
+      num_microbatches: an integer - greater than one if the step has been
+        serialized into multiple microbatches to save memory.
+    Returns:
+      a float
+    """
+    ret = float(targets.shape.size) * num_microbatches
+    return float(ret)
 
 
 """Provide a helper class for using summaries on TPU via a host call.

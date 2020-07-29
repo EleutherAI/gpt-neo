@@ -1,23 +1,33 @@
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
-
 import tensorflow.compat.v1 as tf
-import os
 
-# --------------------------------------------------------------------------------
-# INPUT FNS:
 
+def generic_text(params, eval=False):
+    # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
+    # , dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
+    i = 0 if not eval else 1
+    print('##############################')
+    print(params["datasets"])
+    print('##############################')
+
+    datasets = [text_dataset(tf.io.gfile.glob(dataset[i]),
+                params, stitch=dataset[2], datatype=dataset[3], batch=False)
+                for dataset in params["datasets"]]
+    weights = [dataset[4] for dataset in params["datasets"]]
+
+    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
+    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
+
+    return dataset
 
 def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
     dataset = dataset.apply(
         tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
 
-    if "sample" in datatype:
+    if "documents" in datatype:
         def _parse_function(example_proto):
             features = {
-                "hash": tf.VarLenFeature(tf.string),
+                # "hash": tf.VarLenFeature(tf.string),
                 "text": tf.VarLenFeature(tf.int64)
             }
             parsed_features = tf.parse_single_example(example_proto, features)
@@ -33,7 +43,7 @@ def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = dataset.map(_parse_function, num_parallel_calls=1)
 
     # Subsample method
-    if "sample" in datatype:
+    if "documents" in datatype:
         # Since samples can be less than the correct length, and TPUs don't like variable lengths, this function stitches together enough samples
         # to have a text at least 1024 tokens long. For this to work the stitch parameter must be correctly tuned so that
         # stitch * min(characters_in_text) >= amount
@@ -60,7 +70,7 @@ def text_dataset(files, params, stitch, datatype, batch=True):
                                                                                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         # Sample 1024(+1) tokens from the stitched together text
-        if datatype == "random_sample":
+        if datatype == "documents_random":
             def _sample_text(x):
                 s = tf.size(x)
                 r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
@@ -97,24 +107,3 @@ def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = dataset.repeat()
 
     return dataset
-
-
-def generic_text(params, eval=False):
-    # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
-    # , dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
-    i = 0 if not eval else 1
-    print('##############################')
-    print(params["data_path"])
-    print(params["datasets"])
-    print('##############################')
-
-    datasets = [text_dataset(tf.io.gfile.glob(os.path.join(params["data_path"], dataset[i])),
-                params, stitch=dataset[2], datatype=dataset[3], batch=False)
-                for dataset in params["datasets"]]
-    weights = [dataset[4] for dataset in params["datasets"]]
-
-    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
-
-    return dataset
-

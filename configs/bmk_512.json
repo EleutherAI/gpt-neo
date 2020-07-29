@@ -1,6 +1,5 @@
 {
     "n_head": 16,
-    "encoder_path": "gs://datasets_storage_1/models/encoder",
     "n_vocab": 50257,
     "embed_dropout": 0.1,
     "lr": 0.00025,
@@ -18,29 +17,23 @@
     "attn_dropout": 0.1,
     "train_steps": 10000,
     "eval_steps": 0,
-    "max_steps": 500000,
     "data_path": "gs://neo-datasets/bundestag",
     "res_dropout": 0.1,
-    "predict_batch_size": 1,
     "eval_batch_size": 32,
     "iterations": 200,
     "n_embd": 2048,
-    "datasets": [["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]],
-"data_path_": "gs://neo-datasets/openwebtext-fixed/",
-"datasets_": [["openwebtext_*.tfrecords", "", 10, "chunks", 1.0]],
+    "datasets": [["gs://neo-datasets/openwebtext-new/openwebtext_*.tfrecords", "", 11, "documents_random", 1.0]],
     "model": "GPT2",
     "model_path": "gs://neo-models/NEO_TEST_1",
     "n_ctx": 1024,
-    "predict_path": "logs/predictions.txt",
     "n_layer": 32,
     "scale_by_depth": true,
     "scale_by_in": true,
-    "fixed_attn_block_size": 128,
-    "layer_offset": 16,
     "local": true,
     "mesh_shape": "x:64,y:4,z:2",
     "layout": "query_block_length:y, tmp_channels:y, embed_sequence:y, batch:x, intermediate_expanded:z,features_per_head_key:z,embd:z",
-    "activation_function": "gelu"
+    "activation_function": "gelu",
+    "microbatches_per_batch": 8
 }
 
 
