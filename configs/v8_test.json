@@ -32,7 +32,7 @@
     "scale_by_in": true,
     "fixed_attn_block_size": 128,
     "layer_offset": 16,
-    "attention_types" :  ["local","local","local","local","local","local","local","local","local","local","local","local"],
+    "attention_types" :  [["local"],8,["global"],4],
     "mesh_shape": "all:8",
     "layout": "heads:all",
     "precision": "float32",
