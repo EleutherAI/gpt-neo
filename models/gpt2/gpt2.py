@@ -91,7 +91,7 @@ def visible_pos(mesh, nd, ns):
     return m
 
 
-def attn(x, scope, n_state, *, past, params, train=False):
+def attn(x, scope, n_state, *, layer_num, past, params, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -172,7 +172,7 @@ def attn(x, scope, n_state, *, past, params, train=False):
 
         with tf.variable_scope('attention'):
             # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
-            if params["local"]:
+            if params["attention_types"][layer_num] == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
@@ -184,7 +184,6 @@ def attn(x, scope, n_state, *, past, params, train=False):
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
                 )
-
             else:
 
                 # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
@@ -279,15 +278,15 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params, scope, past, train=False):
+def block(params, scope, past, layer_num, train=False):
     # train param doesnt seem to do anything?
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1] # grab last dimension from input
             if not params["activation_function"] == "selu":
-                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, past=past, params=params,)
+                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params,)
             else:
-                a, present = attn(x, 'attn', nx, past=past, params=params,)
+                a, present = attn(x, 'attn', nx, layer_num=layer_num, past=past, params=params,)
             x = x + a
 
             # define intermediate layer of mlp - to split
@@ -355,7 +354,7 @@ def model(features, labels, params, mesh, past=None):
     presents = []
     # attn blocks
     for layer, past in enumerate(pasts):
-        h = mtf.recompute_grad(block(params, 'h%d' % layer, past), [h])
+        h = mtf.recompute_grad(block(params, 'h%d' % layer, past, layer), [h])
         #presents.append(present)
 
     results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
