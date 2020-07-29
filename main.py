@@ -16,6 +16,13 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from inputs import generic_text
 from model_fns import model_fn
 
+def expand_attention_types_params(params_list):
+    newlist = []
+    for index, item in enumerate(params_list):
+        if type(item) == int:
+            for _ in range(item):
+                newlist.extend(params_list[index-1])
+    return newlist
 
 def main():
     # Parse command line arguments
@@ -51,6 +58,8 @@ def main():
     params["use_tpu"] = True if not args.tpu is None else False
     params["num_cores"] = mesh_shape.size
     params["steps_per_checkpoint"] = args.steps_per_checkpoint
+    # expand attention types param
+    params["attention_types"] = expand_attention_types_params(params["attention_types"])
     logger.info('params = {}'.format(params))
 
     # Set up TPUs and Estimator
