@@ -99,7 +99,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
         assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
 
     # TODO: implement proper past cache. in the meantime, don't pass a past if implementing local attention!!!
-    # update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts apparantly (?? - ask Daj).
+    # update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts apparently (?? - ask Daj).
     # we can remove this assert once we're sure we didnt break anything
     # assert not (params["local"] and past is not None)
     assert past is None
@@ -112,30 +112,21 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
-    features_per_head_key_name = "features_per_head_key"
-    features_per_head_value_name = "features_per_head_value"
-    dim_features_per_head_key = mtf.Dimension(features_per_head_key_name, params['n_embd'] // params['n_head'])
-    dim_features_per_head_value = mtf.Dimension(features_per_head_value_name, params['n_embd'] // params['n_head'])
-
+    # TODO: what are these comments referring to lol, do we need to keep these in?
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    # the old mask_attn_weights applied directly to the QK; this returns a bias that the attention code from mtf adds to the attention matrix.
     def biasmask_attn_weights(mesh, dtype):
+        # the old mask_attn_weights applied directly to the QK;
+        # this returns a bias that the attention code from mtf adds to the attention matrix.
         # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
         # n_src and n_dest are both the same, i.e equal to sequence length
-        
         # we rename ns because we want bias to have shape [batch, heads, memory_length, sequence] to match up with QK^T
         # information flows from k and v (memory_length) to q (sequence)
         ns = mtf.Dimension('memory_length', params["n_ctx"])
         nd = dim_seq
-
         vis = visible_pos(mesh, nd, ns)
-
-        # TODO: am I doing this right? trying to get to [1, 1, nd, ns]. not sure if a singleton dimension object is the right way.
-        # and I'm assuming it gets broadcasted from there to [batch, heads, seq, seq]?
-        
         # broadcast can't handle bool.
         # TODO: file bug report.
         vis = mtf.cast(vis, tf.float32)
@@ -144,9 +135,9 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
         return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
-        dim_kv = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
-        dim_heads = mtf.Dimension("heads", params['n_head'])
 
+        # compute attention inputs
+        dim_kv = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
         mtfparams = mtf.transformer.attention.attention_params_simple(
             x.mesh,
             io_dim=dim_embd,
@@ -154,7 +145,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
             heads_dim=dim_heads,
             variable_dtype=mtf.VariableDType() # TODO: set dtype here
         )
-
         q = mtfparams.compute_q(x)
         k = mtfparams.compute_k(x)
         v = mtfparams.compute_v(x)
@@ -171,7 +161,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
         #    v = tf.concat([pv, v], axis=-2)
 
         with tf.variable_scope('attention'):
-            # TODO: control whether layer is local on a layer-by-layer basis, not as a global.
             if params["attention_types"][layer_num] == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
@@ -186,13 +175,14 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                 )
             else:
 
-                # HOWEVER, `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
                 # TODO: the only use of context within attention is in _maybe_reshape...
-                # in that fn, context just needs to contain mesh / layout details:
+                #   in that fn, context just needs to contain mesh / layout details:
                 #   mesh_shape = mtf.convert_to_shape(context.model.mesh_shape)
                 #   layout_rules = mtf.convert_to_layout_rules(context.model.layout)
-                # we should create a fake context, and pass to attention for the efficiency
-                
+                #   we should create a fake context, and pass to attention for the efficiency
+
+                # `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
+                bias = biasmask_attn_weights(q.mesh, q.dtype)
                 # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims. 
                 #
                 # the reason they rename memory_length (k and v) instead of q, which we originally were going to do 
@@ -201,7 +191,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                 # QK^T (logits, in the `attention` code) has shape [batch, heads, sequence, memory_length]
                 # V has shape [batch, heads, sequence, memory_length]
                 # s(QK^T)V eliminates memory_length and we're left with sequence again
-                
                 k = mtf.rename_dimension(k, "sequence", "memory_length")
                 v = mtf.rename_dimension(v, "sequence", "memory_length")
                 a = mtf_transformer.attention.attention(
@@ -209,12 +198,11 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                     memory_length_dim=dim_seq,
                     key_dim=dim_kv,
                     value_dim=dim_kv,
-                    bias=biasmask_attn_weights(q.mesh, q.dtype),
+                    bias=bias,
                     dropout_rate=0
                 )
 
         with tf.variable_scope('compute_output'):
-            # passing in x_shape here might not be necessary. we're just doing it because this is what mtf does in their SelfAttention layer. 
             a = mtfparams.compute_output(a, x_shape)
         
         with tf.variable_scope('compute_output_bias'):
@@ -284,7 +272,8 @@ def block(params, scope, past, layer_num, train=False):
         with tf.variable_scope(scope):
             nx = x.shape[-1] # grab last dimension from input
             if not params["activation_function"] == "selu":
-                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params,)
+                # if we're not using selu activation, wrap inputs in layer norm
+                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params)
             else:
                 a, present = attn(x, 'attn', nx, layer_num=layer_num, past=past, params=params,)
             x = x + a
@@ -308,19 +297,20 @@ def model(features, labels, params, mesh, past=None):
 
     # Define mtf Dimensions
     sequence_dim = mtf.Dimension('sequence', params["n_ctx"]) # define seq length dim
+    embd_dim = mtf.Dimension("embd", params["n_embd"])
+    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
     # we need this because gathering when both the args have the same dimension in them breaks things
     # this dim is specifically for the weights
     # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
     embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"])
-    embd_dim = mtf.Dimension("embd", params["n_embd"])
-    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+
 
     if params["num_microbatches"] > 1:
-        # if num_microbatches > 1, the inputs will be in dict form.
+        # if num_microbatches > 1, the inputs will be in dict form & already in the form of mtf tensors
         # this parses features and labels from the mesh_features input dict
         x = features["inputs"]
         labels = features["labels"]
-        batch_dim = x.shape[0]
+        batch_dim = x.shape[0] # batch dim will be smaller if microbatching is enabled, so grab it from x shape
     else:
         batch_dim = mtf.Dimension('batch', params["train_batch_size"])
         x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
@@ -333,33 +323,34 @@ def model(features, labels, params, mesh, past=None):
                            initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
                            initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
-
     past_length = 0 if past is None else mtf.Shape(past)[-2]
-
     if params["embed_dropout"] > 0:
         wpe = mtf.dropout(wpe, params["embed_dropout"], name="wpe_dropout")
         wte = mtf.dropout(wte, params["embed_dropout"], name="wte_dropout")
     with tf.variable_scope('token_embd'):
+        # text embedding
         h = mtf.gather(wte, x, vocab_dim)
     with tf.variable_scope('pos_embd'):
+        # positional embedding
         h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
 
 
-    # # Transformer
     # TODO: we will need this code for sampling
     # singleton = mtf.Dimension('singleton', 1)
     # pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
     # assert len(pasts) == params["n_layer"]
+
+    # Transformer
     pasts = [None] * params["n_layer"]
     presents = []
-    # attn blocks
     for layer, past in enumerate(pasts):
-        h = mtf.recompute_grad(block(params, 'h%d' % layer, past, layer), [h])
+        # attn blocks
+        h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer), [h])
         #presents.append(present)
 
     results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
 
-    # normalize & affine transform
+    # layer normalize & affine transform
     if not params["activation_function"] == "selu":
         h = norm(h, 'ln_f', params=params)
 

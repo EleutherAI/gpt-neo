@@ -54,6 +54,7 @@ def main():
     params["use_tpu"] = True if not args.tpu is None else False
     params["num_cores"] = mesh_shape.size
     params["steps_per_checkpoint"] = args.steps_per_checkpoint
+    params["num_microbatches"] = 1
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
     assert len(params["attention_types"]) == params["n_layers"]  # assert that the length of expanded list = num layers

@@ -19,6 +19,7 @@ def generic_text(params, eval=False):
 
     return dataset
 
+
 def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
     dataset = dataset.apply(
