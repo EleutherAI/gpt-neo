@@ -47,7 +47,7 @@ def model_fn(features, labels, mode, params):
 
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
-
+    # TODO: this should probably just be inside TRAIN mode?
     if params["microbatches_per_batch"] > 1:
         # build features / seq length dict for getting number of microbatches
         features_dict = {"inputs": features, "labels": labels}
@@ -125,6 +125,16 @@ def model_fn(features, labels, mode, params):
         print(mesh_shape)
         print('Re-initialize graph with selected layout & mesh shape')
         quit()  # TODO: It should be easy to just reinitialize everything wwith selected layout
+
+    # for when we implement inference:
+    # if mode == tf.estimator.ModeKeys.PREDICT:
+    #   inputs = mtf_features["inputs"]
+    # # pad so that there is enough room for the targets
+    #   inputs = mtf.pad(
+    #     inputs, [0, sequence_length["targets"]], length_dim.name)
+    #   mtf_samples = transformer_model.sample_autoregressive(
+    #     inputs, variable_dtype=get_variable_dtype(),
+    #     remove_partial_sequences=True)
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
