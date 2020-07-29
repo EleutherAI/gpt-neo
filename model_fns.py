@@ -2,6 +2,7 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.auto_mtf
+import mesh_tensorflow.transformer as mtf_transformer
 
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info)
@@ -40,18 +41,64 @@ def model_fn(features, labels, mode, params):
 
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
-    if params["model"] == "GPT2":
-        from models.gpt2 import gpt2
-        with mtf.utils.outside_all_rewrites():
-            logits, loss, loss_batch = gpt2.model(features, labels, params, mesh)
+    params["num_microbatches"] = 1
 
-    elif params["model"] == "GPT2MOE":
-        from models.gpt2moe import gpt2moe
-        with mtf.utils.outside_all_rewrites():
-            logits, loss, loss_batch = gpt2moe.model(features, labels, params, mesh)
+    if params["microbatches_per_batch"] > 1:
+        # build features / seq length dict for getting number of microbatches
+        features_dict = {"inputs": features, "labels": labels}
+        sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
+        batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+        batch_dims = [batch_dim]
+        assert params["train_batch_size"] % params["microbatches_per_batch"] == 0
+        tokens_per_batch = params["train_batch_size"] * params["n_ctx"]
+        tokens_per_mb_per_replica = tokens_per_batch / params["microbatches_per_batch"]
+        num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+                                                                            sequence_length=sequence_length_dict,
+                                                                            mesh_shape=mesh_shape,
+                                                                            layout_rules=layout_rules,
+                                                                            tokens_per_microbatch_per_replica=tokens_per_mb_per_replica))
+        params["num_microbatches"] = num_microbatches  # add num microbatches to params
 
+        if num_microbatches > 1:
+            # if num_microbatches > 1, we need to pack inputs into a dict to pass into serialize_training_step
+            mtf_features = {}
+            for key, x in features_dict.items():
+                feature_length = sequence_length_dict[key]
+                length_dim = mtf.Dimension("sequence", feature_length)
+                feature_shape = mtf.Shape(batch_dims + [length_dim])
+                x = tf.cast(features_dict[key], tf.int32)
+                x = tf.reshape(x, feature_shape.to_integer_list)
+                mtf_features[key] = mtf.import_fully_replicated(
+                    mesh, x, feature_shape, name=key)
+
+            def serialized_fn(mtf_features):
+                from models.gpt2 import gpt2
+                if params["model"] == "GPT2":
+                    logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh)
+                    return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+                elif params["model"] == "GPT2MOE":
+                    from models.gpt2moe import gpt2moe
+                    logits, loss, loss_batch = gpt2moe.model(mtf_features, labels, params, mesh)
+                    return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+
+            # serialize the training step - Gradients are accumulated locally and reduced once.
+            var_grads, output_dict = mtf.serialize_training_step(
+                mtf_features, serialized_fn, batch_dim, num_microbatches)
+
+            loss = output_dict["loss"]
+            loss_batch = output_dict["loss_batch"]
+            logits = output_dict["logits"]
     else:
-        raise Exception("{} is not a valid model - please select from GPT2 or GPT2MOE".format(params['model']))
+        if params["model"] == "GPT2":
+            from models.gpt2 import gpt2
+            with mtf.utils.outside_all_rewrites():
+                logits, loss, loss_batch = gpt2.model(features, labels, params, mesh)
+        elif params["model"] == "GPT2MOE":
+            from models.gpt2moe import gpt2moe
+            with mtf.utils.outside_all_rewrites():
+                logits, loss, loss_batch = gpt2moe.model(features, labels, params, mesh)
+        else:
+            raise Exception("{} is not a valid model - please select from GPT2 or GPT2MOE".format(params['model']))
 
     # Auto layout generation
     if params["auto_layout"]:
@@ -59,9 +106,10 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected layout:')
         print(layout_rules)
         print('Re-initialize graph with selected layout')
-        quit() #TODO: It should be easy to just reinitialize everything with selected layout
+        quit()  # TODO: It should be easy to just reinitialize everything with selected layout
     if params["auto_layout_and_mesh_shape"]:
-        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"], [logits, loss])
+        layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, params["num_cores"],
+                                                                      [logits, loss], max_mesh_shape_dimensions=4)
         print('Num cores:')
         print(params["num_cores"])
         print('Auto-selected layout:')
@@ -69,11 +117,14 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected mesh shape:')
         print(mesh_shape)
         print('Re-initialize graph with selected layout & mesh shape')
-        quit() #TODO: It should be easy to just reinitialize everything wwith selected layout
+        quit()  # TODO: It should be easy to just reinitialize everything wwith selected layout
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
-        _, update_ops = get_optimizer(loss, params, summary)
+        if params["num_microbatches"] > 1:
+            _, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
+        else:
+            _, update_ops = get_optimizer(loss, params, summary)
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
@@ -88,7 +139,7 @@ def model_fn(features, labels, mode, params):
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-        tf_update_ops.append(tf.assign_add(global_step, 1)) # Need to manually increment global_step
+        tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
         tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
         train_op = tf.group(tf_update_ops)
     else:
@@ -110,7 +161,7 @@ def model_fn(features, labels, mode, params):
             saver_listener = mtf.MtfCheckpointSaverListener(lowering)
             saver_hook = tf.train.CheckpointSaverHook(
                 params["model_path"],
-                save_steps=params["steps_per_checkpoint"], #TODO: why isn't this outputting ckpts when we want
+                save_steps=params["steps_per_checkpoint"],  # TODO: why isn't this outputting ckpts when we want
                 saver=saver,
                 listeners=[saver_listener])
 
@@ -122,6 +173,7 @@ def model_fn(features, labels, mode, params):
                 training_hooks=[restore_hook, saver_hook])
 
         elif mode == tf.estimator.ModeKeys.EVAL:
+
             def _perplexity(tf_loss_batch):
                 loss = tf.reduce_mean(tf_loss_batch)
                 perplexity = tf.exp(loss)
