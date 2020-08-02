@@ -1,4 +1,5 @@
 """GPT-like model in Mesh-Tensorflow"""
+from collections import defaultdict
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
@@ -26,6 +27,12 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
+
+def rezero(x, scope):
+    with tf.variable_scope(scope):
+        dt = tf.float32
+        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
+        return x * g
 
 def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
@@ -272,19 +279,26 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def block(params, scope, past, layer_num, train=False):
     # train param doesnt seem to do anything?
+    use_selu = params["activation_function"] == "selu"
+    use_rezero = params["rezero"] == True
+    use_norm = not use_selu and not use_rezero
+
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1] # grab last dimension from input
 
             # if we are using selu activation, forgo layer norm
-            prenorm = norm if not params["activation_function"] == "selu" else identity
+            prenorm = norm if use_norm else identity
+            preresidual = rezero if use_rezero else identity
 
             a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params)
+            a = preresidual(a)
             x = x + a
 
             # define intermediate layer of mlp - to split
             dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
             m = mlp(prenorm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
+            m = preresidual(m)
             x = x + m
             return x
     return fn
@@ -293,7 +307,9 @@ def block(params, scope, past, layer_num, train=False):
 # MODEL:
 
 def model(features, labels, params, mesh, past=None):
-    """A GPT style model implemented in mesh tensorlfow."""
+    """A GPT style model implemented in mesh tensorflow."""
+    params = defaultdict(lambda: None, params)
+
     results = {}
 
     # Define mtf Dimensions
