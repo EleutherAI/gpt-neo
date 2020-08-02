@@ -8,9 +8,21 @@ No pretrained model yet, everything has to be built from scratch!
 
 # Requirements
 
-`pip3 install tensorflow==1.15.2 mesh-tensorflow==0.1.16 tensorflow-datasets ortools google-api-python-client oauth2client`
+```bash
+$ pip3 install \
+    tensorflow==1.15.2 \
+    mesh-tensorflow==0.1.16 \
+    tensorflow-datasets \
+    ortools \
+    google-api-python-client \
+    oauth2client
+```
 
-(TODO: put into a `requirements.txt`)
+or
+
+```bash
+$ pip3 install -r requirements.txt
+```
 
 # Training Setup
 
