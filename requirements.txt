@@ -1,0 +1,6 @@
+google-api-python-client
+mesh-tensorflow==0.1.16
+oauth2client
+ortools
+tensorflow==1.15.2
+tensorflow-datasets
