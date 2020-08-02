@@ -10,6 +10,8 @@ from utils import loss_denominator
 
 sentinel = object()
 
+def identity(x, *args, **kwargs):
+    return x
 
 def expand_tile(value, newdim, axis=0):
     """Add a new axis of given size."""
@@ -273,19 +275,16 @@ def block(params, scope, past, layer_num, train=False):
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1] # grab last dimension from input
-            if not params["activation_function"] == "selu":
-                # if we're not using selu activation, wrap inputs in layer norm
-                a, present = attn(norm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params)
-            else:
-                a, present = attn(x, 'attn', nx, layer_num=layer_num, past=past, params=params,)
+
+            # if we are using selu activation, forgo layer norm
+            prenorm = norm if not params["activation_function"] == "selu" else identity
+
+            a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params)
             x = x + a
 
             # define intermediate layer of mlp - to split
             dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
-            if not params["activation_function"] == "selu":
-                m = mlp(norm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
-            else:
-                m = mlp(x, 'mlp', dim_intermediate_expanded, params=params, train=train)
+            m = mlp(prenorm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
             x = x + m
             return x
     return fn
