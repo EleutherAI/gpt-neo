@@ -244,6 +244,18 @@ def mlp(x, scope, n_state, *, params, train=False):
         return h2
 
 
+def mlp_glu(x, scope, n_state, *, params, train=False):
+    with tf.variable_scope(scope):
+        nx = x.shape[-1]
+        h = conv1d(x, 'c_fc', n_state, params=params)
+
+        h, gate = mtf.split(h, h.shape[-1], 2)
+        h *= mtf.gelu(gate)
+
+        h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
+        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        return h2
+
 def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
     # alpha dropout - used for SELU activation
     if (keep_prob is None) == (rate is None):
@@ -281,6 +293,8 @@ def block(params, scope, past, layer_num, train=False):
     # train param doesnt seem to do anything?
     use_selu = params["activation_function"] == "selu"
     use_rezero = params["rezero"] == True
+    use_mlp_glu = params["mlp_glu"] == True
+
     use_norm = not use_selu and not use_rezero
 
     def fn(x):
@@ -295,9 +309,13 @@ def block(params, scope, past, layer_num, train=False):
             a = preresidual(a)
             x = x + a
 
+            mlp_fn = mlp_glu if use_mlp_glu else mlp
+            intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
+
             # define intermediate layer of mlp - to split
-            dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', nx.size * 4)
-            m = mlp(prenorm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
+            dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', intermediate_size)
+
+            m = mlp_fn(prenorm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
             m = preresidual(m)
             x = x + m
             return x
