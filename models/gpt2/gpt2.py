@@ -1,10 +1,10 @@
 """GPT-like model in Mesh-Tensorflow"""
-from collections import defaultdict
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
 import mesh_tensorflow.transformer as mtf_transformer
 from utils import loss_denominator
+from models.utils import expand_tile
 
 # --------------------------------------------------------------------------------
 # LAYERS:
@@ -13,15 +13,6 @@ sentinel = object()
 
 def identity(x, *args, **kwargs):
     return x
-
-def expand_tile(value, newdim, axis=0):
-    """Add a new axis of given size."""
-    if axis == 0:
-        return mtf.broadcast(value,
-                             [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
-    if axis == 1:
-        return mtf.broadcast(value, value.shape.dims + [newdim])
-
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
@@ -83,24 +74,7 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
 
         return c
 
-
-def visible_pos(mesh, nd, ns):
-    """1's in the lower triangle, counting from the lower right corner.
-
-    Same as tf.matrix_band_part(tf.ones([nd, ns]), -1, ns-nd), but doesn't produce garbage on TPUs.
-
-    UPDATE: modified for mtf
-    """
-    # TODO: I'm sure this is a maximally inefficient way of doing this, also these values could probably be hardcoded
-    i = mtf.range(mesh, nd, tf.int32)
-    i = expand_tile(i, ns, axis=1)
-    j = mtf.range(mesh, ns, tf.int32)
-    j = expand_tile(j, nd, axis=0)
-    m = mtf.greater_equal(i, j)
-    return m
-
-
-def attn(x, scope, n_state, *, layer_num, past, params, train=False):
+def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -126,22 +100,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    def biasmask_attn_weights(mesh, dtype):
-        # the old mask_attn_weights applied directly to the QK;
-        # this returns a bias that the attention code from mtf adds to the attention matrix.
-        # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
-        # n_src and n_dest are both the same, i.e equal to sequence length
-        # we rename ns because we want bias to have shape [batch, heads, memory_length, sequence] to match up with QK^T
-        # information flows from k and v (memory_length) to q (sequence)
-        ns = mtf.Dimension('memory_length', params["n_ctx"])
-        nd = dim_seq
-        vis = visible_pos(mesh, nd, ns)
-        # broadcast can't handle bool.
-        # TODO: file bug report.
-        vis = mtf.cast(vis, tf.float32)
-        vis = mtf.broadcast(vis, [dim_batch, dim_heads, nd, ns])
-        vis = mtf.cast(vis, tf.bool)
-        return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
 
@@ -174,7 +132,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
-                    length_dim=dim_seq,
+                    length_dim=dim_seq, #TODO: should this be memory length? lol
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     length_dim_num_splits=1,
@@ -191,7 +149,10 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                 #   we should create a fake context, and pass to attention for the efficiency
 
                 # `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
-                bias = biasmask_attn_weights(q.mesh, q.dtype)
+
+                # broadcast mask bias across batch and heads
+                broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
+
                 # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims. 
                 #
                 # the reason they rename memory_length (k and v) instead of q, which we originally were going to do 
@@ -202,12 +163,15 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                 # s(QK^T)V eliminates memory_length and we're left with sequence again
                 k = mtf.rename_dimension(k, "sequence", "memory_length")
                 v = mtf.rename_dimension(v, "sequence", "memory_length")
+
+                # TODO: i think passing in dim_seq as memory length dim might have been a problem? I honestly don't know
+                #   I (sid) have changed it to memory length dim, we'll see what happens.
                 a = mtf_transformer.attention.attention(
                     q, k, v,
-                    memory_length_dim=dim_seq,
+                    memory_length_dim=memory_length_dim,
                     key_dim=dim_kv,
                     value_dim=dim_kv,
-                    bias=bias,
+                    bias=broadcasted_bias,
                     dropout_rate=0
                 )
             else:
@@ -256,6 +220,7 @@ def mlp_glu(x, scope, n_state, *, params, train=False):
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
+
 def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
     # alpha dropout - used for SELU activation
     if (keep_prob is None) == (rate is None):
@@ -289,7 +254,7 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params, scope, past, layer_num, train=False):
+def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
     # train param doesnt seem to do anything?
     use_selu = params["activation_function"] == "selu"
     use_rezero = params["rezero"] == True
@@ -305,7 +270,8 @@ def block(params, scope, past, layer_num, train=False):
             prenorm = norm if use_norm else identity
             preresidual = rezero if use_rezero else identity
 
-            a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params)
+            a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
+                              params=params, bias=bias, memory_length_dim=memory_length_dim)
             a = preresidual(a)
             x = x + a
 
@@ -324,34 +290,21 @@ def block(params, scope, past, layer_num, train=False):
 # --------------------------------------------------------------------------------
 # MODEL:
 
-def model(features, labels, params, mesh, past=None):
+
+def model(mtf_features, other_features, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorflow."""
-    params = defaultdict(lambda: None, params)
 
     results = {}
 
-    # Define mtf Dimensions
-    sequence_dim = mtf.Dimension('sequence', params["n_ctx"]) # define seq length dim
-    embd_dim = mtf.Dimension("embd", params["n_embd"])
-    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
-    # we need this because gathering when both the args have the same dimension in them breaks things
-    # this dim is specifically for the weights
-    # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
-    embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"])
-
-
-    if params["num_microbatches"] > 1:
-        # if num_microbatches > 1, the inputs will be in dict form & already in the form of mtf tensors
-        # this parses features and labels from the mesh_features input dict
-        x = features["inputs"]
-        labels = features["labels"]
-        batch_dim = x.shape[0] # batch dim will be smaller if microbatching is enabled, so grab it from x shape
-    else:
-        batch_dim = mtf.Dimension('batch', params["train_batch_size"])
-        x = mtf.import_tf_tensor(mesh, features, mtf.Shape([batch_dim, sequence_dim]))
-        # In this case, labels are simply input shifted one token to the right
-        # this op is done in the input_fn
-        labels = mtf.import_tf_tensor(mesh, labels, mtf.Shape([batch_dim, sequence_dim]))
+    # parse inputs and labels from the mtf_features / other_features input dicts
+    # all dimensions are defined inside model_fn for efficiency
+    x = mtf_features["inputs"]
+    labels = mtf_features["labels"]
+    batch_dim = x.shape[0]
+    sequence_dim = x.shape[1]  # define seq length dim
+    embd_dim = other_features["embd_dim"]
+    vocab_dim = other_features["vocab_dim"]
+    embed_sequence_dim = other_features["embed_sequence_dim"]
 
     encoding_dt = tf.float32 # TODO: bfloat should apply here?
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
@@ -369,7 +322,6 @@ def model(features, labels, params, mesh, past=None):
         # positional embedding
         h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
 
-
     # TODO: we will need this code for sampling
     # singleton = mtf.Dimension('singleton', 1)
     # pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
@@ -380,8 +332,10 @@ def model(features, labels, params, mesh, past=None):
     presents = []
     for layer, past in enumerate(pasts):
         # attn blocks
-        h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer), [h])
-        #presents.append(present)
+        # TODO: make recompute grad optional, since it's slower for models that can fit in memory
+        h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+                                     bias=other_features["attn_bias"], memory_length_dim=other_features["memory_length_dim"]), [h])
+        # presents.append(present)
 
     results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
 
@@ -398,6 +352,6 @@ def model(features, labels, params, mesh, past=None):
     with tf.variable_scope('xentropy_final'):
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
     with tf.variable_scope('reduce_mean_final'):
-        # TODO: divide loss by loss_denominator if necessary
+        # TODO: divide loss by loss_denominator if necessary (think it's only necessary for batch_norm)
         loss = mtf.reduce_mean(loss_batch)
     return logits, loss, loss_batch

@@ -3,13 +3,16 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
+from collections import defaultdict
 
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info)
-
+from models.utils import biasmask_attn_weights
 
 def model_fn(features, labels, mode, params):
     # grab global step no.
+    params = defaultdict(lambda: None, params)
+
     global_step = tf.train.get_global_step()
 
     # construct mtf graph + mesh from params
@@ -21,7 +24,6 @@ def model_fn(features, labels, mode, params):
     summary = TpuSummaries(params["model_path"])
 
     # Mesh stuff
-    # TODO: does use tpu even need to be a param? are we gonna have gpu training?
     if params["use_tpu"]:
         # construct SimdMesh function - instructions on how to evenly split tensors across all cores
         num_hosts = params['context'].num_hosts
@@ -48,61 +50,85 @@ def model_fn(features, labels, mode, params):
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
     # TODO: this should probably just be inside TRAIN mode?
-    if params["microbatches_per_batch"] > 1:
-        # build features / seq length dict for getting number of microbatches
-        features_dict = {"inputs": features, "labels": labels}
-        sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
-        batch_dim = mtf.Dimension('batch', params["train_batch_size"])
-        batch_dims = [batch_dim]
-        assert params["train_batch_size"] % params["microbatches_per_batch"] == 0
-        tokens_per_batch = params["train_batch_size"] * params["n_ctx"]
-        tokens_per_mb_per_replica = tokens_per_batch / params["microbatches_per_batch"]
-        num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
-                                                                            sequence_length=sequence_length_dict,
-                                                                            mesh_shape=mesh_shape,
-                                                                            layout_rules=layout_rules,
-                                                                            tokens_per_microbatch_per_replica=tokens_per_mb_per_replica))
-        params["num_microbatches"] = num_microbatches  # add num microbatches to params
 
-        if num_microbatches > 1:
-            # if num_microbatches > 1, we need to pack inputs into a dict to pass into serialize_training_step
-            mtf_features = {}
-            for key, x in features_dict.items():
-                feature_length = sequence_length_dict[key]
-                length_dim = mtf.Dimension("sequence", feature_length)
-                feature_shape = mtf.Shape(batch_dims + [length_dim])
-                x = tf.cast(features_dict[key], tf.int32)
-                x = tf.reshape(x, feature_shape.to_integer_list)
-                mtf_features[key] = mtf.import_fully_replicated(
-                    mesh, x, feature_shape, name=key)
+    # build mtf_features & seq length dict for getting number of microbatches
+    # we need to pack inputs into a dict to pass into serialize_training_step
+    features_dict = {"inputs": features, "labels": labels}
+    sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
+    batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+    batch_dims = [batch_dim]
+    feature_length = sequence_length_dict["inputs"]
+    length_dim = mtf.Dimension("sequence", feature_length)
 
-            def serialized_fn(mtf_features):
-                # for serialize_training_step we need to modify the model to output results in a dict
-                from models.gpt2 import gpt2
-                if params["model"] == "GPT2":
-                    logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh)
-                    return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
-                elif params["model"] == "GPT2MOE":
-                    from models.gpt2moe import gpt2moe
-                    logits, loss, loss_batch = gpt2moe.model(mtf_features, labels, params, mesh)
-                    return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+    mtf_features = {}
+    for key, x in features_dict.items():
+        feature_shape = mtf.Shape(batch_dims + [length_dim])
+        x = tf.cast(features_dict[key], tf.int32)
+        x = tf.reshape(x, feature_shape.to_integer_list)
+        mtf_features[key] = mtf.import_fully_replicated(
+            mesh, x, feature_shape, name=key)
 
-            # serialize the training step - Gradients are accumulated locally and reduced once.
-            var_grads, output_dict = mtf.serialize_training_step(
-                mtf_features, serialized_fn, batch_dim, num_microbatches)
-            loss = output_dict["loss"]
-            loss_batch = output_dict["loss_batch"]
-            logits = output_dict["logits"]
+    # instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
+    other_features = {}
+    # Calculate attn mask (attn_bias) once here
+    memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
+    attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, tf.float32)
+
+    # add attn_bias into mtf_features
+    other_features["attn_bias"] = attn_bias
+
+    # define other Dimensions that we'll need inside the model
+    embd_dim = mtf.Dimension("embd", params["n_embd"])
+    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+    # we need this because gathering when both the args have the same dimension in them breaks things
+    # this dim is specifically for the weights
+    # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
+    embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"]) # TODO: this could be memory_length?
+
+    other_features["embd_dim"] = embd_dim
+    other_features["vocab_dim"] = vocab_dim
+    other_features["embed_sequence_dim"] = embed_sequence_dim
+    other_features["memory_length_dim"] = memory_length_dim
+
+    # gets number of microbatches per batch for serialized training
+    # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
+    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+                                                                        sequence_length=sequence_length_dict,
+                                                                        mesh_shape=mesh_shape,
+                                                                        layout_rules=layout_rules,
+                                                                        tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
+    params["num_microbatches"] = num_microbatches  # add num microbatches to params
+
+    if num_microbatches > 1:
+        def serialized_fn(mtf_features):
+            # for serialize_training_step we need to modify the model to output results in a dict
+            from models.gpt2 import gpt2
+            if params["model"] == "GPT2":
+                logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
+                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+            elif params["model"] == "GPT2MOE":
+                from models.gpt2moe import gpt2moe
+                # TODO: fix gpt2moe model to work with current inputs (mtf_features / other_features dicts)
+                logits, loss, loss_batch = gpt2moe.model(mtf_features, params, mesh)
+                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+
+        # serialize the training step - Gradients are accumulated locally and reduced once.
+        var_grads, output_dict = mtf.serialize_training_step(
+            mtf_features, serialized_fn, batch_dim, num_microbatches)
+        loss = output_dict["loss"]
+        loss_batch = output_dict["loss_batch"]
+        logits = output_dict["logits"]
     else:
         # if we're not splitting into microbatches, return logits & loss as is
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
-                logits, loss, loss_batch = gpt2.model(features, labels, params, mesh)
+                logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
         elif params["model"] == "GPT2MOE":
             from models.gpt2moe import gpt2moe
             with mtf.utils.outside_all_rewrites():
-                logits, loss, loss_batch = gpt2moe.model(features, labels, params, mesh)
+                # TODO: fix gpt2moe model to work with current inputs (mtf_features / other_features dicts)
+                logits, loss, loss_batch = gpt2moe.model(mtf_features, other_features, params, mesh)
         else:
             raise Exception("{} is not a valid model - please select from GPT2 or GPT2MOE".format(params['model']))
 
@@ -124,7 +150,7 @@ def model_fn(features, labels, mode, params):
         print('Auto-selected mesh shape:')
         print(mesh_shape)
         print('Re-initialize graph with selected layout & mesh shape')
-        quit()  # TODO: It should be easy to just reinitialize everything wwith selected layout
+        quit()  # TODO: It should be easy to just reinitialize everything with selected layout
 
     # for when we implement inference:
     # if mode == tf.estimator.ModeKeys.PREDICT:

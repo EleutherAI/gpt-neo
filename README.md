@@ -15,7 +15,8 @@ $ pip3 install \
     tensorflow-datasets \
     ortools \
     google-api-python-client \
-    oauth2client
+    oauth2client \
+    pytest
 ```
 
 or
@@ -36,6 +37,13 @@ Then copy the data to your bucket: `gsutil cp bundestag_0.tfrecords gs://<your b
 
 To use your own data, see "Generating Your Own Dataset" below.
 
+## Testing
+
+Testing is done on any python file that is prefixed with `test_`. Feel free to add your own file, or append to whatever file already exists.
+
+```bash
+$ python -m pytest .
+```
 
 ## Training
 
