@@ -5,6 +5,7 @@ import tensorflow.compat.v1 as tf
 import math
 import mesh_tensorflow.transformer as mtf_transformer
 from utils import loss_denominator
+from models.utils import expand_tile
 
 # --------------------------------------------------------------------------------
 # LAYERS:
@@ -13,15 +14,6 @@ sentinel = object()
 
 def identity(x, *args, **kwargs):
     return x
-
-def expand_tile(value, newdim, axis=0):
-    """Add a new axis of given size."""
-    if axis == 0:
-        return mtf.broadcast(value,
-                             [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
-    if axis == 1:
-        return mtf.broadcast(value, value.shape.dims + [newdim])
-
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
@@ -83,24 +75,7 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
 
         return c
 
-
-def visible_pos(mesh, nd, ns):
-    """1's in the lower triangle, counting from the lower right corner.
-
-    Same as tf.matrix_band_part(tf.ones([nd, ns]), -1, ns-nd), but doesn't produce garbage on TPUs.
-
-    UPDATE: modified for mtf
-    """
-    # TODO: I'm sure this is a maximally inefficient way of doing this, also these values could probably be hardcoded
-    i = mtf.range(mesh, nd, tf.int32)
-    i = expand_tile(i, ns, axis=1)
-    j = mtf.range(mesh, ns, tf.int32)
-    j = expand_tile(j, nd, axis=0)
-    m = mtf.greater_equal(i, j)
-    return m
-
-
-def attn(x, scope, n_state, *, layer_num, past, params, train=False):
+def attn(x, scope, n_state, *, layer_num, past, params, bias, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -126,22 +101,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-    def biasmask_attn_weights(mesh, dtype):
-        # the old mask_attn_weights applied directly to the QK;
-        # this returns a bias that the attention code from mtf adds to the attention matrix.
-        # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
-        # n_src and n_dest are both the same, i.e equal to sequence length
-        # we rename ns because we want bias to have shape [batch, heads, memory_length, sequence] to match up with QK^T
-        # information flows from k and v (memory_length) to q (sequence)
-        ns = mtf.Dimension('memory_length', params["n_ctx"])
-        nd = dim_seq
-        vis = visible_pos(mesh, nd, ns)
-        # broadcast can't handle bool.
-        # TODO: file bug report.
-        vis = mtf.cast(vis, tf.float32)
-        vis = mtf.broadcast(vis, [dim_batch, dim_heads, nd, ns])
-        vis = mtf.cast(vis, tf.bool)
-        return mtf_transformer.attention.visibility_mask_to_attention_bias(vis, dtype)
 
     with tf.variable_scope(scope):
 
@@ -191,7 +150,10 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                 #   we should create a fake context, and pass to attention for the efficiency
 
                 # `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
-                bias = biasmask_attn_weights(q.mesh, q.dtype)
+
+                # broadcast mask bias across batch and heads
+                broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
+
                 # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims. 
                 #
                 # the reason they rename memory_length (k and v) instead of q, which we originally were going to do 
@@ -207,7 +169,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, train=False):
                     memory_length_dim=dim_seq,
                     key_dim=dim_kv,
                     value_dim=dim_kv,
-                    bias=bias,
+                    bias=broadcasted_bias,
                     dropout_rate=0
                 )
             else:
@@ -289,7 +251,7 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params, scope, past, layer_num, train=False):
+def block(params, scope, past, layer_num, bias, train=False):
     # train param doesnt seem to do anything?
     use_selu = params["activation_function"] == "selu"
     use_rezero = params["rezero"] == True
@@ -305,7 +267,7 @@ def block(params, scope, past, layer_num, train=False):
             prenorm = norm if use_norm else identity
             preresidual = rezero if use_rezero else identity
 
-            a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params)
+            a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past, params=params, bias=bias)
             a = preresidual(a)
             x = x + a
 
@@ -324,7 +286,7 @@ def block(params, scope, past, layer_num, train=False):
 # --------------------------------------------------------------------------------
 # MODEL:
 
-def model(features, labels, params, mesh, past=None):
+def model(features, labels, params, mesh, bias, past=None):
     """A GPT style model implemented in mesh tensorflow."""
     params = defaultdict(lambda: None, params)
 
@@ -380,7 +342,7 @@ def model(features, labels, params, mesh, past=None):
     presents = []
     for layer, past in enumerate(pasts):
         # attn blocks
-        h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer), [h])
+        h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer, bias=bias), [h])
         #presents.append(present)
 
     results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)

@@ -6,7 +6,7 @@ import mesh_tensorflow.transformer as mtf_transformer
 
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info)
-
+from models.utils import biasmask_attn_weights
 
 def model_fn(features, labels, mode, params):
     # grab global step no.
@@ -48,6 +48,12 @@ def model_fn(features, labels, mode, params):
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
     # TODO: this should probably just be inside TRAIN mode?
+
+    # Calculate mask (bias) once here
+    nd = mtf.Dimension("sequence", params["n_ctx"])
+    ns = mtf.Dimension("memory_length", nd.size)
+    bias = biasmask_attn_weights(mesh, nd, ns, features.dtype)
+
     if params["microbatches_per_batch"] > 1:
         # build features / seq length dict for getting number of microbatches
         features_dict = {"inputs": features, "labels": labels}
@@ -80,7 +86,7 @@ def model_fn(features, labels, mode, params):
                 # for serialize_training_step we need to modify the model to output results in a dict
                 from models.gpt2 import gpt2
                 if params["model"] == "GPT2":
-                    logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh)
+                    logits, loss, loss_batch = gpt2.model(mtf_features, labels, params, mesh, bias)
                     return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
                 elif params["model"] == "GPT2MOE":
                     from models.gpt2moe import gpt2moe
@@ -98,7 +104,7 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
-                logits, loss, loss_batch = gpt2.model(features, labels, params, mesh)
+                logits, loss, loss_batch = gpt2.model(features, labels, params, mesh, bias)
         elif params["model"] == "GPT2MOE":
             from models.gpt2moe import gpt2moe
             with mtf.utils.outside_all_rewrites():
