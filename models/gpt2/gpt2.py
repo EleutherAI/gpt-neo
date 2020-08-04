@@ -291,20 +291,20 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
 # MODEL:
 
 
-def model(mtf_features, params, mesh, past=None):
+def model(mtf_features, other_features, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorflow."""
 
     results = {}
 
-    # parse inputs and labels from the mtf_features input dict
+    # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
     x = mtf_features["inputs"]
     labels = mtf_features["labels"]
     batch_dim = x.shape[0]
     sequence_dim = x.shape[1]  # define seq length dim
-    embd_dim = mtf_features["embd_dim"]
-    vocab_dim = mtf_features["vocab_dim"]
-    embed_sequence_dim = mtf_features["embed_sequence_dim"]
+    embd_dim = other_features["embd_dim"]
+    vocab_dim = other_features["vocab_dim"]
+    embed_sequence_dim = other_features["embed_sequence_dim"]
 
     encoding_dt = tf.float32 # TODO: bfloat should apply here?
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
@@ -334,7 +334,7 @@ def model(mtf_features, params, mesh, past=None):
         # attn blocks
         # TODO: make recompute grad optional, since it's slower for models that can fit in memory
         h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
-                                     bias=mtf_features["attn_bias"], memory_length_dim=mtf_features["memory_length_dim"]), [h])
+                                     bias=other_features["attn_bias"], memory_length_dim=other_features["memory_length_dim"]), [h])
         # presents.append(present)
 
     results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
