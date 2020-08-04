@@ -106,11 +106,6 @@ def model_fn(features, labels, mode, params):
             if params["model"] == "GPT2":
                 logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
-            elif params["model"] == "GPT2MOE":
-                from models.gpt2moe import gpt2moe
-                # TODO: fix gpt2moe model to work with current inputs (mtf_features / other_features dicts)
-                logits, loss, loss_batch = gpt2moe.model(mtf_features, params, mesh)
-                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
 
         # serialize the training step - Gradients are accumulated locally and reduced once.
         var_grads, output_dict = mtf.serialize_training_step(
@@ -124,13 +119,8 @@ def model_fn(features, labels, mode, params):
             from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
                 logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
-        elif params["model"] == "GPT2MOE":
-            from models.gpt2moe import gpt2moe
-            with mtf.utils.outside_all_rewrites():
-                # TODO: fix gpt2moe model to work with current inputs (mtf_features / other_features dicts)
-                logits, loss, loss_batch = gpt2moe.model(mtf_features, other_features, params, mesh)
         else:
-            raise Exception("{} is not a valid model - please select from GPT2 or GPT2MOE".format(params['model']))
+            raise Exception("{} is not a valid model - please select from GPT2".format(params['model']))
 
     # Auto layout generation
     # TODO: move to utils
