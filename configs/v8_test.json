@@ -29,6 +29,5 @@
     "mesh_shape": "all:8",
     "layout": "heads:all",
     "precision": "float32",
-    "activation_function": "gelu",
-    "microbatches_per_batch": 8
+    "activation_function": "gelu"
 }
