@@ -68,12 +68,14 @@ def model_fn(features, labels, mode, params):
         mtf_features[key] = mtf.import_fully_replicated(
             mesh, x, feature_shape, name=key)
 
+    # instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
+    other_features = {}
     # Calculate attn mask (attn_bias) once here
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
     attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, tf.float32)
 
     # add attn_bias into mtf_features
-    mtf_features["attn_bias"] = attn_bias
+    other_features["attn_bias"] = attn_bias
 
     # define other Dimensions that we'll need inside the model
     embd_dim = mtf.Dimension("embd", params["n_embd"])
@@ -83,10 +85,10 @@ def model_fn(features, labels, mode, params):
     # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
     embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"]) # TODO: this could be memory_length?
 
-    mtf_features["embd_dim"] = embd_dim
-    mtf_features["vocab_dim"] = vocab_dim
-    mtf_features["embed_sequence_dim"] = embed_sequence_dim
-    mtf_features["memory_length_dim"] = memory_length_dim
+    other_features["embd_dim"] = embd_dim
+    other_features["vocab_dim"] = vocab_dim
+    other_features["embed_sequence_dim"] = embed_sequence_dim
+    other_features["memory_length_dim"] = memory_length_dim
 
     # gets number of microbatches per batch for serialized training
     # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
@@ -102,10 +104,11 @@ def model_fn(features, labels, mode, params):
             # for serialize_training_step we need to modify the model to output results in a dict
             from models.gpt2 import gpt2
             if params["model"] == "GPT2":
-                logits, loss, loss_batch = gpt2.model(mtf_features, params, mesh)
+                logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
             elif params["model"] == "GPT2MOE":
                 from models.gpt2moe import gpt2moe
+                # TODO: fix gpt2moe model to work with current inputs (mtf_features / other_features dicts)
                 logits, loss, loss_batch = gpt2moe.model(mtf_features, params, mesh)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
 
@@ -120,11 +123,12 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
-                logits, loss, loss_batch = gpt2.model(mtf_features, params, mesh)
+                logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
         elif params["model"] == "GPT2MOE":
             from models.gpt2moe import gpt2moe
             with mtf.utils.outside_all_rewrites():
-                logits, loss, loss_batch = gpt2moe.model(mtf_features, params, mesh)
+                # TODO: fix gpt2moe model to work with current inputs (mtf_features / other_features dicts)
+                logits, loss, loss_batch = gpt2moe.model(mtf_features, other_features, params, mesh)
         else:
             raise Exception("{} is not a valid model - please select from GPT2 or GPT2MOE".format(params['model']))
 
