@@ -285,7 +285,10 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
     use_rezero = params["rezero"] == True
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
-    use_moe = layer_num in params["moe_layers"]
+    if params["moe_layers"] is not None:
+        use_moe = layer_num in params["moe_layers"]
+    else:
+        use_moe = False
     use_norm = not use_selu and not use_rezero
 
     def fn(x):
