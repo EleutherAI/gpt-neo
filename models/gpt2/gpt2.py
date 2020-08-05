@@ -11,8 +11,10 @@ from models.utils import expand_tile
 
 sentinel = object()
 
+
 def identity(x, *args, **kwargs):
     return x
+
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
@@ -25,6 +27,7 @@ def rezero(x, scope):
         g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
         return x * g
 
+
 def norm(x, axis, epsilon=1e-5):
     u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
     s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
@@ -33,6 +36,7 @@ def norm(x, axis, epsilon=1e-5):
     s = mtf.broadcast(s, x.shape)
 
     return (x - u) * mtf.rsqrt(s + epsilon)
+
 
 def scale_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     if axis is sentinel:
@@ -48,6 +52,7 @@ def scale_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         x = norm(x, axis, epsilon)
         x = x * g
         return x
+
 
 def layer_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
@@ -72,7 +77,8 @@ def layer_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
 # TODO: this isnt actually a convolution, rename it to something more appropriate
 def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
-    if params["scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
+    if params[
+        "scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
@@ -85,12 +91,13 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     with tf.variable_scope('conv1d_main'):
         if not params["activation_function"] == "selu":
             c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
-                                kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
+                                 kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
         else:
             c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
-                                kernel_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
+                                 kernel_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
 
         return c
+
 
 def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, train=False):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
@@ -118,7 +125,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
-
     with tf.variable_scope(scope):
 
         # compute attention inputs
@@ -128,7 +134,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
             io_dim=dim_embd,
             kv_dim=dim_kv,
             heads_dim=dim_heads,
-            variable_dtype=mtf.VariableDType() # TODO: set dtype here
+            variable_dtype=mtf.VariableDType()  # TODO: set dtype here
         )
         q = mtfparams.compute_q(x)
         k = mtfparams.compute_k(x)
@@ -150,7 +156,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
-                    length_dim=dim_seq, #TODO: should this be memory length? lol
+                    length_dim=dim_seq,  # TODO: should this be memory length? lol
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     length_dim_num_splits=1,
@@ -197,10 +203,11 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
 
         with tf.variable_scope('compute_output'):
             a = mtfparams.compute_output(a, x_shape)
-        
+
         with tf.variable_scope('compute_output_bias'):
             # TODO: bfloat16 should work here
-            b = mtf.get_variable(x.mesh, 'o_b', [dim_embd], initializer=tf.constant_initializer(0, dtype=tf.float32), dtype=tf.float32)
+            b = mtf.get_variable(x.mesh, 'o_b', [dim_embd], initializer=tf.constant_initializer(0, dtype=tf.float32),
+                                 dtype=tf.float32)
             a += b
 
         if not params["activation_function"] == "selu":
@@ -256,9 +263,9 @@ def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
         alpha = -1.7580993408473766
 
         noise = mtf.ops.cast(mtf.ops.less(mtf.ops.random_uniform(
-                x.mesh, noise_shape,
-                dtype=(x.dtype if x.dtype.is_floating else tf.float32)),
-                            keep_prob), x.dtype)
+            x.mesh, noise_shape,
+            dtype=(x.dtype if x.dtype.is_floating else tf.float32)),
+            keep_prob), x.dtype)
 
         # Mask
         x = x * noise + alpha * (1 - noise)
@@ -283,7 +290,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
 
     def fn(x):
         with tf.variable_scope(scope):
-            nx = x.shape[-1] # grab last dimension from input
+            nx = x.shape[-1]  # grab last dimension from input
 
             # if we are using selu activation, forgo layer norm
             if not use_norm:
@@ -310,8 +317,9 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
 
                 output_dim = mtf.Dimension("moe_out", params["n_embd"])
                 m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, output_dim, moe_params, train=train,
-                                                                       mesh_shape=params["mesh_shape"], layout=params["layout"],
-                                                                       variable_dtype=tf.float32)
+                                                                           mesh_shape=params["mesh_shape"],
+                                                                           layout=params["layout"],
+                                                                           variable_dtype=tf.float32)
             else:
 
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
@@ -326,7 +334,9 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
             m = preresidual(m)
             x = x + m
             return x, aux_loss
+
     return fn
+
 
 # --------------------------------------------------------------------------------
 # MODEL:
@@ -335,6 +345,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
 def model(mtf_features, other_features, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorflow."""
     results = {}
+    recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
@@ -346,7 +357,7 @@ def model(mtf_features, other_features, params, mesh, past=None):
     vocab_dim = other_features["vocab_dim"]
     embed_sequence_dim = other_features["embed_sequence_dim"]
 
-    encoding_dt = tf.float32 # TODO: bfloat should apply here?
+    encoding_dt = tf.float32  # TODO: bfloat should apply here?
     wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
                            initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
@@ -374,13 +385,18 @@ def model(mtf_features, other_features, params, mesh, past=None):
 
     for layer, past in enumerate(pasts):
         # attn blocks
-        # TODO: make recompute grad optional, since it's slower for models that can fit in memory
-        h, loss = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
-                                     bias=other_features["attn_bias"], memory_length_dim=other_features["memory_length_dim"]), [h])
-        aux_losses += loss
+        if recompute_grad:
+            h, loss = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+                                               bias=other_features["attn_bias"],
+                                               memory_length_dim=other_features["memory_length_dim"]), [h])
+            aux_losses += loss
+        else:
+            h, loss = block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+                            bias=other_features["attn_bias"], memory_length_dim=other_features["memory_length_dim"])
+            aux_losses += loss
         # presents.append(present)
 
-    results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
+    results['present'] = None  # mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # layer normalize & affine transform
     if not params["activation_function"] == "selu":
@@ -390,7 +406,7 @@ def model(mtf_features, other_features, params, mesh, past=None):
         # equivalent to tf.matmul
         logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
 
-    vdim = logits.shape[2] # get vocab dimension
+    vdim = logits.shape[2]  # get vocab dimension
 
     with tf.variable_scope('xentropy_final'):
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
@@ -398,6 +414,6 @@ def model(mtf_features, other_features, params, mesh, past=None):
         # TODO: divide loss by loss_denominator if necessary (think it's only necessary for batch_norm)
         loss = mtf.reduce_mean(loss_batch)
 
-    loss += aux_losses
+    loss += aux_losses  # add on auxiliary losses (currently only used for moe)
 
     return logits, loss, loss_batch
