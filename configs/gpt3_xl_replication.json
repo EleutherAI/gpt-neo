@@ -4,7 +4,7 @@
     "embed_dropout": 0.1,
     "lr": 0.0002,
     "lr_decay": "cosine",
-    "warmup_steps": 350,
+    "warmup_steps": 3000,
     "beta1": 0.9,
     "beta2": 0.95,
     "epsilon": 1e-8,
@@ -31,5 +31,5 @@
     "mesh_shape": "x:128,y:2",
     "layout": "memory_length:y,embd:y,batch:x",
     "activation_function": "gelu",
-    "microbatches_per_batch": 1
+    "recompute_grad": true
 }
