@@ -1,6 +1,7 @@
 import pytest
 import traceback
 import logging
+from collections import defaultdict
 from contextlib import contextmanager
 
 # helper functions
@@ -25,19 +26,25 @@ from models.utils import biasmask_attn_weights
 
 # fixtures
 
-params = {
+params = defaultdict(lambda: None, {
     "n_head": 1,
     "n_ctx": 3,
     "n_embd": 1,
     "n_vocab": 256,
     "embed_dropout": 0.,
-    "n_layer": 1,
+    "n_layer": 2,
     "num_microbatches": 1,
     "train_batch_size": 1,
-    "attention_types": ['global'],
+    "attention_types": ['global', 'global'],
     "res_dropout": 0.1,
-    "activation_function": "gelu"
-}
+    "activation_function": "gelu",
+    "moe_layers": (1,),
+    "moe_params": {
+        'moe_dropout_rate': 0.0
+    },
+    "mesh_shape": [],
+    "layout": {}
+})
 
 # tests
 
@@ -45,20 +52,35 @@ def test_model():
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh")
 
-    batch_dim = 1
-    sequence_dim = params["n_ctx"]
 
-    features = tf.ones((batch_dim, sequence_dim), tf.int32)
-    labels = tf.ones((batch_dim, sequence_dim), tf.int32)
+    seq_len = params["n_ctx"]
+
+    batch_dim = mtf.Dimension("batch", 1)
+    sequence_dim = mtf.Dimension("sequence", seq_len)
+
+    features = {
+        'inputs': mtf.ones(mesh, mtf.Shape((batch_dim, sequence_dim)), tf.int32),
+        'labels': mtf.ones(mesh, mtf.Shape((batch_dim, sequence_dim)), tf.int32)
+    }    
 
     # create mask
 
-    nd = mtf.Dimension('sequence', sequence_dim)
-    ns = mtf.Dimension('memory_length', sequence_dim)
-    bias = biasmask_attn_weights(mesh, nd, ns, tf.float32)
+    length_dim = mtf.Dimension('sequence', seq_len)
+    memory_length_dim = mtf.Dimension('memory_length', seq_len)
+    embed_sequence_dim = mtf.Dimension('embed_sequence', seq_len)
+    embd_dim = mtf.Dimension("embd", params["n_embd"])
+    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+
+    other_features = {}
+
+    other_features["attn_bias"] = biasmask_attn_weights(mesh, length_dim, memory_length_dim, tf.float32)
+    other_features["embd_dim"] = embd_dim
+    other_features["vocab_dim"] = vocab_dim
+    other_features["embed_sequence_dim"] = embed_sequence_dim
+    other_features["memory_length_dim"] = memory_length_dim
 
     with not_raises(Exception):
-        logits, _, _ = gpt2.model(features, labels, params, mesh, bias)
+        logits, _, _ = gpt2.model(features, other_features, params, mesh)
 
         mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
         lowering = mtf.Lowering(graph, {mesh: mesh_impl})
