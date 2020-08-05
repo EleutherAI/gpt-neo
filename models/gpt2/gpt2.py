@@ -278,6 +278,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
     use_rezero = params["rezero"] == True
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
+    use_moe = layer_num in params["moe_layers"]
     use_norm = not use_selu and not use_rezero
 
     def fn(x):
@@ -299,16 +300,32 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
             a = preresidual(a)
             x = x + a
 
-            mlp_fn = mlp_glu if use_mlp_glu else mlp
-            intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
+            res_x = prenorm(x, 'ln_2', params=params)
 
-            # define intermediate layer of mlp - to split
-            dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', intermediate_size)
+            if use_moe:
+                moe_params = mtf.transformer.moe.HParams()
+                for k, v in params["moe_params"].items():
+                    moe_params.add_hparam(k, v)
+                mtf.transformer.moe.set_default_moe_hparams(moe_params)
 
-            m = mlp_fn(prenorm(x, 'ln_2', params=params), 'mlp', dim_intermediate_expanded, params=params, train=train)
+                output_dim = mtf.Dimension("moe_out", params["n_embd"])
+                m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, output_dim, moe_params, train=train,
+                                                                       mesh_shape=params["mesh_shape"], layout=params["layout"],
+                                                                       variable_dtype=tf.float32)
+            else:
+
+                mlp_fn = mlp_glu if use_mlp_glu else mlp
+                intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
+
+                # define intermediate layer of mlp - to split
+                dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', intermediate_size)
+
+                m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params, train=train)
+                aux_loss = mtf.zeros(x.mesh, mtf.Shape([]))
+
             m = preresidual(m)
             x = x + m
-            return x
+            return x, aux_loss
     return fn
 
 # --------------------------------------------------------------------------------
@@ -317,7 +334,6 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
 
 def model(mtf_features, other_features, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorflow."""
-
     results = {}
 
     # parse inputs and labels from the mtf_features / other_features input dicts
@@ -354,11 +370,14 @@ def model(mtf_features, other_features, params, mesh, past=None):
     # Transformer
     pasts = [None] * params["n_layer"]
     presents = []
+    aux_losses = 0
+
     for layer, past in enumerate(pasts):
         # attn blocks
         # TODO: make recompute grad optional, since it's slower for models that can fit in memory
-        h = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+        h, loss = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
                                      bias=other_features["attn_bias"], memory_length_dim=other_features["memory_length_dim"]), [h])
+        aux_losses += loss
         # presents.append(present)
 
     results['present'] = None # mtf.stack(presents, dim_name=dim_name, axis=1)
@@ -378,4 +397,7 @@ def model(mtf_features, other_features, params, mesh, past=None):
     with tf.variable_scope('reduce_mean_final'):
         # TODO: divide loss by loss_denominator if necessary (think it's only necessary for batch_norm)
         loss = mtf.reduce_mean(loss_batch)
+
+    loss += aux_losses
+
     return logits, loss, loss_batch
