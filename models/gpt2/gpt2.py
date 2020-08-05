@@ -25,7 +25,31 @@ def rezero(x, scope):
         g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
         return x * g
 
-def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
+def norm(x, axis, epsilon=1e-5):
+    u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
+    s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
+
+    u = mtf.broadcast(u, x.shape)
+    s = mtf.broadcast(s, x.shape)
+
+    return (x - u) * mtf.rsqrt(s + epsilon)
+
+def scale_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
+    if axis is sentinel:
+        axis = x.shape[-1]
+
+    with tf.variable_scope(scope):
+        n_state = x.shape[-1]
+
+        dt = tf.float32
+
+        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
+
+        x = norm(x, axis, epsilon)
+        x = x * g
+        return x
+
+def layer_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
     if axis is sentinel:
         axis = x.shape[-1]
@@ -40,13 +64,7 @@ def norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1, dtype=dt), dtype=dt)
         b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
 
-        u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
-        s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
-
-        u = mtf.broadcast(u, x.shape)
-        s = mtf.broadcast(s, x.shape)
-
-        x = (x - u) * mtf.rsqrt(s + epsilon)
+        x = norm(x, axis, epsilon)
         x = x * g + b
         return x
 
@@ -259,6 +277,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
     use_selu = params["activation_function"] == "selu"
     use_rezero = params["rezero"] == True
     use_mlp_glu = params["mlp_glu"] == True
+    use_scale_norm = params["scalenorm"] == True
     use_moe = layer_num in params["moe_layers"]
     use_norm = not use_selu and not use_rezero
 
@@ -267,7 +286,13 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
             nx = x.shape[-1] # grab last dimension from input
 
             # if we are using selu activation, forgo layer norm
-            prenorm = norm if use_norm else identity
+            if not use_norm:
+                prenorm = identity
+            elif use_scale_norm:
+                prenorm = scale_norm
+            else:
+                prenorm = layer_norm
+
             preresidual = rezero if use_rezero else identity
 
             a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
@@ -359,7 +384,7 @@ def model(mtf_features, other_features, params, mesh, past=None):
 
     # layer normalize & affine transform
     if not params["activation_function"] == "selu":
-        h = norm(h, 'ln_f', params=params)
+        h = layer_norm(h, 'ln_f', params=params)
 
     with tf.variable_scope('wte_final_einsum'):
         # equivalent to tf.matmul
