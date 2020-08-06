@@ -89,13 +89,8 @@ def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
 
     # not in the variable_scope because mtf already has a variable_scope in it
     with tf.variable_scope('conv1d_main'):
-        if not params["activation_function"] == "selu":
-            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
-                                 kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
-        else:
-            c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
-                                 kernel_initializer=tf.variance_scaling_initializer(scale=1.0, mode='fan_in'))
-
+        c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
+                             kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev, dtype=dt))
         return c
 
 
@@ -210,26 +205,16 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                                  dtype=tf.float32)
             a += b
 
-        if not params["activation_function"] == "selu":
-            a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
-        else:
-            a = alpha_dropout(a, params["res_dropout"], name="attn_dropout")
-
+        a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
         return a, present
 
 
 def mlp(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        if params["activation_function"] == "gelu":
-            h = mtf.gelu(conv1d(x, 'c_fc', n_state, params=params))
-        elif params["activation_function"] == "selu":
-            h = mtf.selu(conv1d(x, 'c_fc', n_state, params=params))
+        h = mtf.gelu(conv1d(x, 'c_fc', n_state, params=params))
         h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
-        if not params["activation_function"] == "selu":
-            h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
-        else:
-            h2 = alpha_dropout(h2, params["res_dropout"], name="mlp_dropout")
+        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
 
@@ -245,51 +230,14 @@ def mlp_glu(x, scope, n_state, *, params, train=False):
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
-
-def alpha_dropout(x, keep_prob=None, rate=None, noise_shape=None, name=None):
-    # alpha dropout - used for SELU activation
-    if (keep_prob is None) == (rate is None):
-        raise ValueError("exactly one of keep_prob and rate should be set")
-    if keep_prob is None:
-        keep_prob = 1.0 - rate
-    noise_shape = mtf.ops.convert_to_shape(noise_shape)
-    if noise_shape is None:
-        noise_shape = x.shape
-
-    with tf.variable_scope(name, default_name="alpha_dropout"):
-        if keep_prob == 1.0:
-            return x
-
-        alpha = -1.7580993408473766
-
-        noise = mtf.ops.cast(mtf.ops.less(mtf.ops.random_uniform(
-            x.mesh, noise_shape,
-            dtype=(x.dtype if x.dtype.is_floating else tf.float32)),
-            keep_prob), x.dtype)
-
-        # Mask
-        x = x * noise + alpha * (1 - noise)
-
-        # Affine transformation parameters
-        a = (keep_prob + keep_prob * (1 - keep_prob) * alpha ** 2) ** -0.5
-        b = -a * alpha * (1 - keep_prob)
-
-        # Affine transformation
-        return a * x + b
-
-
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
     # train param doesnt seem to do anything?
-    use_selu = params["activation_function"] == "selu"
     use_rezero = params["rezero"] == True
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
-    if params["moe_layers"] is not None:
-        use_moe = layer_num in params["moe_layers"]
-    else:
-        use_moe = False
-    use_norm = not use_selu and not use_rezero
+    use_moe = (params["moe_layers"] is not None) and (layer_num in params["moe_layers"])
+    use_norm = not use_rezero
 
     def fn(x):
         with tf.variable_scope(scope):
@@ -388,22 +336,18 @@ def model(mtf_features, other_features, params, mesh, past=None):
 
     for layer, past in enumerate(pasts):
         # attn blocks
-        if recompute_grad:
-            h, loss = mtf.recompute_grad(block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
-                                               bias=other_features["attn_bias"],
-                                               memory_length_dim=other_features["memory_length_dim"]), [h])
-            aux_losses += loss
-        else:
-            h, loss = block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
-                            bias=other_features["attn_bias"], memory_length_dim=other_features["memory_length_dim"])
-            aux_losses += loss
+        block_fn = block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+                         bias=other_features["attn_bias"],
+                         memory_length_dim=other_features["memory_length_dim"])
+
+        h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
+        aux_losses += loss
         # presents.append(present)
 
     results['present'] = None  # mtf.stack(presents, dim_name=dim_name, axis=1)
 
     # layer normalize & affine transform
-    if not params["activation_function"] == "selu":
-        h = layer_norm(h, 'ln_f', params=params)
+    h = layer_norm(h, 'ln_f', params=params)
 
     with tf.variable_scope('wte_final_einsum'):
         # equivalent to tf.matmul
