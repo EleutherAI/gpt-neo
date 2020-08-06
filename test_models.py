@@ -4,6 +4,14 @@ import logging
 from collections import defaultdict
 from contextlib import contextmanager
 
+import tensorflow as tf
+tf.compat.v1.enable_eager_execution()
+import mesh_tensorflow as mtf
+from mesh_tensorflow import placement_mesh_impl
+
+from models.gpt2 import gpt2
+from models.utils import biasmask_attn_weights
+
 # helper functions
 
 @contextmanager
@@ -13,16 +21,6 @@ def not_raises(exception):
     except exception:
         logging.error(traceback.format_exc())
         raise pytest.fail("DID RAISE {0}".format(exception))
-
-# imports
-
-import tensorflow as tf
-tf.compat.v1.enable_eager_execution()
-import mesh_tensorflow as mtf
-from mesh_tensorflow import placement_mesh_impl
-
-from models.gpt2 import gpt2
-from models.utils import biasmask_attn_weights
 
 # fixtures
 
@@ -35,7 +33,7 @@ params = defaultdict(lambda: None, {
     "n_layer": 2,
     "num_microbatches": 1,
     "train_batch_size": 1,
-    "attention_types": ['global', 'global'],
+    "attention_types": ['global', 'linear'],
     "res_dropout": 0.1,
     "activation_function": "gelu",
     "moe_layers": (1,),
