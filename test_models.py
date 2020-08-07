@@ -26,7 +26,7 @@ def not_raises(exception):
 
 params = defaultdict(lambda: None, {
     "n_head": 1,
-    "n_ctx": 3,
+    "n_ctx": 4,
     "n_embd": 1,
     "n_vocab": 256,
     "embed_dropout": 0.,
@@ -35,6 +35,7 @@ params = defaultdict(lambda: None, {
     "train_batch_size": 1,
     "attention_types": ['global', 'linear'],
     "res_dropout": 0.1,
+    "axial_pos_emb": (32, 32),
     "activation_function": "gelu",
     "moe_layers": (1,),
     "moe_params": {
