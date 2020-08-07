@@ -73,9 +73,25 @@ def layer_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         x = x * g + b
         return x
 
+def linear_attention(q, k, v, epsilon = 1e-6):
+    batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
+    q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
+    k = mtf.rename_dimension(k, 'features_per_head', 'features_per_head_in')
 
-# TODO: this isnt actually a convolution, rename it to something more appropriate
-def conv1d(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
+    dim_in = k.shape[-1]
+
+    q = mtf.softmax(q, dim_in)
+    k = mtf.elu(k) + 1
+
+    cumulative_k = mtf.cumsum(k, seq_dim)
+    context = mtf.einsum([k, v], output_shape = [batch_dim, seq_dim, head_dim, dim_in, dim_out])
+    cumulative_context = mtf.cumsum(context, seq_dim)
+
+    cumulative_context /= (cumulative_k + epsilon)
+    attn = mtf.einsum([q, cumulative_context], output_shape = [batch_dim, seq_dim, head_dim, dim_out])
+    return attn
+
+def linear(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
     if params[
         "scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
@@ -146,8 +162,10 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
         #    k = tf.concat([pk, k], axis=-2)
         #    v = tf.concat([pv, v], axis=-2)
 
+        attention_type = params["attention_types"][layer_num]
+
         with tf.variable_scope('attention'):
-            if params["attention_types"][layer_num] == "local":
+            if  attention_type == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
@@ -159,7 +177,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
                 )
-            elif params["attention_types"][layer_num] == "global":
+            elif attention_type == "global":
 
                 # TODO: the only use of context within attention is in _maybe_reshape...
                 #   in that fn, context just needs to contain mesh / layout details:
@@ -193,6 +211,9 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                     bias=broadcasted_bias,
                     dropout_rate=0
                 )
+            elif attention_type == 'linear':
+                a = linear_attention(q, k, v)
+
             else:
                 raise NotImplementedError("Unknown attention type {}!".format(params["attention_types"][layer_num]))
 
@@ -212,8 +233,8 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
 def mlp(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        h = mtf.gelu(conv1d(x, 'c_fc', n_state, params=params))
-        h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
+        h = mtf.gelu(linear(x, 'c_fc', n_state, params=params))
+        h2 = linear(h, 'c_proj', nx, params=params, scale=True)
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
@@ -221,12 +242,12 @@ def mlp(x, scope, n_state, *, params, train=False):
 def mlp_glu(x, scope, n_state, *, params, train=False):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        h = conv1d(x, 'c_fc', n_state, params=params)
+        h = linear(x, 'c_fc', n_state, params=params)
 
         h, gate = mtf.split(h, h.shape[-1], 2)
         h *= mtf.gelu(gate)
 
-        h2 = conv1d(h, 'c_proj', nx, params=params, scale=True)
+        h2 = linear(h, 'c_proj', nx, params=params, scale=True)
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
@@ -243,7 +264,6 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
         with tf.variable_scope(scope):
             nx = x.shape[-1]  # grab last dimension from input
 
-            # if we are using selu activation, forgo layer norm
             if not use_norm:
                 prenorm = identity
             elif use_scale_norm:
