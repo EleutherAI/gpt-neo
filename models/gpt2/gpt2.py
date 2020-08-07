@@ -358,9 +358,10 @@ def model(mtf_features, other_features, params, mesh, past=None):
     with tf.variable_scope('xentropy_final'):
         loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
     with tf.variable_scope('reduce_mean_final'):
-        # TODO: divide loss by loss_denominator if necessary (think it's only necessary for batch_norm)
         loss = mtf.reduce_mean(loss_batch)
 
     loss += aux_losses  # add on auxiliary losses (currently only used for moe)
+    # if using microbatching, divide loss by number of microbatches, since loss is summed across microbatches
+    loss /= params["num_microbatches"]
 
     return logits, loss, loss_batch
