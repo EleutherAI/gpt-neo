@@ -317,6 +317,7 @@ def model(mtf_features, other_features, params, mesh, past=None):
     """A GPT style model implemented in mesh tensorflow."""
     results = {}
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
+    use_axial_pos_emb = params["axial_pos_emb"] != None
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
@@ -329,8 +330,27 @@ def model(mtf_features, other_features, params, mesh, past=None):
     embed_sequence_dim = other_features["embed_sequence_dim"]
 
     encoding_dt = tf.float32  # TODO: bfloat should apply here?
-    wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
-                           initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+
+    if not use_axial_pos_emb:
+        wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
+                               initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+    else:
+        axial_dim_1, axial_dim_2 = params["axial_pos_emb"]
+
+        axial_dim = mtf.Dimension('axial_dim', axial_dim_1 * axial_dim_2)
+        dim_axials = [mtf.Dimension(f'axial_dim_{i}', t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
+
+        axial_wpe_1 = mtf.get_variable(mesh, 'axial_wpe_1', mtf.Shape([dim_axials[0], embd_dim]),  # Position encoding
+                               initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+
+        axial_wpe_2 = mtf.get_variable(mesh, 'axial_wpe_2', mtf.Shape([dim_axials[1], embd_dim]),  # Position encoding
+                               initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+
+        axial_wpe_1, axial_wpe_2 = map(lambda t: mtf.broadcast(t, [dim_axials[0], dim_axials[1], embd_dim]), (axial_wpe_1, axial_wpe_2))
+        wpe = (axial_wpe_1 + axial_wpe_2) / 2
+
+        wpe = mtf.reshape(wpe, [axial_dim, embd_dim])
+
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
                            initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
     past_length = 0 if past is None else mtf.Shape(past)[-2]
@@ -342,7 +362,7 @@ def model(mtf_features, other_features, params, mesh, past=None):
         h = mtf.gather(wte, x, vocab_dim)
     with tf.variable_scope('pos_embd'):
         # positional embedding
-        h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
+        h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), wpe.shape[0])
 
     # TODO: we will need this code for sampling
     # singleton = mtf.Dimension('singleton', 1)
