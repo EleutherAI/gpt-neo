@@ -73,6 +73,7 @@ def layer_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         x = x * g + b
         return x
 
+
 def linear_attention(q, k, v, epsilon = 1e-6):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
     q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
@@ -90,6 +91,7 @@ def linear_attention(q, k, v, epsilon = 1e-6):
     cumulative_context /= (cumulative_k + epsilon)
     attn = mtf.einsum([q, cumulative_context], output_shape = [batch_dim, seq_dim, head_dim, dim_out])
     return attn
+
 
 def linear(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
@@ -110,7 +112,7 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         return c
 
 
-def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, train=False):
+def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, train=False, context=None):
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -151,6 +153,22 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
         k = mtfparams.compute_k(x)
         v = mtfparams.compute_v(x)
 
+        if context is not None:
+            if context.mode == "incremental":
+                one_hot = mtf.one_hot(
+                    context.position, dim_seq, dtype=tf.float32)
+                inv_one_hot = 1.0 - one_hot
+                old_k, old_v = context.get_states(2)
+                k = old_k * inv_one_hot + k * one_hot
+                v = old_v * inv_one_hot + v * one_hot
+
+
+            # will probably need this later (related to masking) - not sure how it works exactly for now
+            # memory_position = mtf.range(context.mesh, memory_length, tf.int32)
+        if context is not None:
+            if context.mode == "incremental" or context.mode == "first_part":
+                context.record_new_states([k, v])
+
         # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
         # present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name,
         # features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
@@ -190,9 +208,9 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 # broadcast mask bias across batch and heads
                 broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
 
-                # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims. 
+                # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims.
                 #
-                # the reason they rename memory_length (k and v) instead of q, which we originally were going to do 
+                # the reason they rename memory_length (k and v) instead of q, which we originally were going to do
                 # because renaming less seems better, is because q's length dim is the one left at the end.
                 #
                 # QK^T (logits, in the `attention` code) has shape [batch, heads, sequence, memory_length]
@@ -251,8 +269,9 @@ def mlp_glu(x, scope, n_state, *, params, train=False):
         h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
+
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
+def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, context=None):
     # train param doesnt seem to do anything?
     use_rezero = params["rezero"] == True
     use_mlp_glu = params["mlp_glu"] == True
@@ -274,7 +293,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
             preresidual = rezero if use_rezero else identity
 
             a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
-                              params=params, bias=bias, memory_length_dim=memory_length_dim)
+                                params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
             a = preresidual(a)
             x = x + a
 
@@ -313,7 +332,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False):
 # MODEL:
 
 
-def model(mtf_features, other_features, params, mesh, past=None):
+def model(mtf_features, other_features, params, mesh, past=None, context=None):
     """A GPT style model implemented in mesh tensorflow."""
     results = {}
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
@@ -344,11 +363,6 @@ def model(mtf_features, other_features, params, mesh, past=None):
         # positional embedding
         h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), embed_sequence_dim)
 
-    # TODO: we will need this code for sampling
-    # singleton = mtf.Dimension('singleton', 1)
-    # pasts = mtf.unstack(past, dim=singleton) if past is not None else [None] * params["n_layer"]
-    # assert len(pasts) == params["n_layer"]
-
     # Transformer
     pasts = [None] * params["n_layer"]
     presents = []
@@ -358,7 +372,8 @@ def model(mtf_features, other_features, params, mesh, past=None):
         # attn blocks
         block_fn = block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
                          bias=other_features["attn_bias"],
-                         memory_length_dim=other_features["memory_length_dim"])
+                         memory_length_dim=other_features["memory_length_dim"],
+                         context=context)
 
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
@@ -374,14 +389,17 @@ def model(mtf_features, other_features, params, mesh, past=None):
         logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
 
     vdim = logits.shape[2]  # get vocab dimension
+    calc_loss = not params["predict"]
+    if calc_loss:
+        with tf.variable_scope('xentropy_final'):
+            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
+        with tf.variable_scope('reduce_mean_final'):
+            loss = mtf.reduce_mean(loss_batch)
 
-    with tf.variable_scope('xentropy_final'):
-        loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
-    with tf.variable_scope('reduce_mean_final'):
-        loss = mtf.reduce_mean(loss_batch)
-
-    loss += aux_losses  # add on auxiliary losses (currently only used for moe)
-    # if using microbatching, divide loss by number of microbatches, since loss is summed across microbatches
-    loss /= params["num_microbatches"]
-
+        loss += aux_losses  # add on auxiliary losses (currently only used for moe)
+        loss /= params["num_microbatches"]
+    else:
+        loss = None
+        loss_batch = None
     return logits, loss, loss_batch
+

@@ -12,9 +12,10 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from utils import save_config, expand_attention_types_params
-from inputs import generic_text
+from inputs import generic_text, pred_input
 from model_fns import model_fn
-import pprint
+from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
+                        processors, trainers)
 
 
 def main():
@@ -26,6 +27,7 @@ def main():
     parser.add_argument('--autostack', action="store_false")
     parser.add_argument('--auto_layout', action="store_true")
     parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
+    parser.add_argument('--predict', action='store_true')
     args = parser.parse_args()
 
     # Setup logging
@@ -61,6 +63,9 @@ def main():
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
     logger.info('params = {}'.format(params))
 
+    params["predict_batch_size"] = params.get("predict_batch_size", params["train_batch_size"]) # Default to 1
+    params["predict"] = args.predict
+
     # Set up TPUs and Estimator
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
     config = tpu_config.RunConfig(
@@ -81,10 +86,27 @@ def main():
         config=config,
         train_batch_size=params["train_batch_size"],
         eval_batch_size=params["train_batch_size"],
+        predict_batch_size=params["predict_batch_size"],
         params=params)
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info('Current step {}'.format(current_step))
+
+    if args.predict:
+        enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
+        predictions = estimator.predict(input_fn=pred_input)
+        with tf.gfile.Open("test.txt", "a") as f:
+            for i, p in enumerate(predictions):
+                p = p["outputs"]
+                text = enc.decode(p)
+                f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+                f.write(text)
+                f.write("\n" + "=" * 80 + "\n")
+
+                logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+                logger.info(text)
+                logger.info("\n" + "=" * 80 + "\n")
+        return
 
     if args.steps_per_checkpoint == 0:
         estimator.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
@@ -112,3 +134,4 @@ def main():
 if __name__ == '__main__':
     tf.disable_v2_behavior()
     main()
+
