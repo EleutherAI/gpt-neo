@@ -132,8 +132,7 @@ def model_fn(features, labels, mode, params):
                                                                         layout_rules=layout_rules,
                                                                         tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
     params["num_microbatches"] = num_microbatches  # add num microbatches to params
-    print(params["num_microbatches"])
-    print('^^^^^^^^^^^^')
+
     if num_microbatches > 1:
         def serialized_fn(mtf_features):
             # for serialize_training_step we need to modify the model to output results in a dict
