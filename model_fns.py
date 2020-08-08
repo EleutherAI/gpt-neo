@@ -242,6 +242,7 @@ def model_fn(features, labels, mode, params):
 
             def _perplexity(tf_loss_batch):
                 loss = tf.reduce_mean(tf_loss_batch)
+                loss /= params["num_microbatches"]
                 perplexity = tf.exp(loss)
                 return tf.metrics.mean(perplexity)
 
