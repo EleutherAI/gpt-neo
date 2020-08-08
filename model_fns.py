@@ -8,6 +8,8 @@ from collections import defaultdict
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info)
 from models.utils import biasmask_attn_weights
+from tensorflow.python.ops import resources
+from sample import sample_autoregressive
 
 def model_fn(features, labels, mode, params):
     # grab global step no.
@@ -49,7 +51,6 @@ def model_fn(features, labels, mode, params):
 
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
-    # TODO: this should probably just be inside TRAIN mode?
 
     # build mtf_features & seq length dict for getting number of microbatches
     # we need to pack inputs into a dict to pass into serialize_training_step
@@ -90,6 +91,39 @@ def model_fn(features, labels, mode, params):
     other_features["embed_sequence_dim"] = embed_sequence_dim
     other_features["memory_length_dim"] = memory_length_dim
 
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        inputs = mtf_features["inputs"]
+        mtf_samples = sample_autoregressive(
+            inputs, other_features=other_features, params=params, variable_dtype=tf.float32,
+            remove_partial_sequences=True)
+        mtf_samples = mtf.anonymize(mtf_samples)
+        inputs = mtf.anonymize(inputs)
+        lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
+        inputs = mtf.transformer.utils.clean_decodes(lowering.export_to_tf_tensor(inputs))
+        outputs = mtf.transformer.utils.clean_decodes(lowering.export_to_tf_tensor(mtf_samples))
+        predictions = {
+            "inputs": inputs,
+            "outputs": outputs}
+
+        def scaffold_fn():
+            return tf.train.Scaffold(
+                local_init_op=tf.group(
+                    tf.train.Scaffold.default_local_init_op(),
+                    lowering.copy_masters_to_slices(),
+                    name="mtf_local_init_op"),
+                ready_op=tf.concat(
+                    [tf.report_uninitialized_variables(),
+                    resources.report_uninitialized_resources()],
+                    axis=0,
+                    name="mtf_ready_op"))
+
+        return tpu_estimator.TPUEstimatorSpec(
+            mode=tf.estimator.ModeKeys.PREDICT,
+            predictions=predictions,
+            scaffold_fn=scaffold_fn,
+            prediction_hooks=[mtf.MtfRestoreHook(lowering)])
+
+
     # gets number of microbatches per batch for serialized training
     # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
     num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
@@ -104,7 +138,8 @@ def model_fn(features, labels, mode, params):
             # for serialize_training_step we need to modify the model to output results in a dict
             from models.gpt2 import gpt2
             if params["model"] == "GPT2":
-                logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
+                with tf.variable_scope('gpt2'):
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
 
         # serialize the training step - Gradients are accumulated locally and reduced once.
@@ -118,7 +153,8 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT2":
             from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
-                logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
+                with tf.variable_scope('gpt2'):
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
         else:
             raise Exception("{} is not a valid model - please select from GPT2".format(params['model']))
 
@@ -141,16 +177,6 @@ def model_fn(features, labels, mode, params):
         print(mesh_shape)
         print('Re-initialize graph with selected layout & mesh shape')
         quit()  # TODO: It should be easy to just reinitialize everything with selected layout
-
-    # for when we implement inference:
-    # if mode == tf.estimator.ModeKeys.PREDICT:
-    #   inputs = mtf_features["inputs"]
-    # # pad so that there is enough room for the targets
-    #   inputs = mtf.pad(
-    #     inputs, [0, sequence_length["targets"]], length_dim.name)
-    #   mtf_samples = transformer_model.sample_autoregressive(
-    #     inputs, variable_dtype=get_variable_dtype(),
-    #     remove_partial_sequences=True)
 
     # TRAIN mode
     if mode == tf.estimator.ModeKeys.TRAIN:
@@ -231,3 +257,4 @@ def model_fn(features, labels, mode, params):
                 evaluation_hooks=[restore_hook],
                 loss=tf_loss,
                 eval_metrics=eval_metrics)
+
