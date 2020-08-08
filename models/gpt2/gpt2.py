@@ -339,8 +339,11 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
-    x = mtf_features["inputs"]
-    labels = mtf_features["labels"]
+    if params["predict"]:
+        x = mtf_features
+    else:
+        x = mtf_features["inputs"]
+        labels = mtf_features["labels"]
     batch_dim = x.shape[0]
     sequence_dim = x.shape[1]  # define seq length dim
     embd_dim = other_features["embd_dim"]
