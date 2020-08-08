@@ -108,3 +108,21 @@ def text_dataset(files, params, stitch, datatype, batch=True):
     dataset = dataset.repeat()
 
     return dataset
+
+
+def pred_input(params, text="test"):
+    from tokenizers import Tokenizer
+    enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
+    tokens = enc.encode(text).ids
+    l = len(tokens)
+    if len(tokens) > params["n_ctx"]:
+        tokens = tokens[:params["n_ctx"]]
+    if len(tokens) < params["n_ctx"]:
+        tokens = tf.pad(tokens, [[0,params["n_ctx"]-len(tokens)]])
+    t = tf.broadcast_to(tokens, [params["batch_size"], params["n_ctx"]])
+    dataset = tf.data.Dataset.from_tensors(t)
+    def _dummy_labels(x):
+        return x, x
+
+    dataset = dataset.map(_dummy_labels)
+    return dataset
