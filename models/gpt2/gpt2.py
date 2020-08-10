@@ -113,6 +113,9 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
 
 
 def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, train=False, context=None):
+    # x :: [batch, seq, n_embd]
+    x_shape, dim_batch, dim_seq, dim_embd, mesh = x.shape, *x.shape, x.mesh
+
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
@@ -125,18 +128,15 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
     # assert not (params["local"] and past is not None)
     assert past is None
 
-    # x :: [batch, seq, n_embd]
-    x_shape = x.shape
-    dim_batch = x_shape[0]
-    dim_seq = x_shape[1]
-    dim_embd = x_shape[2]
-
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
     # TODO: what are these comments referring to lol, do we need to keep these in?
     # input length is past seq + x seq because when sampling, subsequent x is only length 1
     # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
     # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
+
+    num_mem_kv = params.get('num_mem_kv', 0)
+    use_num_mem_kv = num_mem_kv > 0
 
     with tf.variable_scope(scope):
 
@@ -219,6 +219,23 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 k = mtf.rename_dimension(k, "sequence", "memory_length")
                 v = mtf.rename_dimension(v, "sequence", "memory_length")
 
+                # memory key / values, from all-attention paper
+                if use_num_mem_kv:
+                    dim_mem_kv = mtf.Dimension('mem_kv_sequence', num_mem_kv)
+
+                    with tf.variable_scope('memory_key_values'):
+                        emb_dim = k.shape[-1]
+                        mem_std = 1 / math.sqrt(emb_dim.size)
+
+                        mem_k = mtf.get_variable(mesh, 'mem_k', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]), initializer=tf.random_normal_initializer(stddev=mem_std), dtype=tf.float32)
+                        mem_v = mtf.get_variable(mesh, 'mem_v', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]), initializer=tf.random_normal_initializer(stddev=mem_std), dtype=tf.float32)
+
+                        mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]), (mem_k, mem_v))
+                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'memory_length'), (mem_k, mem_v))
+
+                        k = mtf.concat([mem_k, k], 'memory_length')
+                        v = mtf.concat([mem_v, v], 'memory_length')
+
                 # TODO: i think passing in dim_seq as memory length dim might have been a problem? I honestly don't know
                 #   I (sid) have changed it to memory length dim, we'll see what happens.
                 a = mtf_transformer.attention.attention(
@@ -229,6 +246,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                     bias=broadcasted_bias,
                     dropout_rate=0
                 )
+
             elif attention_type == 'linear':
                 a = linear_attention(q, k, v)
 
