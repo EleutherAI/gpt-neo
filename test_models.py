@@ -38,6 +38,7 @@ params = defaultdict(lambda: None, {
     "axial_pos_emb": (32, 32),
     "activation_function": "gelu",
     "moe_layers": (1,),
+    "num_mem_kv": 1,
     "moe_params": {
         'moe_dropout_rate': 0.0
     },
@@ -64,8 +65,9 @@ def test_model():
 
     # create mask
 
+    num_mem_kv = params.get('num_mem_kv', 0)
     length_dim = mtf.Dimension('sequence', seq_len)
-    memory_length_dim = mtf.Dimension('memory_length', seq_len)
+    memory_length_dim = mtf.Dimension('memory_length', seq_len + num_mem_kv)
     embed_sequence_dim = mtf.Dimension('embed_sequence', seq_len)
     embd_dim = mtf.Dimension("embd", params["n_embd"])
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
