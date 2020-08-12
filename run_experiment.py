@@ -5,7 +5,8 @@ import time
 import subprocess
 import shutil
 import os
-import json 
+import json
+import threading
 
 ex = sacred.Experiment('eleutherai-gpt3')
 ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
@@ -16,6 +17,33 @@ def get_open_port(lo=8000, hi=8100):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             if s.connect_ex(('localhost', i)) != 0:
                 return i
+
+
+def train_thread(tpu, id):
+    print('starting training on', tpu)
+    os.system("python3 main.py --tpu {tpu} --model run_configs/config_{id}.json".format(tpu=tpu, id=id))
+    print('exited training!')
+
+    print("Recreating {} in 60sec...".format(tpu))
+    time.sleep(60)
+    os.system("pu recreate {} --yes".format(tpu))
+    print('recreate done, exiting train_thread')
+
+
+def get_run_data(port):
+    url_stem = 'http://localhost:' + port
+    run_stem = ''
+    url = f'{url_stem}/data/plugin/scalars/scalars'
+    try:
+        resp = requests.get(url, params={
+            'tag': 'loss',
+            'run': f'{run_stem}.',
+            'experiment': '',
+        }, timeout=request_timeout)
+        resp.raise_for_status()
+        return resp.text
+    except:
+        return None
 
 
 @ex.main
@@ -41,12 +69,13 @@ def main(_run):
     os.system("screen -S tensorboard_{} -d -m tensorboard --logdir {} --port {}".format(_run._id, params["model_path"], tensorboard_port))
 
     while True:
-        os.system("python3 main.py --tpu {tpu} --model run_configs/config_{id}.json".format(tpu=args.tpu, id=_run._id))
-        print("Recreating {} in 60sec...".format(args.tpu))
-        time.sleep(60)
+        trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id))
+        trainthd.start()
+        while trainthd.is_alive():
+            time.sleep(60)
+            print('Polling tensorboard for metrics...')
+            print(get_run_data(tensorboard_port))
 
-        os.system("python3 main.py --tpu {tpu} --model run_configs/config_{id}.json".format(tpu=args.tpu, id=_run._id))
-
-
+        
 if __name__ == '__main__':
     ex.run()
