@@ -33,11 +33,11 @@ def train_thread(tpu, id):
 def get_run_data(port):
     url_stem = 'http://localhost:' + port
     run_stem = ''
-    url = f'{url_stem}/data/plugin/scalars/scalars'
+    url = '{}/data/plugin/scalars/scalars'.format(url_stem)
     try:
         resp = requests.get(url, params={
             'tag': 'loss',
-            'run': f'{run_stem}.',
+            'run': '{}.'.format(run_stem),
             'experiment': '',
         }, timeout=request_timeout)
         resp.raise_for_status()
