@@ -24,7 +24,9 @@ def main(_run):
 
     while True:
         os.system("python3 main.py --tpu {tpu} --model run_configs/config_{id}.json".format(tpu=args.tpu, id=_run._id))
+        print("Recreating {} in 60sec...".format(args.tpu))
         time.sleep(60)
+
 
 
 if __name__ == '__main__':
