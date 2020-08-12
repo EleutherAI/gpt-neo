@@ -1,3 +1,4 @@
+import atexit
 import sacred
 import argparse
 import main
@@ -7,6 +8,7 @@ import shutil
 import os
 import json
 import threading
+import requests
 
 ex = sacred.Experiment('eleutherai-gpt3')
 ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
@@ -70,6 +72,7 @@ def main(_run):
     tensorboard_port = get_open_port()
     print('Tensorboard at port:', tensorboard_port)
     os.system("screen -S tensorboard_{} -d -m tensorboard --logdir {} --port {}".format(_run._id, params["model_path"], tensorboard_port))
+    atexit.register(goodbye, _run._id)
 
     while True:
         trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id))
@@ -78,6 +81,13 @@ def main(_run):
             time.sleep(60)
             print('Polling tensorboard for metrics...')
             print(get_run_data(tensorboard_port))
+
+
+def goodbye(id):
+    print("You are now leaving the Python sector.")
+    print("Sie verlassen den pythonischen Sektor.")
+
+    os.system("screen -S tensorboard_{} -X quit".format(id))
 
         
 if __name__ == '__main__':
