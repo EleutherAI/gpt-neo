@@ -38,7 +38,7 @@ def main(_run):
 
     tensorboard_port = get_open_port()
     print('Tensorboard at port:', tensorboard_port)
-    os.system("tensorboard --logdir {} --port {}".format(params["model_path"], tensorboard_port))
+    os.system("screen -S tensorboard_{} -d -m tensorboard --logdir {} --port {}".format(_run._id, params["model_path"], tensorboard_port))
 
     while True:
         os.system("python3 main.py --tpu {tpu} --model run_configs/config_{id}.json".format(tpu=args.tpu, id=_run._id))
