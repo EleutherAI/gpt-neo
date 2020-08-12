@@ -43,6 +43,9 @@ def get_run_data(port):
         resp.raise_for_status()
         return resp.text
     except:
+        import traceback
+        traceback.print_exc()
+        print(url_stem, run_stem)
         return None
 
 
