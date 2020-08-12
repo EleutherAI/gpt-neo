@@ -23,8 +23,8 @@ def main(_run):
     print('Starting run', _run._id)
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
-    parser.add_argument('--model', type=str) # JSON file that contains model parameters
+    parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
+    parser.add_argument('--model', type=str, required=True) # JSON file that contains model parameters
     args = parser.parse_args()
 
     os.makedirs('run_configs', exist_ok=True)
