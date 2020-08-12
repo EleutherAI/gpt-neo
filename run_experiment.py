@@ -35,6 +35,7 @@ def train_thread(tpu, id):
 def get_run_data(port):
     url_stem = 'http://localhost:{}'.format(port)
     run_stem = ''
+    request_timeout = 15
     url = '{}/data/plugin/scalars/scalars'.format(url_stem)
     try:
         resp = requests.get(url, params={
