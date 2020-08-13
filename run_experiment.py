@@ -55,6 +55,7 @@ def get_run_data(port):
 @ex.main
 def main(_run):
     print('Starting run', _run._id)
+    print('WARNING: please remember to remove old metric log files from the model directory.')
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
