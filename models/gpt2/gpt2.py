@@ -216,8 +216,8 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 # QK^T (logits, in the `attention` code) has shape [batch, heads, sequence, memory_length]
                 # V has shape [batch, heads, sequence, memory_length]
                 # s(QK^T)V eliminates memory_length and we're left with sequence again
-                k = mtf.rename_dimension(k, "sequence", "memory_length")
-                v = mtf.rename_dimension(v, "sequence", "memory_length")
+                k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
+                v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
 
                 # memory key / values, from all-attention paper
                 if use_num_mem_kv:
@@ -328,6 +328,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
                                                                            variable_dtype=tf.float32)
+                m = mtf.replace_dimensions(m, m.shape[-1], x.shape[-1])
             else:
 
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
@@ -355,6 +356,7 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     results = {}
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
     use_axial_pos_emb = params["axial_pos_emb"] != None
+    no_weight_tie_emb = params["no_weight_tie"] == True
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
@@ -422,12 +424,16 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     results['present'] = None  # mtf.stack(presents, dim_name=dim_name, axis=1)
 
-    # layer normalize & affine transform
-    h = layer_norm(h, 'ln_f', params=params)
+    if no_weight_tie_emb:
+        with tf.variable_scope('wte_final_linear'):
+            logits = linear(h, 'linear_out', vocab_dim, params=params)
+    else:
+        # layer normalize & affine transform
+        h = layer_norm(h, 'ln_f', params=params)
 
-    with tf.variable_scope('wte_final_einsum'):
-        # equivalent to tf.matmul
-        logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
+        with tf.variable_scope('wte_final_einsum'):
+            # equivalent to tf.matmul
+            logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
 
     vdim = logits.shape[2]  # get vocab dimension
     calc_loss = not params["predict"]
