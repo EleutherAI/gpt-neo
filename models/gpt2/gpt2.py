@@ -380,7 +380,7 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
         axial_dim_1, axial_dim_2 = params["axial_pos_emb"]
 
         axial_dim = mtf.Dimension('axial_dim', axial_dim_1 * axial_dim_2)
-        dim_axials = [mtf.Dimension(f'axial_dim_{i}', t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
+        dim_axials = [mtf.Dimension('axial_dim_{}'.format(i), t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
 
         axial_wpe_1 = mtf.get_variable(mesh, 'axial_wpe_1', mtf.Shape([dim_axials[0], embd_dim]),  # Position encoding
                                initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
