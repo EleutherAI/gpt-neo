@@ -1,7 +1,6 @@
 import atexit
 import sacred
 import argparse
-import main
 import time
 import subprocess
 import shutil
@@ -9,6 +8,7 @@ import os
 import json
 import threading
 import requests
+import glob
 
 ex = sacred.Experiment('eleutherai-gpt3')
 ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
@@ -69,6 +69,10 @@ def main(_run):
         'tpu_name': args.tpu,
         **params
     })
+    for file in glob.glob("**/*"):
+        if file.split('.')[-1] in ['py', 'json', 'yml']:    
+            print('Adding', file, 'to sacred')
+            ex.add_source_file(file)
 
     tensorboard_port = get_open_port()
     print('Tensorboard at port:', tensorboard_port)
