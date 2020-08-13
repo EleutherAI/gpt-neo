@@ -89,6 +89,8 @@ def main(_run):
             time.sleep(60)
             print('Polling tensorboard for metrics...')
             data = get_run_data(tensorboard_port)
+            if data is None:
+                continue
             for ts, step, val in data:
                 if step < curr_step:
                     continue
