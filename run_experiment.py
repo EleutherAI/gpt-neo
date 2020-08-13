@@ -71,7 +71,7 @@ def main(_run):
         **params
     })
     for file in glob.glob("**/*"):
-        if file.split('.')[-1] in ['py', 'json', 'yml']:    
+        if file.split('.')[-1] in ['py']:    
             print('Adding', file, 'to sacred')
             ex.add_source_file(file)
 
