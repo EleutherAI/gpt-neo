@@ -75,13 +75,22 @@ def main(_run):
     os.system("screen -S tensorboard_{} -d -m tensorboard --logdir {} --port {}".format(_run._id, params["model_path"], tensorboard_port))
     atexit.register(goodbye, _run._id)
 
+    curr_step = 0
+
     while True:
         trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id))
         trainthd.start()
         while trainthd.is_alive():
             time.sleep(60)
             print('Polling tensorboard for metrics...')
-            print(get_run_data(tensorboard_port))
+            data = get_run_data(tensorboard_port)
+            for ts, step, val in data:
+                if step < curr_step:
+                    continue
+
+                _run.log_scalar('loss', val, step)
+                print('Logged to sacred: step={},loss={}'.format(step, val))
+                curr_step = step
 
 
 def goodbye(id):
