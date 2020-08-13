@@ -44,7 +44,7 @@ def get_run_data(port):
             'experiment': '',
         }, timeout=request_timeout)
         resp.raise_for_status()
-        return resp.text
+        return json.loads(resp.text)
     except:
         import traceback
         traceback.print_exc()
