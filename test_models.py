@@ -44,7 +44,8 @@ params = defaultdict(lambda: None, {
         'moe_dropout_rate': 0.0
     },
     "mesh_shape": [],
-    "layout": {}
+    "layout": {},
+    "rezero": True
 })
 
 # tests

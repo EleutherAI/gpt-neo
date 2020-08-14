@@ -312,7 +312,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
 
             a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
                                 params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
-            a = preresidual(a)
+            a = preresidual(a, 'res_1')
             x = x + a
 
             res_x = prenorm(x, 'ln_2', params=params)
@@ -340,7 +340,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
                 m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params, train=train)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]))
 
-            m = preresidual(m)
+            m = preresidual(m, 'res_2')
             x = x + m
             return x, aux_loss
 
