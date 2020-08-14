@@ -45,7 +45,7 @@ Testing is done on any python file that is prefixed with `test_`. Feel free to a
 $ python -m pytest .
 ```
 
-## Training
+## Training (old)
 
 Connect to your VM, clone this repo and cd into the folder. Find a fitting config in `/configs` and tweak parameters as needed (see reference at the end of this document). Then run:
 
@@ -54,6 +54,18 @@ Connect to your VM, clone this repo and cd into the folder. Find a fitting confi
 - `tpu`: Name of the TPU to use.
 - `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
 - `--auto_layout` and `--auto_layout_and_mesh_shape` (Optional): Disable training and instead auto generate a memory efficient `layout` (and `mesh_shape`)
+
+## Training (with sacred)
+
+Sacred helps track experiments and is much nicer to work with than tensorboard.
+
+To use: 
+
+1. Ensure model_dir doesnt have any metric logs in it (it trips up the metric stuff for tensorboard, which assumes that it's a continuation of the existing run). You can use `gsutil rm -r ...` to delete model dir
+
+2. Run `python3 run_experiment.py --tpu sometpuhere --model someconfig.json` Options do the same thing as in the old script. 
+
+3. You can go to http://server_ip_goes_here:8080/ to see the Omniboard overview. It's password protected, ask in the discord for info. If you want to see the tensorboard for some reason, the `run_experiment.py` script also spins up a tensorboard and automatically assigns it a port. The script should print out the tensorboard port near the top of the log. 
 
 ## Monitoring
 
