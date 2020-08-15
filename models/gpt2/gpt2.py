@@ -20,14 +20,6 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
-
-def rezero(x, scope):
-    with tf.variable_scope(scope):
-        dt = tf.float32
-        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
-        return x * g
-
-
 def norm(x, axis, epsilon=1e-5):
     u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
     s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
@@ -291,28 +283,21 @@ def mlp_glu(x, scope, n_state, *, params, train=False):
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
 def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, context=None):
     # train param doesnt seem to do anything?
-    use_rezero = params["rezero"] == True
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
     use_moe = (params["moe_layers"] is not None) and (layer_num in params["moe_layers"])
-    use_norm = not use_rezero
 
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1]  # grab last dimension from input
 
-            if not use_norm:
-                prenorm = identity
-            elif use_scale_norm:
+            if use_scale_norm:
                 prenorm = scale_norm
             else:
                 prenorm = layer_norm
 
-            preresidual = rezero if use_rezero else identity
-
             a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
                                 params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
-            a = preresidual(a, 'res_1')
             x = x + a
 
             res_x = prenorm(x, 'ln_2', params=params)
@@ -340,7 +325,6 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
                 m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params, train=train)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]))
 
-            m = preresidual(m, 'res_2')
             x = x + m
             return x, aux_loss
 
