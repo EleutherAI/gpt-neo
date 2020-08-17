@@ -5,6 +5,12 @@ from __future__ import print_function
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
+def clip_by_global_norm(grads, clip_norm):
+    """Clip the grads by global norm."""
+    global_norm = mtf.sqrt(mtf.add_n([mtf.reduce_sum(mtf.square(t)) for t in grads if t is not None]))
+    multiplier = clip_norm / mtf.maximum(global_norm, clip_norm)
+    clipped_grads = [None if t is None else t * multiplier for t in grads]
+    return clipped_grads, global_norm
 
 def get_optimizer(loss, params, summary, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
@@ -68,6 +74,9 @@ def get_optimizer(loss, params, summary, inp_var_grads=None):
             epsilon2=params["ada_epsilon2"]
         )
 
-    update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+    if params["gradient_clipping"] is not None:
+        clip_value = mtf.constant(mesh, params["gradient_clipping"], dtype=tf.float32)
+        (var_grads, _) = clip_by_global_norm(var_grads, clip_norm=clip_value)
 
-    return loss, update_ops
+    update_ops = optimizer.apply_grads(var_grads, graph.trainable_variables)
+    return learning_rate, update_ops
