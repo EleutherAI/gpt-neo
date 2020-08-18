@@ -164,6 +164,7 @@ Path(args.output_dir).mkdir(exist_ok=True)
 enc = Tokenizer.from_file(args.encoder_path)
 args.seperator = json.loads(args.seperator) # Encode the seperator to list
 files = glob.glob(os.path.join(args.base_dir, "*")) # TODO make this more flexible maybe?
+files = [f for f in files if not os.path.isdir(f)]
 file_chunks = chunks(files, args.files_per) # Assign files_per file to a tfrecord file each
 args.chunk_size = args.chunk_size + 1 # Chunks need to be 1 token longer so there's a target for the last token
 
