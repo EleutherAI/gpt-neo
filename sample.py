@@ -8,7 +8,7 @@ def sample_autoregressive(partial_sequences,
                           params,
                           stop_at_token=1,
                           max_steps=None,
-                          temperature=0.0,
+                          temperature=0.9,
                           variable_dtype=mtf.VariableDType(tf.float32),
                           encoder_output=None,
                           encoder_sequence_id=None,
@@ -18,8 +18,8 @@ def sample_autoregressive(partial_sequences,
                           encoder_layer_outputs=None,
                           never_end=False,
                           remove_partial_sequences=False,
-                          sampling_keep_top_k=-1,
-                          bos_id=0):
+                          sampling_keep_top_k=-2,
+                          bos_id=50256):
     """Sample randomly one token at a time.
 
     The partial_sequences represent partial sequences to be continued.  The
@@ -101,7 +101,7 @@ def sample_autoregressive(partial_sequences,
 
     shifted_inputs = mtf.shift(inputs, offset=1, dim=length_dim,
                                wrap=False)  # shifts inputs to the right for first inp
-    # with tf.variable_scope("sampling"):
+
     with tf.variable_scope('gpt2'):
         logits, _, _ = gpt2.model(shifted_inputs, other_features, params, inputs.mesh, context=context_first_part)
     del logits
@@ -135,35 +135,42 @@ def sample_autoregressive(partial_sequences,
         return mtf.logical_not(all_done)
 
     def body_fn(position, ids, *states):
+        nonlocal sampling_keep_top_k
+        nonlocal context_first_part
         """One step in the decode loop."""
-        inputs_this_step = mtf.gather(ids, position - 1, length_dim)
-        # Setting proper bos_id for position == 0. No-op otherwise.
-        if bos_id:
-            inputs_this_step += bos_id * mtf.ones_like(inputs_this_step) * mtf.cast(
-                mtf.equal(position, 0), tf.int32)
-        context_incremental = mtf_transformer.transformer.Context(
+        # inputs_this_step = mtf.gather(ids, position - 1, length_dim)
+        # # Setting proper bos_id for position == 0. No-op otherwise.
+        # if bos_id:
+        #     inputs_this_step += bos_id * mtf.ones_like(inputs_this_step) * mtf.cast(
+        #         mtf.equal(position, 0), tf.int32)
+
+        initial_position = mtf.reduce_sum(mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)
+
+        context = mtf_transformer.transformer.Context(
             model=None,
             mesh=inputs.mesh,
             batch_dims=batch_dims,
             length_dim=length_dim,
             variable_dtype=variable_dtype,
-            mode="incremental",
-            position=position,
-            states=states,
+            mode="first_part",
+            position=length_range,
+            position_is_default=True,
             new_states=[],
+            initial_position=position,
             sequence_id=None,
             encoder_output=encoder_output,
             encoder_sequence_id=encoder_sequence_id,
-            constant_states=constant_states,
+            constant_states=[],
             shared_params=shared_params,
             encoder_layer_outputs=encoder_layer_outputs,
             write_priority=write_priority,
-            read_priority=position,
-            inputs=inputs_this_step,
+            read_priority=read_priority,
+            inputs=ids,
             encoder_inputs=encoder_inputs)
+
         # TODO: inputs here should be inputs_this_step but it seems to break things :<
         with tf.variable_scope('gpt2', reuse=True):
-            logits, _, _ = gpt2.model(shifted_inputs, other_features, params, inputs.mesh, context=context_incremental)
+            logits, _, _ = gpt2.model(ids, other_features, params, inputs.mesh, context = context)
         # if never_end:
         #     logits += mtf.one_hot(
         #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),
@@ -174,6 +181,11 @@ def sample_autoregressive(partial_sequences,
         # option to apply temperature is done before the top-k truncation. This
         # implementation does this in the opposite order. For top-k this doesn't
         # matter, but for top_p it will.
+
+        # by default, do topk sampling of 0.9
+        if sampling_keep_top_k == -2:
+            sampling_keep_top_k = int(logits.shape[-1].size * 0.1)
+
         if sampling_keep_top_k != -1:
             if sampling_keep_top_k <= 0:
                 raise ValueError("sampling_keep_top_k must either be -1 or positive.")
@@ -188,9 +200,9 @@ def sample_autoregressive(partial_sequences,
         new_position = position + 1
         new_ids = ids + ids_this_step * mtf.one_hot(
             position, length_dim, dtype=tf.int32)
-        return [new_position, new_ids] + context_incremental.new_states
+        return [new_position, new_ids]
 
-    while_loop_inputs = [initial_position, inputs] + initial_states
+    while_loop_inputs = [initial_position, inputs]
     final_position, outputs = mtf.while_loop(
         cond_fn, body_fn, while_loop_inputs)[:2]
     del final_position

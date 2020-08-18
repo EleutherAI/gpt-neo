@@ -1,7 +1,23 @@
 import tensorflow.compat.v1 as tf
 from tensorflow.contrib import summary
 import re
+from urllib.parse import urlparse
+from shutil import rmtree
 
+def yes_or_no(question):
+    while True:
+        reply = str(input(question+' (y/n): ')).lower().strip()
+        if reply[:1] == 'y':
+            return True
+        if reply[:1] == 'n':
+            return False
+
+def remove_gs_or_filepath(path):
+    parsed_url = urlparse(path)
+    if parsed_url.scheme == 'gs':
+        os.system('gsutil rm -rf {}'.format(path))
+        return
+    rmtree(path)
 
 def save_config(params_dict, logdir):
     print('saving config to {}'.format(logdir))

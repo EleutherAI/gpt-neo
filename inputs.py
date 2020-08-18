@@ -1,5 +1,33 @@
 import tensorflow.compat.v1 as tf
+from tokenizers import Tokenizer
 
+def test_generic_text(params, eval=False):
+    i = 0 if not eval else 1
+
+    batch_size = params['train_batch_size']
+    num_examples_text = 200000
+    length = params['n_ctx'] // 2 - 1
+    pad = tf.constant(0, shape=[num_examples_text, 1], dtype=tf.int64)
+    bos = tf.constant(1, shape=[num_examples_text, 1], dtype=tf.int64)
+    eos = tf.constant(2, shape=[num_examples_text, 1], dtype=tf.int64)
+    src_seq = tf.random.uniform(shape=[num_examples_text, length], minval=3, maxval=params['n_vocab'], dtype=tf.int64)
+    tgt_seq = src_seq + 1
+    seq = tf.concat([bos, src_seq, pad, tgt_seq, eos], axis=1)
+
+    def _sample_text(x):
+        vals1 = x[:params["n_ctx"]]
+        vals2 = x[1:params["n_ctx"] + 1]
+
+        vals1 = tf.reshape(vals1, [params["n_ctx"]])
+        vals2 = tf.reshape(vals2, [params["n_ctx"]])
+        vals1 = tf.cast(vals1, dtype=tf.int32)
+        vals2 = tf.cast(vals2, dtype=tf.int32)
+        return vals1, vals2
+
+    dataset = tf.data.Dataset.from_tensor_slices(seq)
+    dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    dataset = dataset.batch(batch_size, drop_remainder=True)
+    return dataset
 
 def generic_text(params, eval=False):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
@@ -126,3 +154,40 @@ def pred_input(params, text="test"):
 
     dataset = dataset.map(_dummy_labels)
     return dataset
+
+def test_pred_input(params):
+    def _dummy_labels(x):
+        return x, x
+
+    length = params["n_ctx"] // 2 - 1
+    remaining = params["n_ctx"] // 2
+    bos = tf.constant(1, shape=[1, 1], dtype=tf.int64)
+    src_seq = tf.random.uniform(shape=[1, length], minval=3, maxval=params['n_vocab'], dtype=tf.int64)
+    seq = tf.concat([bos, src_seq], axis=1)
+    seq = tf.pad(seq, [[0, 0], [0, remaining]])
+    dataset = tf.data.Dataset.from_tensors(seq)
+
+    dataset = dataset.map(_dummy_labels)
+    return dataset
+
+def handle_pred_output(predictions, logger, tokenizer_path = "datasets/openwebtext/byte-level-bpe.tokenizer.json"):
+    enc = Tokenizer.from_file(tokenizer_path)
+    with tf.gfile.Open("test.txt", "a") as f:
+        for i, p in enumerate(predictions):
+            p = p["outputs"]
+            text = enc.decode(p)
+            f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+            f.write(text)
+            f.write("\n" + "=" * 80 + "\n")
+
+            logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+            logger.info(text)
+            logger.info("\n" + "=" * 80 + "\n")
+
+def test_handle_pred_output(predictions, logger, **kwargs):
+    for i, p in enumerate(predictions):
+        logger.info("=" * 40 + " INPUT " + str(i) + " " + "=" * 40 + "\n")
+        logger.info(p["orig_inputs"])
+        logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+        logger.info(p["outputs"])
+        logger.info("\n" + "=" * 80 + "\n")

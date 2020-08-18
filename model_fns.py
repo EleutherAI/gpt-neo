@@ -11,6 +11,8 @@ from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
 
+from models.gpt2 import gpt2
+
 def model_fn(features, labels, mode, params):
     # grab global step no.
     params = defaultdict(lambda: None, params)
@@ -45,7 +47,11 @@ def model_fn(features, labels, mode, params):
             mesh_shape, layout_rules, mesh_devices, params['context'].device_assignment)
     else:
         var_placer = None
-        mesh_devices = [''] * mesh_shape.size
+
+        mesh_devices = ['/device:GPU:0']
+        mesh_shape = [("all_processors", 1)]
+        layout_rules = [("batch", "all_processors")]
+
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
             mesh_shape, layout_rules, mesh_devices)
 
@@ -56,18 +62,21 @@ def model_fn(features, labels, mode, params):
     # we need to pack inputs into a dict to pass into serialize_training_step
     features_dict = {"inputs": features, "labels": labels}
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
-    batch_dim = mtf.Dimension('batch', params["train_batch_size"])
+
+    batch_size = 1 if mode == tf.estimator.ModeKeys.PREDICT else params["train_batch_size"]
+    batch_dim = mtf.Dimension('batch', batch_size)
     batch_dims = [batch_dim]
     feature_length = sequence_length_dict["inputs"]
     length_dim = mtf.Dimension("sequence", feature_length)
 
     mtf_features = {}
     for key, x in features_dict.items():
-        feature_shape = mtf.Shape(batch_dims + [length_dim])
-        x = tf.cast(features_dict[key], tf.int32)
-        x = tf.reshape(x, feature_shape.to_integer_list)
-        mtf_features[key] = mtf.import_fully_replicated(
-            mesh, x, feature_shape, name=key)
+        if x is not None:
+            feature_shape = mtf.Shape(batch_dims + [length_dim])
+            x = tf.cast(features_dict[key], tf.int32)
+            x = tf.reshape(x, feature_shape.to_integer_list)
+            mtf_features[key] = mtf.import_fully_replicated(
+                mesh, x, feature_shape, name=key)
 
     # instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
     other_features = {}
@@ -99,9 +108,12 @@ def model_fn(features, labels, mode, params):
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
+        orig_inputs = lowering.export_to_tf_tensor(mtf_features["inputs"])
         inputs = mtf.transformer.utils.clean_decodes(lowering.export_to_tf_tensor(inputs))
         outputs = mtf.transformer.utils.clean_decodes(lowering.export_to_tf_tensor(mtf_samples))
+
         predictions = {
+            "orig_inputs": orig_inputs,
             "inputs": inputs,
             "outputs": outputs}
 
@@ -136,7 +148,6 @@ def model_fn(features, labels, mode, params):
     if num_microbatches > 1:
         def serialized_fn(mtf_features):
             # for serialize_training_step we need to modify the model to output results in a dict
-            from models.gpt2 import gpt2
             if params["model"] == "GPT2":
                 with tf.variable_scope('gpt2'):
                     logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
@@ -151,7 +162,6 @@ def model_fn(features, labels, mode, params):
     else:
         # if we're not splitting into microbatches, return logits & loss as is
         if params["model"] == "GPT2":
-            from models.gpt2 import gpt2
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
                     logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
@@ -183,10 +193,10 @@ def model_fn(features, labels, mode, params):
         if params["num_microbatches"] > 1:
             # if we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
             # so we pass them in here
-            _, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
+            lr, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
         else:
             # otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-            _, update_ops = get_optimizer(loss, params, summary)
+            lr, update_ops = get_optimizer(loss, params, summary)
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
@@ -199,6 +209,7 @@ def model_fn(features, labels, mode, params):
     # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=params["autostack"])
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
+    tf_loss_batch_log = tf.to_float(lowering.export_to_tf_tensor(loss_batch))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer
@@ -229,12 +240,21 @@ def model_fn(features, labels, mode, params):
                 saver=saver,
                 listeners=[saver_listener])
 
+            prepend_str = lambda text, sep, repeat: (sep * repeat) + " " + text
+
+            log_data = {
+                prepend_str('loss', '-', 40): tf_loss,
+                prepend_str('batch loss', '-', 40): tf_loss_batch_log
+            }
+
+            logging_hook = tf.train.LoggingTensorHook(log_data, every_n_iter=10)
+
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 host_call=summary.get_host_call(),
                 train_op=train_op,
-                training_hooks=[restore_hook, saver_hook])
+                training_hooks=[restore_hook, saver_hook, logging_hook])
 
         elif mode == tf.estimator.ModeKeys.EVAL:
             # evaluation metrics

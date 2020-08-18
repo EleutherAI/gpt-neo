@@ -16,7 +16,9 @@ $ pip3 install \
     ortools \
     google-api-python-client \
     oauth2client \
-    pytest
+    pytest \
+    jsonlines \
+    lm_dataformat
 ```
 
 or
@@ -37,13 +39,42 @@ Then copy the data to your bucket: `gsutil cp bundestag_0.tfrecords gs://<your b
 
 To use your own data, see "Generating Your Own Dataset" below.
 
-## Testing
+## Basic Integration Testing
 
 Testing is done on any python file that is prefixed with `test_`. Feel free to add your own file, or append to whatever file already exists.
 
 ```bash
 $ python -m pytest .
 ```
+
+## Quick Testing on Increment Task
+
+This repository has, built in, a quick way of running a simple 1 layer attention network on a increment task (increment the source sequence by 1). This is for making sure any model changes can pass a basic test. The loss should converge between 0 and 1. > 1 means the model is not working. 0 means there is likely a causal mask leakage.
+
+To train, simply run
+
+```bash
+$ python main.py --test
+```
+
+To see the tensorboard
+
+```bash
+$ sh start_test_tb.sh
+```
+
+To run a prediction
+
+```bash
+$ python main.py --test --predict
+```
+
+To clear the checkpoint and restart training (making changes to the model), append a `--new` flag
+
+```bash
+$ python main.py --test --new
+```
+It should converge within 5 minutes. If not, something is wrong.
 
 ## Training (old)
 

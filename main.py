@@ -11,8 +11,8 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from utils import save_config, expand_attention_types_params
-from inputs import generic_text, pred_input
+from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath
+from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output
 from model_fns import model_fn
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
@@ -22,13 +22,24 @@ def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
-    parser.add_argument('--model', type=str) # JSON file that contains model parameters
+    parser.add_argument('--model', type=str, default=None) # JSON file that contains model parameters
     parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
     parser.add_argument('--autostack', action="store_false")
     parser.add_argument('--auto_layout', action="store_true")
     parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
+    parser.add_argument('--new', action='store_true')
+    parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
     args = parser.parse_args()
+
+    # rewire to use testing related functions if --test is on
+    if args.test:
+        args.model = 'test'
+
+    input_fn = generic_text if not args.test else test_generic_text
+    pred_input_fn = pred_input if not args.test else test_pred_input
+    handle_pred_output_fn = handle_pred_output if not args.test else test_handle_pred_output
+    assert args.model is not None, 'Model must be set'
 
     # Setup logging
     Path("logs").mkdir(exist_ok=True)
@@ -41,8 +52,16 @@ def main():
     logger.handlers = handlers
 
     # Read params of model
-    with open(args.model, "r") as f:
+    with open('configs/{}.json'.format(args.model), "r") as f:
         params = json.load(f)
+
+    # confirm deletion of checkpoint files if --new flag
+    if args.new:
+        path = params["model_path"]
+        if yes_or_no("Are you sure you want to remove '{}' to start afresh?".format(path)):
+            remove_gs_or_filepath(path)
+        else:
+            exit()
 
     # saves config to logdir for experiment management
     # save_config(pprint.pformat(params), params["model_path"])
@@ -60,20 +79,26 @@ def main():
     params["num_microbatches"] = 1
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
+
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
     logger.info('params = {}'.format(params))
 
-    params["predict_batch_size"] = params.get("predict_batch_size", params["train_batch_size"]) # Default to 1
+    params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
 
     # Set up TPUs and Estimator
-    tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
+
+    tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
     config = tpu_config.RunConfig(
         cluster=tpu_cluster_resolver,
         model_dir=params["model_path"],
         save_checkpoints_steps=None,  # Disable the default saver
         save_checkpoints_secs=None,  # Disable the default saver
         log_step_count_steps=params["iterations"],
+        session_config=tf.ConfigProto(
+            allow_soft_placement=True,
+            log_device_placement=True
+        ),
         save_summary_steps=params["iterations"],
         tpu_config=tpu_config.TPUConfig(
             num_shards=mesh_shape.size,
@@ -94,22 +119,12 @@ def main():
 
     if args.predict:
         enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
-        predictions = estimator.predict(input_fn=pred_input)
-        with tf.gfile.Open("test.txt", "a") as f:
-            for i, p in enumerate(predictions):
-                p = p["outputs"]
-                text = enc.decode(p)
-                f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
-                f.write(text)
-                f.write("\n" + "=" * 80 + "\n")
-
-                logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
-                logger.info(text)
-                logger.info("\n" + "=" * 80 + "\n")
+        predictions = estimator.predict(input_fn=test_pred_input)
+        handle_pred_output_fn(predictions, logger)
         return
 
     if args.steps_per_checkpoint == 0:
-        estimator.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_batch_size"])
+        estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_batch_size"])
         return
 
     if params["eval_steps"] > 0:
@@ -117,18 +132,18 @@ def main():
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
                                   params["train_steps"])
-            estimator.train(input_fn=partial(generic_text, eval=False), max_steps=next_checkpoint)
+            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
             current_step = next_checkpoint
             logger.info('Starting to evaluate.')
             eval_results = estimator.evaluate(
-                input_fn=partial(generic_text, eval=False),
+                input_fn=partial(input_fn, eval=False),
                 steps=params["eval_steps"])
             logger.info('Eval results: %s', eval_results)
 
     else:
         while current_step < params["train_steps"]:
             # Else, don't stop and restart
-            estimator.train(input_fn=partial(generic_text, eval=False), max_steps=params["train_steps"])
+            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
 
 
 if __name__ == '__main__':
