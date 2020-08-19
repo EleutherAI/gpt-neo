@@ -24,7 +24,6 @@ def main():
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
     parser.add_argument('--model', type=str, default=None) # JSON file that contains model parameters
     parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
-    parser.add_argument('--autostack', action="store_false")
     parser.add_argument('--auto_layout', action="store_true")
     parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
     parser.add_argument('--new', action='store_true')
@@ -72,14 +71,12 @@ def main():
     # add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     params["auto_layout"] = args.auto_layout
     params["auto_layout_and_mesh_shape"] = args.auto_layout_and_mesh_shape
-    params["autostack"] = args.autostack
     params["use_tpu"] = True if not args.tpu is None else False
     params["num_cores"] = mesh_shape.size
     params["steps_per_checkpoint"] = args.steps_per_checkpoint
     params["num_microbatches"] = 1
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
-
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
     logger.info('params = {}'.format(params))
 
@@ -87,7 +84,6 @@ def main():
     params["predict"] = args.predict
 
     # Set up TPUs and Estimator
-
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
 
     config = tpu_config.RunConfig(
@@ -116,15 +112,9 @@ def main():
     logger.info('Current step {}'.format(current_step))
 
     if args.predict:
-        enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
-        predictions = estimator.predict(input_fn=test_pred_input)
+        predictions = estimator.predict(input_fn=pred_input_fn)
         handle_pred_output_fn(predictions, logger)
         return
-
-    if args.steps_per_checkpoint == 0:
-        estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_batch_size"])
-        return
-
     if params["eval_steps"] > 0:
         # If eval is on - stop and eval every ckpt
         while current_step < params["train_steps"]:
@@ -134,10 +124,9 @@ def main():
             current_step = next_checkpoint
             logger.info('Starting to evaluate.')
             eval_results = estimator.evaluate(
-                input_fn=partial(input_fn, eval=False),
+                input_fn=partial(input_fn, eval=True),
                 steps=params["eval_steps"])
             logger.info('Eval results: %s', eval_results)
-
     else:
         while current_step < params["train_steps"]:
             # Else, don't stop and restart

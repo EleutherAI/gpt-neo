@@ -142,7 +142,6 @@ def pred_input(params, text="test"):
     from tokenizers import Tokenizer
     enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
     tokens = enc.encode(text).ids
-    l = len(tokens)
     if len(tokens) > params["n_ctx"]:
         tokens = tokens[:params["n_ctx"]]
     if len(tokens) < params["n_ctx"]:

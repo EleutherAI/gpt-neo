@@ -11,10 +11,10 @@
     "weight_decay": 0.01,
     "lr_decay": "linear",
     "train_batch_size": 32,
-    "attn_dropout": 0.1,
+    "attn_dropout": 0,
     "train_steps": 10000,
     "eval_steps": 156,
-    "res_dropout": 0.1,
+    "res_dropout": 0,
     "eval_batch_size": 32,
     "iterations": 50,
     "n_embd": 768,
@@ -24,10 +24,11 @@
     "n_ctx": 128,
     "n_layer": 12,
     "scale_by_depth": true,
-    "scale_by_in": true,
-    "attention_types" :  [[["local"],8],[["global"],4]],
+    "scale_by_in": false,
+    "attention_types" :  [[["global"],12]],
     "mesh_shape": "all:8",
     "layout": "heads:all",
     "precision": "float32",
-    "activation_function": "gelu"
+    "activation_function": "gelu",
+    "gradient_clipping": 1.0
 }

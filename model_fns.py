@@ -216,7 +216,7 @@ def model_fn(features, labels, mode, params):
     get_graph_info(graph)
 
     # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
-    lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=params["autostack"])
+    lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
