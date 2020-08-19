@@ -33,7 +33,7 @@
    "activation_function":"gelu",
    "microbatches_per_batch":8,
    "attention_types":[
-      [["linear"], 1]
+      [["global"], 1]
    ],
    "auto_layout": false,
    "auto_layout_and_mesh_shape": false,
