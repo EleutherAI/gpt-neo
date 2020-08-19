@@ -25,7 +25,10 @@ parser.add_argument('--new', action='store_true')
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--predict', action='store_true')
 args = parser.parse_args()
-params = json.load(args.model)
+
+args.model = args.model if args.model.endswith('.json') else './configs/{}.json'.format(args.model)
+with open(args.model, 'r') as f:
+    params = json.loads(f.read())
 
 import socket
 def get_open_port(lo=8000, hi=8100):
