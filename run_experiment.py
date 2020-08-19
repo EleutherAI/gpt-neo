@@ -17,6 +17,13 @@ ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
 parser.add_argument('--model', type=str, required=True) # JSON file that contains model parameters
+parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
+parser.add_argument('--autostack', action="store_false")
+parser.add_argument('--auto_layout', action="store_true")
+parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
+parser.add_argument('--new', action='store_true')
+parser.add_argument('--test', action='store_true')
+parser.add_argument('--predict', action='store_true')
 args = parser.parse_args()
 params = json.load(args.model)
 
@@ -30,7 +37,20 @@ def get_open_port(lo=8000, hi=8100):
 
 def train_thread(tpu, id):
     print('starting training on', tpu)
-    os.system("python3 main.py --tpu {tpu} --model run_configs/config_{id}.json".format(tpu=tpu, id=id))
+
+    # pass binary flags through
+    opts = ''
+    for flag in ['auto_layout', 'auto_layout_and_mesh_shape', 'new', 'test', 'predict', ]:
+        if args.__getattribute__(flag):
+            opts += ' --' + flag
+    opts = ''
+    for flag in ['autostack', ]:
+        if not args.__getattribute__(flag):
+            opts += ' --' + flag
+
+    cmd = "python3 main.py --tpu {tpu} --model run_configs/config_{id}.json --steps_per_checkpoint {steps_per_checkpoint} {opts}".format(tpu=tpu, id=id, steps_per_checkpoint=args.steps_per_checkpoint, opts=opts)
+    print('Running:', cmd)
+    os.system(cmd)
     print('exited training!')
 
     print("Recreating {} in 60sec...".format(tpu))
@@ -104,7 +124,7 @@ if __name__ == '__main__':
         if file.split('.')[-1] in ['py']:    
             print('Adding', file, 'to sacred')
             ex.add_source_file(file)
-            
+
     ex.add_config({
         'tpu_name': args.tpu,
         **params
