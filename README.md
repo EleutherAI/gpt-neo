@@ -19,7 +19,8 @@ $ pip3 install \
     pytest \
     jsonlines \
     lm_dataformat \
-    sacred
+    sacred \
+    tokenizers
 ```
 
 or

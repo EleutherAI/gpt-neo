@@ -51,8 +51,9 @@ def main():
     logger.handlers = handlers
 
     # Read params of model
-    with open('configs/{}.json'.format(args.model), "r") as f:
-        params = json.load(f)
+    model_path = args.model if args.model.endswith('.json') else 'configs/{}.json'.format(args.model)
+    with open(model_path, 'r') as f:
+        params = json.loads(f.read())
 
     # confirm deletion of checkpoint files if --new flag
     if args.new:
