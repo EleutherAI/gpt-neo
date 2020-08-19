@@ -49,7 +49,7 @@ $ python -m pytest .
 
 ## Quick Testing on Increment Task
 
-This repository has, built in, a quick way of running a simple 1 layer attention network on a increment task (increment the source sequence by 1). This is for making sure any model changes can pass a basic test. The loss should converge between 0 and 1. > 1 means the model is not working. 0 means there is likely a causal mask leakage.
+This repository has, built in, a quick way of running a simple 1 layer attention network on a increment task (increment the source sequence by 1). This is for making sure any model changes can pass a basic test. The loss should converge to around 1.65. > 2 means the model is not working. 0 means there is likely a causal mask leakage.
 
 To train, simply run
 
