@@ -322,7 +322,10 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
 
                 output_dim = mtf.Dimension("moe_out", params["n_embd"])
+                if params["mode"] == "train":
+                    moe_train = True
                 m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, output_dim, moe_params,
+                                                                           train=moe_train,
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
                                                                            variable_dtype=tf.float32)
