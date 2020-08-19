@@ -18,7 +18,8 @@ $ pip3 install \
     oauth2client \
     pytest \
     jsonlines \
-    lm_dataformat
+    lm_dataformat \
+    sacred
 ```
 
 or
