@@ -114,25 +114,14 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
     assert n_state.size % params["n_head"] == 0
     if past is not None:
         assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
-
-    # TODO: implement proper past cache. in the meantime, don't pass a past if implementing local attention!!!
-    #  update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts
-    #  apparently (?? - ask Daj). we can remove this assert once we're sure we didnt break anything assert not (
-    #  params["local"] and past is not None)
     assert past is None
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
-
-    # TODO: what are these comments referring to lol, do we need to keep these in?
-    # input length is past seq + x seq because when sampling, subsequent x is only length 1
-    # no longer needed in mtf because TPUs cant handle pasts anyways, apparently
-    # inp_len = dim_seq + (tf.shape(past)[3] if past is not None else 0)
 
     num_mem_kv = params.get('num_mem_kv', 0)
     use_num_mem_kv = num_mem_kv > 0
 
     with tf.variable_scope(scope):
-
         # compute attention inputs
         dim_kv = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
         mtfparams = mtf.transformer.attention.attention_params_simple(
@@ -161,16 +150,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
             if context.mode == "incremental" or context.mode == "first_part":
                 context.record_new_states([k, v])
 
-        # this is the "2" dim in pasts. probably presents are not needed until we get the pasts stuff working.
-        # present = mtf.stack([mtf.reshape(x, k.shape.rename_dimension(features_per_head_key_name,
-        # features_per_head_value_name)), v], "kv", axis=1, name="stack_presents_attn")
         present = None
-
-        # if past is not None:
-        #    # TODO: convert this code to mtf. Not neccessary until we start optimizing sampling.
-        #    pk, pv = tf.unstack(past, axis=1)
-        #    k = tf.concat([pk, k], axis=-2)
-        #    v = tf.concat([pv, v], axis=-2)
 
         attention_type = params["attention_types"][layer_num]
 
@@ -179,7 +159,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
-                    length_dim=dim_seq,  # TODO: should this be memory length? lol
+                    length_dim=dim_seq,  # TODO: should this be memory length?
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     radius=256,
@@ -196,8 +176,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 #   mesh_shape = mtf.convert_to_shape(context.model.mesh_shape)
                 #   layout_rules = mtf.convert_to_layout_rules(context.model.layout)
                 #   we should create a fake context, and pass to attention for the efficiency
-
-                # `attention` DOES NOT implement masking so we need to pass in `bias` on our own!
 
                 # broadcast mask bias across batch and heads
                 broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
@@ -293,9 +271,7 @@ def mlp_glu(x, scope, n_state, *, params):
         return h2
 
 
-# append dim = str to append onto all dim name to allow splitting i.e even / odd
 def block(params, scope, past, layer_num, bias, memory_length_dim, context=None):
-    # train param doesnt seem to do anything?
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
     use_moe = (params["moe_layers"] is not None) and (layer_num in params["moe_layers"])
@@ -362,7 +338,7 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
-    if params["predict"]:
+    if params["mode"] == "predict":
         x = mtf_features
     else:
         x = mtf_features["inputs"]
@@ -398,7 +374,6 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
                            initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
-    past_length = 0 if past is None else mtf.Shape(past)[-2]
     if params["embed_dropout"] > 0 and params["mode"] == "train":
         wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
         wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
@@ -412,7 +387,6 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     # Transformer
     pasts = [None] * params["n_layer"]
-    presents = []
     aux_losses = 0
 
     for layer, past in enumerate(pasts):
@@ -424,7 +398,6 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
-        # presents.append(present)
 
     results['present'] = None  # mtf.stack(presents, dim_name=dim_name, axis=1)
 
@@ -434,14 +407,12 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     else:
         # layer normalize & affine transform
         h = layer_norm(h, 'ln_f', params=params)
-
         with tf.variable_scope('wte_final_einsum'):
             # equivalent to tf.matmul
             logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
 
     vdim = logits.shape[2]  # get vocab dimension
-    calc_loss = not params["predict"]
-    if calc_loss:
+    if params["mode"] is not "predict":
         with tf.variable_scope('xentropy_final'):
             loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
         with tf.variable_scope('reduce_mean_final'):

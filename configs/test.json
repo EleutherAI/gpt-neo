@@ -37,11 +37,9 @@
    ],
    "auto_layout": false,
    "auto_layout_and_mesh_shape": false,
-   "autostack": true,
    "use_tpu": false,
    "num_cores":256,
    "steps_per_checkpoint":100,
-   "num_microbatches":1,
    "gradient_clipping": 0.5,
    "scalenorm": true,
    "stop_at_token": 2
