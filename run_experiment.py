@@ -10,13 +10,11 @@ import threading
 import requests
 import glob
 
-ex = sacred.Experiment('eleutherai-gpt3')
-ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
 parser.add_argument('--model', type=str, required=True) # JSON file that contains model parameters
+parser.add_argument('--experiment_name', type=str, required=True) # name of experiment (will show up in omniboard)
 parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
 parser.add_argument('--autostack', action="store_false")
 parser.add_argument('--auto_layout', action="store_true")
@@ -29,6 +27,9 @@ args = parser.parse_args()
 args.model = args.model if args.model.endswith('.json') else './configs/{}.json'.format(args.model)
 with open(args.model, 'r') as f:
     params = json.loads(f.read())
+
+ex = sacred.Experiment(args.experiment_name)
+ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
 
 import socket
 def get_open_port(lo=8000, hi=8100):
