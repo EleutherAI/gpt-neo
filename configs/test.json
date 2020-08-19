@@ -2,9 +2,9 @@
    "n_head": 8,
    "n_vocab": 32,
    "embed_dropout":0.1,
-   "lr":0.0003,
+   "lr":0.0001,
    "lr_decay":"cosine",
-   "warmup_steps":3000,
+   "warmup_steps":0,
    "beta1_adam":0.9,
    "beta1":0.9,
    "beta2":0.999,
@@ -33,7 +33,7 @@
    "activation_function":"gelu",
    "microbatches_per_batch":8,
    "attention_types":[
-      [["global"], 1]
+      [["linear"], 1]
    ],
    "auto_layout": false,
    "auto_layout_and_mesh_shape": false,
@@ -42,5 +42,7 @@
    "num_cores":256,
    "steps_per_checkpoint":100,
    "num_microbatches":1,
-   "gradient_clipping": 0.5
+   "gradient_clipping": 0.5,
+   "scalenorm": true,
+   "stop_at_token": 2
 }

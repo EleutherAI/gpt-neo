@@ -5,12 +5,12 @@ def test_generic_text(params, eval=False):
     i = 0 if not eval else 1
 
     batch_size = params['train_batch_size']
-    num_examples_text = 200000
+    num_examples_text = 1000000
     length = params['n_ctx'] // 2 - 1
-    pad = tf.constant(0, shape=[num_examples_text, 1], dtype=tf.int64)
     bos = tf.constant(1, shape=[num_examples_text, 1], dtype=tf.int64)
     eos = tf.constant(2, shape=[num_examples_text, 1], dtype=tf.int64)
-    src_seq = tf.random.uniform(shape=[num_examples_text, length], minval=3, maxval=params['n_vocab'], dtype=tf.int64)
+    pad = tf.constant(3, shape=[num_examples_text, 1], dtype=tf.int64)
+    src_seq = tf.random.uniform(shape=[num_examples_text, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
     tgt_seq = src_seq + 1
     seq = tf.concat([bos, src_seq, pad, tgt_seq, eos], axis=1)
 
@@ -159,11 +159,12 @@ def test_pred_input(params):
     def _dummy_labels(x):
         return x, x
 
-    length = params["n_ctx"] // 2 - 1
+    length = params["n_ctx"] // 2 - 2
     remaining = params["n_ctx"] // 2
     bos = tf.constant(1, shape=[1, 1], dtype=tf.int64)
-    src_seq = tf.random.uniform(shape=[1, length], minval=3, maxval=params['n_vocab'], dtype=tf.int64)
-    seq = tf.concat([bos, src_seq], axis=1)
+    pad = tf.constant(3, shape=[1, 1], dtype=tf.int64)
+    src_seq = tf.random.uniform(shape=[1, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
+    seq = tf.concat([bos, src_seq, pad], axis=1)
     seq = tf.pad(seq, [[0, 0], [0, remaining]])
     dataset = tf.data.Dataset.from_tensors(seq)
 
