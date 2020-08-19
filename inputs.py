@@ -1,5 +1,7 @@
 import tensorflow.compat.v1 as tf
 from tokenizers import Tokenizer
+from transformers import GPT2Tokenizer
+
 
 def test_generic_text(params, eval=False):
     i = 0 if not eval else 1
@@ -138,10 +140,13 @@ def text_dataset(files, params, stitch, datatype, batch=True):
     return dataset
 
 
-def pred_input(params, text="test"):
-    from tokenizers import Tokenizer
-    enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
-    tokens = enc.encode(text).ids
+def pred_input(params, text="not all heroes wear"):
+    if params["n_vocab"] == 32768:
+        enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
+        tokens = enc.encode(text).ids
+    else:
+        enc = GPT2Tokenizer.from_pretrained('gpt2')
+        tokens = enc.encode(text)
     if len(tokens) > params["n_ctx"]:
         tokens = tokens[:params["n_ctx"]]
     if len(tokens) < params["n_ctx"]:
@@ -170,9 +175,13 @@ def test_pred_input(params):
     dataset = dataset.map(_dummy_labels)
     return dataset
 
-def handle_pred_output(predictions, logger, tokenizer_path = "datasets/openwebtext/byte-level-bpe.tokenizer.json"):
-    enc = Tokenizer.from_file(tokenizer_path)
-    with tf.gfile.Open("test.txt", "a") as f:
+def handle_pred_output(predictions, logger, tok="gpt2", out_name="test"):
+    if tok == "gpt2":
+        enc = GPT2Tokenizer.from_pretrained('gpt2')
+    else:
+        tokenizer_path = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
+        enc = Tokenizer.from_file(tokenizer_path)
+    with tf.gfile.Open(f"{out_name}.txt", "a") as f:
         for i, p in enumerate(predictions):
             p = p["outputs"]
             text = enc.decode(p)
