@@ -20,7 +20,7 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
-def norm(x, axis, epsilon=1e-5):
+def norm(x, axis, epsilon=1e-8):
     u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
     s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
 
@@ -182,6 +182,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                     length_dim=dim_seq,  # TODO: should this be memory length? lol
                     key_dim=dim_kv,
                     value_dim=dim_kv,
+                    radius = 256,
                     length_dim_num_splits=1,
                     attention_kwargs={}
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
@@ -236,7 +237,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     bias=broadcasted_bias,
-                    dropout_rate=0
+                    # dropout_rate=0
                 )
 
             elif attention_type == 'linear':
@@ -254,7 +255,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                                  dtype=tf.float32)
             a += b
 
-        a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
+        # a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
         return a, present
 
 
@@ -263,7 +264,7 @@ def mlp(x, scope, n_state, *, params, train=False):
         nx = x.shape[-1]
         h = mtf.gelu(linear(x, 'c_fc', n_state, params=params))
         h2 = linear(h, 'c_proj', nx, params=params, scale=True)
-        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        # h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
 
@@ -276,7 +277,7 @@ def mlp_glu(x, scope, n_state, *, params, train=False):
         h *= mtf.gelu(gate)
 
         h2 = linear(h, 'c_proj', nx, params=params, scale=True)
-        h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        # h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
         return h2
 
 
@@ -380,15 +381,13 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
                            initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
     past_length = 0 if past is None else mtf.Shape(past)[-2]
-    if params["embed_dropout"] > 0:
-        wpe = mtf.dropout(wpe, params["embed_dropout"], name="wpe_dropout")
-        wte = mtf.dropout(wte, params["embed_dropout"], name="wte_dropout")
+
     with tf.variable_scope('token_embd'):
         # text embedding
         h = mtf.gather(wte, x, vocab_dim)
     with tf.variable_scope('pos_embd'):
         # positional embedding
-        h += mtf.gather(wpe, positions_for(x, past_length, batch_dim), wpe.shape[0])
+        h += mtf.gather(wpe, mtf.range(mesh, sequence_dim, tf.int64), wpe.shape[0])
 
     # Transformer
     pasts = [None] * params["n_layer"]

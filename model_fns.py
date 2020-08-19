@@ -104,7 +104,7 @@ def model_fn(features, labels, mode, params):
         inputs = mtf_features["inputs"]
         mtf_samples = sample_autoregressive(
             inputs, other_features=other_features, params=params, variable_dtype=tf.float32,
-            remove_partial_sequences=True)
+            remove_partial_sequences=True, stop_at_token=params["stop_at_token"])
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
