@@ -13,6 +13,13 @@ import glob
 ex = sacred.Experiment('eleutherai-gpt3')
 ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
 
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
+parser.add_argument('--model', type=str, required=True) # JSON file that contains model parameters
+args = parser.parse_args()
+params = json.load(args.model)
+
 import socket
 def get_open_port(lo=8000, hi=8100):
     for i in range(lo, hi):
@@ -57,23 +64,8 @@ def main(_run):
     print('Starting run', _run._id)
     print('WARNING: please remember to remove old metric log files from the model directory.')
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
-    parser.add_argument('--model', type=str, required=True) # JSON file that contains model parameters
-    args = parser.parse_args()
-
     os.makedirs('run_configs', exist_ok=True)
     shutil.copy(args.model, 'run_configs/config_{}.json'.format(_run._id))
-
-    params = json.load(open('run_configs/config_{}.json'.format(_run._id)))
-    ex.add_config({
-        'tpu_name': args.tpu,
-        **params
-    })
-    for file in glob.glob("**/*"):
-        if file.split('.')[-1] in ['py']:    
-            print('Adding', file, 'to sacred')
-            ex.add_source_file(file)
 
     tensorboard_port = get_open_port()
     print('Tensorboard at port:', tensorboard_port)
@@ -108,4 +100,14 @@ def goodbye(id):
 
         
 if __name__ == '__main__':
+    for file in glob.glob("**/*"):
+        if file.split('.')[-1] in ['py']:    
+            print('Adding', file, 'to sacred')
+            ex.add_source_file(file)
+            
+    ex.add_config({
+        'tpu_name': args.tpu,
+        **params
+    })
+
     ex.run()
