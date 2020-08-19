@@ -202,10 +202,10 @@ def model_fn(features, labels, mode, params):
         if params["num_microbatches"] > 1:
             # if we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
             # so we pass them in here
-            lr, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
+            _, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
         else:
             # otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-            lr, update_ops = get_optimizer(loss, params, summary)
+            _, update_ops = get_optimizer(loss, params, summary)
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
@@ -218,7 +218,6 @@ def model_fn(features, labels, mode, params):
     # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=params["autostack"])
     tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
-    tf_loss_batch_log = tf.to_float(lowering.export_to_tf_tensor(loss_batch))
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer
@@ -249,21 +248,12 @@ def model_fn(features, labels, mode, params):
                 saver=saver,
                 listeners=[saver_listener])
 
-            prepend_str = lambda text, sep, repeat: (sep * repeat) + " " + text
-
-            log_data = {
-                prepend_str('loss', '-', 40): tf_loss,
-                prepend_str('batch loss', '-', 40): tf_loss_batch_log
-            }
-
-            logging_hook = tf.train.LoggingTensorHook(log_data, every_n_iter=10)
-
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 host_call=summary.get_host_call(),
                 train_op=train_op,
-                training_hooks=[restore_hook, saver_hook, logging_hook])
+                training_hooks=[restore_hook, saver_hook])
 
         elif mode == tf.estimator.ModeKeys.EVAL:
             # evaluation metrics
