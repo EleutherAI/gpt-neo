@@ -20,6 +20,7 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
+
 def norm(x, axis, epsilon=1e-8):
     u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
     s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
@@ -66,7 +67,7 @@ def layer_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
         return x
 
 
-def linear_attention(q, k, v, epsilon = 1e-6):
+def linear_attention(q, k, v, epsilon=1e-6):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
     q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
     k = mtf.rename_dimension(k, 'features_per_head', 'features_per_head_in')
@@ -77,18 +78,18 @@ def linear_attention(q, k, v, epsilon = 1e-6):
     k = mtf.elu(k) + 1
 
     cumulative_k = mtf.cumsum(k, seq_dim)
-    context = mtf.einsum([k, v], output_shape = [batch_dim, seq_dim, head_dim, dim_in, dim_out])
+    context = mtf.einsum([k, v], output_shape=[batch_dim, seq_dim, head_dim, dim_in, dim_out])
     cumulative_context = mtf.cumsum(context, seq_dim)
 
     cumulative_context /= (cumulative_k + epsilon)
-    attn = mtf.einsum([q, cumulative_context], output_shape = [batch_dim, seq_dim, head_dim, dim_out])
+    attn = mtf.einsum([q, cumulative_context], output_shape=[batch_dim, seq_dim, head_dim, dim_out])
     return attn
 
 
 def linear(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
     # nf = number of features
-    if params[
-        "scale_by_depth"] and scale:  # Scale by sqrt(num_layers), only happens at the final projection before a res block output
+    if params["scale_by_depth"] and scale:
+        # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
@@ -104,7 +105,7 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, params=None, scale=False):
         return c
 
 
-def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, train=False, context=None):
+def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, context=None):
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, dim_seq, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
@@ -115,9 +116,9 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
         assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
 
     # TODO: implement proper past cache. in the meantime, don't pass a past if implementing local attention!!!
-    # update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts apparently (?? - ask Daj).
-    # we can remove this assert once we're sure we didnt break anything
-    # assert not (params["local"] and past is not None)
+    #  update: *shouldn't* be a problem anymore not that we've switched to meshtf, but tpus don't support pasts
+    #  apparently (?? - ask Daj). we can remove this assert once we're sure we didnt break anything assert not (
+    #  params["local"] and past is not None)
     assert past is None
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
@@ -154,7 +155,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 k = old_k * inv_one_hot + k * one_hot
                 v = old_v * inv_one_hot + v * one_hot
 
-
             # will probably need this later (related to masking) - not sure how it works exactly for now
             # memory_position = mtf.range(context.mesh, memory_length, tf.int32)
         if context is not None:
@@ -175,18 +175,19 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
         attention_type = params["attention_types"][layer_num]
 
         with tf.variable_scope('attention'):
-            if  attention_type == "local":
+            if attention_type == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
                     length_dim=dim_seq,  # TODO: should this be memory length? lol
                     key_dim=dim_kv,
                     value_dim=dim_kv,
-                    radius = 256,
+                    radius=256,
                     length_dim_num_splits=1,
                     attention_kwargs={}
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
-                    # TODO: we might need to split along length dimension at some point, when we do we'll need to wire this up as a param
+                    # TODO: we might need to split along length dimension at some point, when we do we'll need to
+                    #  wire this up as a param
                 )
             elif attention_type == "global":
 
@@ -201,7 +202,8 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 # broadcast mask bias across batch and heads
                 broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
 
-                # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence dims.
+                # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence
+                # dims.
                 #
                 # the reason they rename memory_length (k and v) instead of q, which we originally were going to do
                 # because renaming less seems better, is because q's length dim is the one left at the end.
@@ -220,24 +222,30 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                         emb_dim = k.shape[-1]
                         mem_std = 1 / math.sqrt(emb_dim.size)
 
-                        mem_k = mtf.get_variable(mesh, 'mem_k', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]), initializer=tf.random_normal_initializer(stddev=mem_std), dtype=tf.float32)
-                        mem_v = mtf.get_variable(mesh, 'mem_v', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]), initializer=tf.random_normal_initializer(stddev=mem_std), dtype=tf.float32)
+                        mem_k = mtf.get_variable(mesh, 'mem_k', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+                                                 initializer=tf.random_normal_initializer(stddev=mem_std),
+                                                 dtype=tf.float32)
+                        mem_v = mtf.get_variable(mesh, 'mem_v', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+                                                 initializer=tf.random_normal_initializer(stddev=mem_std),
+                                                 dtype=tf.float32)
 
-                        mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]), (mem_k, mem_v))
-                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'memory_length'), (mem_k, mem_v))
+                        mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]),
+                                           (mem_k, mem_v))
+                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'memory_length'),
+                                           (mem_k, mem_v))
 
                         k = mtf.concat([mem_k, k], 'memory_length')
                         v = mtf.concat([mem_v, v], 'memory_length')
 
-                # TODO: i think passing in dim_seq as memory length dim might have been a problem? I honestly don't know
-                #   I (sid) have changed it to memory length dim, we'll see what happens.
+                attn_dropout_rate = params["attn_dropout"] if params["mode"] == "train" else 0
+
                 a = mtf_transformer.attention.attention(
                     q, k, v,
                     memory_length_dim=memory_length_dim,
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     bias=broadcasted_bias,
-                    # dropout_rate=0
+                    dropout_rate=attn_dropout_rate
                 )
 
             elif attention_type == 'linear':
@@ -255,20 +263,23 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                                  dtype=tf.float32)
             a += b
 
-        # a = mtf.dropout(a, params["res_dropout"], name="attn_dropout")
+        # TODO: do we need this dropout?
+        # if params["mode"] == "train" and params["res_dropout"] > 0:
+        #     a = mtf.dropout(a, rate = params["res_dropout"], name="res_dropout")
         return a, present
 
 
-def mlp(x, scope, n_state, *, params, train=False):
+def mlp(x, scope, n_state, *, params):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
         h = mtf.gelu(linear(x, 'c_fc', n_state, params=params))
         h2 = linear(h, 'c_proj', nx, params=params, scale=True)
-        # h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        if params["mode"] == "train" and params["res_dropout"] > 0:
+            h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
         return h2
 
 
-def mlp_glu(x, scope, n_state, *, params, train=False):
+def mlp_glu(x, scope, n_state, *, params):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
         h = linear(x, 'c_fc', n_state, params=params)
@@ -277,12 +288,13 @@ def mlp_glu(x, scope, n_state, *, params, train=False):
         h *= mtf.gelu(gate)
 
         h2 = linear(h, 'c_proj', nx, params=params, scale=True)
-        # h2 = mtf.dropout(h2, params["res_dropout"], name="mlp_dropout")
+        if params["mode"] == "train" and params["res_dropout"] > 0:
+            h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
         return h2
 
 
 # append dim = str to append onto all dim name to allow splitting i.e even / odd
-def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, context=None):
+def block(params, scope, past, layer_num, bias, memory_length_dim, context=None):
     # train param doesnt seem to do anything?
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
@@ -298,7 +310,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
                 prenorm = layer_norm
 
             a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
-                                params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
+                              params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
             x = x + a
 
             res_x = prenorm(x, 'ln_2', params=params)
@@ -310,7 +322,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
 
                 output_dim = mtf.Dimension("moe_out", params["n_embd"])
-                m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, output_dim, moe_params, train=train,
+                m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, output_dim, moe_params,
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
                                                                            variable_dtype=tf.float32)
@@ -323,7 +335,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, train=False, 
                 # define intermediate layer of mlp - to split
                 dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', intermediate_size)
 
-                m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params, train=train)
+                m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]))
 
             x = x + m
@@ -368,12 +380,13 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
         dim_axials = [mtf.Dimension('axial_dim_{}'.format(i), t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
 
         axial_wpe_1 = mtf.get_variable(mesh, 'axial_wpe_1', mtf.Shape([dim_axials[0], embd_dim]),  # Position encoding
-                               initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+                                       initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
 
         axial_wpe_2 = mtf.get_variable(mesh, 'axial_wpe_2', mtf.Shape([dim_axials[1], embd_dim]),  # Position encoding
-                               initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
+                                       initializer=tf.random_normal_initializer(stddev=0.01), dtype=encoding_dt)
 
-        axial_wpe_1, axial_wpe_2 = map(lambda t: mtf.broadcast(t, [dim_axials[0], dim_axials[1], embd_dim]), (axial_wpe_1, axial_wpe_2))
+        axial_wpe_1, axial_wpe_2 = map(lambda t: mtf.broadcast(t, [dim_axials[0], dim_axials[1], embd_dim]),
+                                       (axial_wpe_1, axial_wpe_2))
         wpe = (axial_wpe_1 + axial_wpe_2) / 2
 
         wpe = mtf.reshape(wpe, [axial_dim, embd_dim])
@@ -381,6 +394,9 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
                            initializer=tf.random_normal_initializer(stddev=0.02), dtype=encoding_dt)
     past_length = 0 if past is None else mtf.Shape(past)[-2]
+    if params["embed_dropout"] > 0 and params["mode"] == "train":
+        wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
+        wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
 
     with tf.variable_scope('token_embd'):
         # text embedding
@@ -432,4 +448,3 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
         loss = None
         loss_batch = None
     return logits, loss, loss_batch
-

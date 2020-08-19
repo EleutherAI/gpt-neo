@@ -16,7 +16,6 @@ from models.gpt2 import gpt2
 def model_fn(features, labels, mode, params):
     # grab global step no.
     params = defaultdict(lambda: None, params)
-
     global_step = tf.train.get_global_step()
 
     # construct mtf graph + mesh from params
@@ -63,7 +62,16 @@ def model_fn(features, labels, mode, params):
     features_dict = {"inputs": features, "labels": labels}
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
 
-    batch_size = 1 if mode == tf.estimator.ModeKeys.PREDICT else params["train_batch_size"]
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        batch_size = 1
+        params["mode"] = "predict"
+    elif mode == tf.estimator.ModeKeys.EVAL:
+        batch_size = params["eval_batch_size"]
+        params["mode"] = "eval"
+    elif mode == tf.estimator.ModeKeys.TRAIN:
+        batch_size = params["train_batch_size"]
+        params["mode"] = "train"
+
     batch_dim = mtf.Dimension('batch', batch_size)
     batch_dims = [batch_dim]
     feature_length = sequence_length_dict["inputs"]
@@ -135,6 +143,7 @@ def model_fn(features, labels, mode, params):
             scaffold_fn=scaffold_fn,
             prediction_hooks=[mtf.MtfRestoreHook(lowering)])
 
+    assert (mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL)
 
     # gets number of microbatches per batch for serialized training
     # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
