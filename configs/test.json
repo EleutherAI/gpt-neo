@@ -1,5 +1,5 @@
 {
-   "n_head": 2,
+   "n_head": 8,
    "n_vocab": 32,
    "embed_dropout":0.1,
    "lr":0.0003,
