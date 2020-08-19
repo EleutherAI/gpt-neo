@@ -114,9 +114,47 @@ def main():
 
     if args.predict:
         predictions = estimator.predict(input_fn=pred_input_fn)
-        handle_pred_output_fn(predictions, logger)
+        if params["n_vocab"] == 32768:
+            tokenizer = "custom"
+        else:
+            tokenizer = "gpt2"
+        handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
         return
-    if params["eval_steps"] > 0:
+    elif params["predict_steps"] > 0 and params["eval_steps"] > 0:
+        # If both predict & eval are on - stop and eval / predict every ckpt
+        while current_step < params["train_steps"]:
+            next_checkpoint = min(current_step + args.steps_per_checkpoint,
+                                  params["train_steps"])
+            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
+            current_step = next_checkpoint
+            logger.info('Starting to run predictions.')
+            predictions = estimator.predict(input_fn=pred_input_fn)
+            if params["n_vocab"] == 32768:
+                tokenizer = "custom"
+            else:
+                tokenizer = "gpt2"
+            handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
+    elif params["predict_steps"] > 0:
+        # If predict is on - stop and predict every ckpt
+        while current_step < params["train_steps"]:
+            next_checkpoint = min(current_step + args.steps_per_checkpoint,
+                                  params["train_steps"])
+            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
+            current_step = next_checkpoint
+            logger.info('Starting to run predictions.')
+            predictions = estimator.predict(input_fn=pred_input_fn)
+            if params["n_vocab"] == 32768:
+                tokenizer = "custom"
+            else:
+                tokenizer = "gpt2"
+            handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
+            logger.info('Starting to evaluate.')
+            eval_results = estimator.evaluate(
+                input_fn=partial(input_fn, eval=True),
+                steps=params["eval_steps"])
+            logger.info('Eval results: %s', eval_results)
+        return
+    elif params["eval_steps"] > 0:
         # If eval is on - stop and eval every ckpt
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
@@ -128,6 +166,7 @@ def main():
                 input_fn=partial(input_fn, eval=True),
                 steps=params["eval_steps"])
             logger.info('Eval results: %s', eval_results)
+        return
     else:
         while current_step < params["train_steps"]:
             # Else, don't stop and restart
