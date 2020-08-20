@@ -38,7 +38,7 @@ params = defaultdict(lambda: None, {
     "axial_pos_emb": (32, 32),
     "activation_function": "gelu",
     "moe_layers": (1,),
-    "num_mem_kv": 0,
+    "num_mem_kv": 16,
     "no_weight_tie": True,
     "moe_params": {
         'moe_dropout_rate': 0.0
