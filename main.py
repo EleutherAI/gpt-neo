@@ -120,7 +120,7 @@ def main():
             tokenizer = "gpt2"
         handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
         return
-    elif params["predict_steps"] > 0 and params["eval_steps"] > 0:
+    elif params["predict_steps"] > 0:
         # If both predict & eval are on - stop and eval / predict every ckpt
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
@@ -134,7 +134,7 @@ def main():
             else:
                 tokenizer = "gpt2"
             handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
-    elif params["predict_steps"] > 0:
+    elif params["predict_steps"] > 0 and params["eval_steps"] > 0:
         # If predict is on - stop and predict every ckpt
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
