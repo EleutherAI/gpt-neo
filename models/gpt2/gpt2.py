@@ -338,6 +338,7 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
     use_axial_pos_emb = params["axial_pos_emb"] != None
     no_weight_tie_emb = params["no_weight_tie"] == True
+    share_parameters = params["share_parameters"] is not None and params["share_parameters"] == True
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
@@ -394,7 +395,9 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     for layer, past in enumerate(pasts):
         # attn blocks
-        block_fn = block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+        block_scope = 'h%s' % (str(layer) if not share_parameters else '')
+
+        block_fn = block(params=params, scope=block_scope, past=past, layer_num=layer,
                          bias=other_features["attn_bias"],
                          memory_length_dim=other_features["memory_length_dim"],
                          context=context)
