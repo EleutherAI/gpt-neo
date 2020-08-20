@@ -33,7 +33,7 @@ params = defaultdict(lambda: None, {
     "n_layer": 2,
     "num_microbatches": 1,
     "train_batch_size": 1,
-    "attention_types": ['global', 'linear'],
+    "attention_types": ['global', 'local'],
     "res_dropout": 0.1,
     "axial_pos_emb": (32, 32),
     "activation_function": "gelu",
@@ -44,7 +44,8 @@ params = defaultdict(lambda: None, {
         'moe_dropout_rate': 0.0
     },
     "mesh_shape": [],
-    "layout": {}
+    "layout": {},
+    "local_attention_radius": 128
 })
 
 # tests
