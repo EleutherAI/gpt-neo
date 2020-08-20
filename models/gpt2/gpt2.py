@@ -285,11 +285,11 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
             else:
                 prenorm = layer_norm
 
-            a, present = attn(prenorm(x, 'ln_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
+            a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
                               params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
             x = x + a
 
-            res_x = prenorm(x, 'ln_2', params=params)
+            res_x = prenorm(x, 'norm_2', params=params)
 
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()

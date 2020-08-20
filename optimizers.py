@@ -64,7 +64,9 @@ def get_optimizer(loss, params, summary, inp_var_grads=None):
             weight_decay_rate=params["weight_decay"],
             beta_1=params["beta1"],
             beta_2=params["beta2"],
-            epsilon=params["epsilon"])
+            epsilon=params["epsilon"],
+            exclude_from_weight_decay=["norm", "bias"]
+        )
     else:
         optimizer = mtf.optimize.AdafactorOptimizer(
             learning_rate=params["lr"],
