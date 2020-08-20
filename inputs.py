@@ -193,7 +193,7 @@ def handle_pred_output(predictions, logger, tok="gpt2", out_name="test"):
             logger.info(text)
             logger.info("\n" + "=" * 80 + "\n")
 
-def test_handle_pred_output(predictions, logger, **kwargs):
+def test_handle_pred_output(predictions, logger, tok=None, **kwargs):
     for i, p in enumerate(predictions):
         logger.info("=" * 40 + " INPUT " + str(i) + " " + "=" * 40 + "\n")
         logger.info(p["orig_inputs"])
