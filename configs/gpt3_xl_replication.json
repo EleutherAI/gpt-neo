@@ -18,7 +18,7 @@
     "eval_steps": 0,
     "predict_steps": 0,
     "res_dropout": 0,
-    "eval_batch_size": 32,
+    "eval_batch_size": 128,
     "iterations": 500,
     "n_embd": 2048,
     "datasets": [["gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords", "", 11, "documents_random", 1.0]],

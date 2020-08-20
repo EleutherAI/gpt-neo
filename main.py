@@ -81,6 +81,9 @@ def main():
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
     logger.info('params = {}'.format(params))
 
+    #TODO: we would like this to be as small as possible,
+    # but if we're splitting by batch, a value < the dimensions batch is divided over will error.
+    # can we change the mesh layout so batch will not be split at prediction time?
     params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
 
