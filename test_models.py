@@ -45,7 +45,8 @@ params = defaultdict(lambda: None, {
     },
     "mesh_shape": [],
     "layout": {},
-    "local_attention_radius": 128
+    "local_attention_radius": 128,
+    "share_parameters": True
 })
 
 # tests
