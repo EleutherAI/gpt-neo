@@ -113,6 +113,7 @@ def sample_autoregressive(partial_sequences,
         partial_sequences_eos_count = 0
     else:
         initial_states = context_first_part.new_states
+
     if stop_at_token is not None:
         partial_sequences_eos_count = mtf.reduce_sum(
             mtf.to_int32(mtf.equal(partial_sequences, stop_at_token)),
