@@ -14,6 +14,7 @@
     "attn_dropout": 0,
     "train_steps": 10000,
     "eval_steps": 156,
+    "predict_steps": 0,
     "res_dropout": 0,
     "eval_batch_size": 32,
     "iterations": 50,
