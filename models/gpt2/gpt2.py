@@ -157,12 +157,14 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
         with tf.variable_scope('attention'):
             if attention_type == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
+                radius = params.get("local_attention_radius", 256)
+
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
                     length_dim=dim_seq,  # TODO: should this be memory length?
                     key_dim=dim_kv,
                     value_dim=dim_kv,
-                    radius=256,
+                    radius=radius,
                     length_dim_num_splits=1,
                     attention_kwargs={}
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
