@@ -189,8 +189,6 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 # QK^T (logits, in the `attention` code) has shape [batch, heads, sequence, memory_length]
                 # V has shape [batch, heads, sequence, memory_length]
                 # s(QK^T)V eliminates memory_length and we're left with sequence again
-                k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
-                v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
 
                 # memory key / values, from all-attention paper
                 if use_num_mem_kv:
@@ -209,11 +207,14 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
 
                         mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]),
                                            (mem_k, mem_v))
-                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'memory_length'),
+                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'sequence'),
                                            (mem_k, mem_v))
 
-                        k = mtf.concat([mem_k, k], 'memory_length')
-                        v = mtf.concat([mem_v, v], 'memory_length')
+                        k = mtf.concat([mem_k, k], 'sequence')
+                        v = mtf.concat([mem_v, v], 'sequence')
+
+                k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
+                v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
 
                 attn_dropout_rate = params["attn_dropout"] if params["mode"] == "train" else 0
 
