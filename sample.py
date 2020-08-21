@@ -103,7 +103,7 @@ def sample_autoregressive(partial_sequences,
                                wrap=False)  # shifts inputs to the right for first inp
 
     with tf.variable_scope('gpt2'):
-        logits, _, _ = gpt2.model(shifted_inputs, other_features, params, inputs.mesh, context=context_first_part)
+        logits, _, _ = gpt2.model({'inputs': shifted_inputs}, other_features, params, inputs.mesh, context=context_first_part)
     del logits
     constant_states = context_first_part.constant_states
 
@@ -172,7 +172,7 @@ def sample_autoregressive(partial_sequences,
 
         # TODO: inputs here should be inputs_this_step but it seems to break things :<
         with tf.variable_scope('gpt2', reuse=True):
-            logits, _, _ = gpt2.model(ids, other_features, params, inputs.mesh, context = context)
+            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = context)
         # if never_end:
         #     logits += mtf.one_hot(
         #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),

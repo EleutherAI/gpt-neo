@@ -342,11 +342,8 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
-    if params["mode"] == "predict":
-        x = mtf_features
-    else:
-        x = mtf_features["inputs"]
-        labels = mtf_features["labels"]
+    x = mtf_features["inputs"]
+
     batch_dim = x.shape[0]
     sequence_dim = x.shape[1]  # define seq length dim
     embd_dim = other_features["embd_dim"]
@@ -419,6 +416,8 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     vdim = logits.shape[2]  # get vocab dimension
     if params["mode"] is not "predict":
+        labels = mtf_features["labels"]
+
         with tf.variable_scope('xentropy_final'):
             loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
         with tf.variable_scope('reduce_mean_final'):
