@@ -16,6 +16,7 @@ from inputs import generic_text, pred_input, test_generic_text, test_pred_input,
 from model_fns import model_fn
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
+from transformers import GPT2Tokenizer
 
 
 def main():
@@ -62,14 +63,26 @@ def main():
         dataset = input_fn(params)
         dataset_iter = dataset.make_one_shot_iterator()
         tensor, _ = next(dataset_iter)
+        if params["n_vocab"] == 50257:
+            enc = GPT2Tokenizer.from_pretrained('gpt2')
+        else:
+            tokenizer_path = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
+            enc = Tokenizer.from_file(tokenizer_path)
+        for p in tensor[:1]:
+            txt = enc.decode(p)
+        #txt = enc.decode(tensor)
         max_id = tf.reduce_max(tensor)
         min_id = tf.reduce_min(tensor)
 
         print(tensor)
+        print(tensor.shape)
+        print('-' * 50)
+        print(txt[:500], '\n...\n', txt[-500:])
         print('-' * 50)
         print('min token id: ', min_id)
         print('max token id: ', max_id)
         exit()
+
 
     # confirm deletion of checkpoint files if --new flag
     if args.new:
