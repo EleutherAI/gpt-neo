@@ -20,7 +20,8 @@ $ pip3 install \
     jsonlines \
     lm_dataformat \
     sacred \
-    tokenizers
+    tokenizers \
+    numpy
 ```
 
 or
