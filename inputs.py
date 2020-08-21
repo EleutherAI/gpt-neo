@@ -1,20 +1,24 @@
+import numpy as np
 import tensorflow.compat.v1 as tf
 from tokenizers import Tokenizer
 from transformers import GPT2Tokenizer
 
 
 def test_generic_text(params, eval=False):
-    i = 0 if not eval else 1
-
     batch_size = params['train_batch_size']
-    num_examples_text = 1000000
-    length = params['n_ctx'] // 2 - 1
-    bos = tf.constant(1, shape=[num_examples_text, 1], dtype=tf.int64)
-    eos = tf.constant(2, shape=[num_examples_text, 1], dtype=tf.int64)
-    pad = tf.constant(3, shape=[num_examples_text, 1], dtype=tf.int64)
-    src_seq = tf.random.uniform(shape=[num_examples_text, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
-    tgt_seq = src_seq + 1
-    seq = tf.concat([bos, src_seq, pad, tgt_seq, eos], axis=1)
+
+    def _generate():
+        while True:
+            length = params['n_ctx'] // 2 - 1
+            bos = np.full((batch_size, 1), 1)
+            eos = np.full((batch_size, 1), 2)
+            pad = np.full((batch_size, 1), 3)
+            src_seq = np.random.randint(4,  (params['n_vocab'] - 1), (batch_size, length))
+            tgt_seq = src_seq + 1
+            seq = np.concatenate([bos, src_seq, pad, tgt_seq, eos], axis=1)
+
+            for ind in range(batch_size):
+                yield seq[ind]
 
     def _sample_text(x):
         vals1 = x[:params["n_ctx"]]
@@ -26,9 +30,9 @@ def test_generic_text(params, eval=False):
         vals2 = tf.cast(vals2, dtype=tf.int32)
         return vals1, vals2
 
-    dataset = tf.data.Dataset.from_tensor_slices(seq)
-    dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
+    dataset = dataset.map(_sample_text)
+    dataset = dataset.batch(batch_size)
     return dataset
 
 def generic_text(params, eval=False):

@@ -2,6 +2,7 @@ google-api-python-client
 jsonlines
 lm_dataformat
 mesh-tensorflow==0.1.16
+numpy
 oauth2client
 ortools
 pytest
