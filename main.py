@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--new', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
+    parser.add_argument('--check_dataset', action='store_true')
     args = parser.parse_args()
 
     # rewire to use testing related functions if --test is on
@@ -54,6 +55,21 @@ def main():
     model_path = args.model if args.model.endswith('.json') else 'configs/{}.json'.format(args.model)
     with open(model_path, 'r') as f:
         params = json.loads(f.read())
+
+    # Sample from Dataset if check dataset flag is on
+    if args.check_dataset:
+        tf.enable_eager_execution()
+        dataset = input_fn(params)
+        dataset_iter = dataset.make_one_shot_iterator()
+        tensor, _ = next(dataset_iter)
+        max_id = tf.reduce_max(tensor)
+        min_id = tf.reduce_min(tensor)
+
+        print(tensor)
+        print('-' * 50)
+        print('min token id: ', min_id)
+        print('max token id: ', max_id)
+        exit()
 
     # confirm deletion of checkpoint files if --new flag
     if args.new:
