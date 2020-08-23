@@ -199,9 +199,10 @@ def sample_autoregressive(partial_sequences,
 
         ids_this_step = mtf.sample_with_temperature(
             logits, other_features["vocab_dim"], temperature)
+        one_new_id = ids_this_step * mtf.one_hot(position, length_dim, dtype=tf.int32)
+        one_new_id = mtf.shift(one_new_id, offset=1, dim=length_dim, wrap=False)
+        new_ids = ids + one_new_id
         new_position = position + 1
-        new_ids = ids + ids_this_step * mtf.one_hot(
-            position, length_dim, dtype=tf.int32)
         return [new_position, new_ids]
 
     while_loop_inputs = [initial_position, inputs]
