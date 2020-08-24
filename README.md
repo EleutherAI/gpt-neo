@@ -87,7 +87,7 @@ If you are ever confused by the dataset of a particular config file, you can eas
 $ python main --model {config_name} --check_dataset
 ```
 
-## Training (old)
+## Training
 
 Connect to your VM, clone this repo and cd into the folder. Find a fitting config in `/configs` and tweak parameters as needed (see reference at the end of this document). Then run:
 
