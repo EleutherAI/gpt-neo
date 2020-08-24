@@ -202,4 +202,4 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
 - `activation_function`: `selu` (self normalizing) or `gelu` (used by OA), activation function used in feed-forward passes. (default: gelu)
 - `local`: If `true`, use local attention. If `false`, use global attention-
 - `precision`: `float32` (use this for now) or `bf16` (change some variables to bf16 for better performance, not working yet)
-- `microbatches_per_batch`: If > 1, will split the batch up into smaller microbatches to avoid OOMs. Gradients are accumulated locally and reduced once.
+- `tokens_per_mb_per_replica`: If not None, will split the batch up into smaller microbatches containing `tokens_per_mb_per_replica` tokens to avoid OOMs. Gradients are accumulated locally and reduced once.
