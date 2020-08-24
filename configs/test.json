@@ -28,11 +28,9 @@
    "n_layer":1,
    "scale_by_depth": false,
    "scale_by_in": false,
-   "local": true,
    "mesh_shape":"",
    "layout":"",
    "activation_function":"gelu",
-   "microbatches_per_batch":8,
    "attention_types":[
       [["global"], 1]
    ],
