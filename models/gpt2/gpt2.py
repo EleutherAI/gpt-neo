@@ -20,16 +20,16 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
-
 def norm(x, axis, epsilon=1e-8):
-    u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
-    s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
+    x -= mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
+    s = mtf.reduce_mean(mtf.square(x), reduced_dim=axis, name="norm_reduce_mean_s")
+    return x * mtf.rsqrt(s + epsilon)
 
-    u = mtf.broadcast(u, x.shape)
-    s = mtf.broadcast(s, x.shape)
-
-    return (x - u) * mtf.rsqrt(s + epsilon)
-
+def rezero(x, scope):
+    with tf.variable_scope(scope):
+        dt = tf.float32
+        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
+        return x * g
 
 def scale_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     if axis is sentinel:
@@ -278,19 +278,25 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
     use_moe = (params["moe_layers"] is not None) and (layer_num in params["moe_layers"])
+    use_rezero = params["rezero"] == True
 
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1]  # grab last dimension from input
 
-            if use_scale_norm:
+            if use_rezero:
+                prenorm = identity
+            elif use_scale_norm:
                 prenorm = scale_norm
             else:
                 prenorm = layer_norm
 
+            pre_residual_fn = rezero if use_rezero else identity
+
             a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
                               params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
-            x = x + a
+
+            x = x + pre_residual_fn(a, 'norm_rezero_1')
 
             res_x = prenorm(x, 'norm_2', params=params)
 
@@ -322,7 +328,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
                 m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]))
 
-            x = x + m
+            x = x + pre_residual_fn(m, 'norm_rezero_2')
             return x, aux_loss
 
     return fn
@@ -338,14 +344,12 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
     use_axial_pos_emb = params["axial_pos_emb"] != None
     no_weight_tie_emb = params["no_weight_tie"] == True
+    share_parameters = params["share_parameters"] is not None and params["share_parameters"] == True
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
-    if params["mode"] == "predict":
-        x = mtf_features
-    else:
-        x = mtf_features["inputs"]
-        labels = mtf_features["labels"]
+    x = mtf_features["inputs"]
+
     batch_dim = x.shape[0]
     sequence_dim = x.shape[1]  # define seq length dim
     embd_dim = other_features["embd_dim"]
@@ -394,7 +398,9 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     for layer, past in enumerate(pasts):
         # attn blocks
-        block_fn = block(params=params, scope='h%d' % layer, past=past, layer_num=layer,
+        block_scope = 'h%s' % (str(layer) if not share_parameters else '')
+
+        block_fn = block(params=params, scope=block_scope, past=past, layer_num=layer,
                          bias=other_features["attn_bias"],
                          memory_length_dim=other_features["memory_length_dim"],
                          context=context)
@@ -416,6 +422,8 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     vdim = logits.shape[2]  # get vocab dimension
     if params["mode"] is not "predict":
+        labels = mtf_features["labels"]
+
         with tf.variable_scope('xentropy_final'):
             loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
         with tf.variable_scope('reduce_mean_final'):

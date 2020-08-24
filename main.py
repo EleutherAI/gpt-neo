@@ -14,9 +14,9 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath
 from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output
 from model_fns import model_fn
+from encoders import fetch_encoder
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
-
 
 def main():
     # Parse command line arguments
@@ -29,6 +29,7 @@ def main():
     parser.add_argument('--new', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
+    parser.add_argument('--check_dataset', action='store_true')
     args = parser.parse_args()
 
     # rewire to use testing related functions if --test is on
@@ -54,6 +55,35 @@ def main():
     model_path = args.model if args.model.endswith('.json') else 'configs/{}.json'.format(args.model)
     with open(model_path, 'r') as f:
         params = json.loads(f.read())
+
+    # Fetch encoder per params
+
+    encoder = fetch_encoder(params)
+    pred_input_fn = partial(pred_input_fn, enc = encoder)
+
+    # Sample from Dataset if check dataset flag is on
+    if args.check_dataset:
+        tf.enable_eager_execution()
+        dataset = input_fn(params)
+        dataset_iter = dataset.make_one_shot_iterator()
+        tensor, _ = next(dataset_iter)
+        enc = fetch_encoder(params)
+
+        for p in tensor[:1]:
+            txt = enc.decode(p)
+        #txt = enc.decode(tensor)
+        max_id = tf.reduce_max(tensor)
+        min_id = tf.reduce_min(tensor)
+
+        print(tensor)
+        print(tensor.shape)
+        print('-' * 50)
+        print(txt[:500], '\n...\n', txt[-500:])
+        print('-' * 50)
+        print('min token id: ', min_id)
+        print('max token id: ', max_id)
+        exit()
+
 
     # confirm deletion of checkpoint files if --new flag
     if args.new:
@@ -117,11 +147,8 @@ def main():
 
     if args.predict:
         predictions = estimator.predict(input_fn=pred_input_fn)
-        if params["n_vocab"] == 32768:
-            tokenizer = "custom"
-        else:
-            tokenizer = "gpt2"
-        handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
+        enc = fetch_encoder(params)
+        handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
         return
     elif params["predict_steps"] > 0:
         # If both predict & eval are on - stop and eval / predict every ckpt
@@ -132,11 +159,8 @@ def main():
             current_step = next_checkpoint
             logger.info('Starting to run predictions.')
             predictions = estimator.predict(input_fn=pred_input_fn)
-            if params["n_vocab"] == 32768:
-                tokenizer = "custom"
-            else:
-                tokenizer = "gpt2"
-            handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
+            enc = fetch_encoder(params)
+            handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
     elif params["predict_steps"] > 0 and params["eval_steps"] > 0:
         # If predict is on - stop and predict every ckpt
         while current_step < params["train_steps"]:
@@ -146,11 +170,8 @@ def main():
             current_step = next_checkpoint
             logger.info('Starting to run predictions.')
             predictions = estimator.predict(input_fn=pred_input_fn)
-            if params["n_vocab"] == 32768:
-                tokenizer = "custom"
-            else:
-                tokenizer = "gpt2"
-            handle_pred_output_fn(predictions, logger, tokenizer, out_name=f"predictions_{current_step}")
+            enc = fetch_encoder(params)
+            handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
             logger.info('Starting to evaluate.')
             eval_results = estimator.evaluate(
                 input_fn=partial(input_fn, eval=True),
