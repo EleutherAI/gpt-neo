@@ -20,16 +20,16 @@ def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
 
-
 def norm(x, axis, epsilon=1e-8):
-    u = mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
-    s = mtf.reduce_mean(mtf.square(x - u), reduced_dim=axis, name="norm_reduce_mean_s")
+    x -= mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
+    s = mtf.reduce_mean(mtf.square(x), reduced_dim=axis, name="norm_reduce_mean_s")
+    return x * mtf.rsqrt(s + epsilon)
 
-    u = mtf.broadcast(u, x.shape)
-    s = mtf.broadcast(s, x.shape)
-
-    return (x - u) * mtf.rsqrt(s + epsilon)
-
+def rezero(x, scope):
+    with tf.variable_scope(scope):
+        dt = tf.float32
+        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0, dtype=dt), dtype=dt)
+        return x * g
 
 def scale_norm(x, scope, *, axis=sentinel, epsilon=1e-5, params=None):
     if axis is sentinel:
@@ -278,19 +278,25 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
     use_moe = (params["moe_layers"] is not None) and (layer_num in params["moe_layers"])
+    use_rezero = params["rezero"] == True
 
     def fn(x):
         with tf.variable_scope(scope):
             nx = x.shape[-1]  # grab last dimension from input
 
-            if use_scale_norm:
+            if use_rezero:
+                prenorm = identity
+            elif use_scale_norm:
                 prenorm = scale_norm
             else:
                 prenorm = layer_norm
 
+            pre_residual_fn = rezero if use_rezero else identity
+
             a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
                               params=params, bias=bias, memory_length_dim=memory_length_dim, context=context)
-            x = x + a
+
+            x = x + pre_residual_fn(a, 'norm_rezero_1')
 
             res_x = prenorm(x, 'norm_2', params=params)
 
@@ -322,7 +328,7 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
                 m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, params=params)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]))
 
-            x = x + m
+            x = x + pre_residual_fn(m, 'norm_rezero_2')
             return x, aux_loss
 
     return fn
