@@ -34,7 +34,7 @@ $ pip3 install -r requirements.txt
 
 Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
-Create your VM through a google shell (`ssh.google.com`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the correct versions of the libraries with pip (see above).
+Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the correct versions of the libraries with pip (see above).
 
 Download the dummy data: `wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
 
