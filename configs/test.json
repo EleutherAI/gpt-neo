@@ -43,5 +43,7 @@
    "steps_per_checkpoint":100,
    "gradient_clipping": 0.5,
    "scalenorm": true,
-   "stop_at_token": 2
+   "stop_at_token": 2,
+   "no_weight_tie": false,
+   "remove_partial_sequences": true
 }

@@ -1,20 +1,23 @@
+import numpy as np
 import tensorflow.compat.v1 as tf
 from tokenizers import Tokenizer
-from transformers import GPT2Tokenizer
-
+from encoders import encode
 
 def test_generic_text(params, eval=False):
-    i = 0 if not eval else 1
-
     batch_size = params['train_batch_size']
-    num_examples_text = 1000000
-    length = params['n_ctx'] // 2 - 1
-    bos = tf.constant(1, shape=[num_examples_text, 1], dtype=tf.int64)
-    eos = tf.constant(2, shape=[num_examples_text, 1], dtype=tf.int64)
-    pad = tf.constant(3, shape=[num_examples_text, 1], dtype=tf.int64)
-    src_seq = tf.random.uniform(shape=[num_examples_text, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
-    tgt_seq = src_seq + 1
-    seq = tf.concat([bos, src_seq, pad, tgt_seq, eos], axis=1)
+
+    def _generate():
+        while True:
+            length = params['n_ctx'] // 2 - 1
+            bos = np.full((batch_size, 1), 1)
+            eos = np.full((batch_size, 1), 2)
+            pad = np.full((batch_size, 1), 3)
+            src_seq = np.random.randint(4,  (params['n_vocab'] - 1), (batch_size, length))
+            tgt_seq = src_seq + 1
+            seq = np.concatenate([bos, src_seq, pad, tgt_seq, eos], axis=1)
+
+            for ind in range(batch_size):
+                yield seq[ind]
 
     def _sample_text(x):
         vals1 = x[:params["n_ctx"]]
@@ -26,9 +29,9 @@ def test_generic_text(params, eval=False):
         vals2 = tf.cast(vals2, dtype=tf.int32)
         return vals1, vals2
 
-    dataset = tf.data.Dataset.from_tensor_slices(seq)
-    dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    dataset = dataset.batch(batch_size, drop_remainder=True)
+    dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
+    dataset = dataset.map(_sample_text)
+    dataset = dataset.batch(batch_size)
     return dataset
 
 def generic_text(params, eval=False):
@@ -85,14 +88,10 @@ def text_dataset(files, params, stitch, datatype, batch=True):
                 return tf.gather(x[i], tf.range(y[i]))
 
             out = _get_x(0)
-            if params["n_vocab"] == 50257:
-                # original gpt2 vocab_len
-                for i in range(1, stitch):
-                    out = tf.concat([out, [50256], _get_x(i)], axis=0)  # text1<|endoftext|>text2
-            else:
-                # custom vocab_len
-                for i in range(1, stitch):
-                    out = tf.concat([out, [0], _get_x(i)], axis=0) #text1<|endoftext|>text2
+            eos_id = 50256 if params["n_vocab"] == 50257 else 0
+
+            for i in range(1, stitch):
+                out = tf.concat([out, [eos_id], _get_x(i)], axis=0)  # text1<|endoftext|>text2
 
             return out
 
@@ -140,13 +139,9 @@ def text_dataset(files, params, stitch, datatype, batch=True):
     return dataset
 
 
-def pred_input(params, text="not all heroes wear"):
-    if params["n_vocab"] == 32768:
-        enc = Tokenizer.from_file("datasets/openwebtext/byte-level-bpe.tokenizer.json")
-        tokens = enc.encode(text).ids
-    else:
-        enc = GPT2Tokenizer.from_pretrained('gpt2')
-        tokens = enc.encode(text)
+def pred_input(params, enc = None, text="not all heroes wear"):
+    tokens = encode(enc, text)
+
     if len(tokens) > params["n_ctx"]:
         tokens = tokens[:params["n_ctx"]]
     if len(tokens) < params["n_ctx"]:
@@ -159,7 +154,7 @@ def pred_input(params, text="not all heroes wear"):
     dataset = dataset.map(_dummy_labels)
     return dataset
 
-def test_pred_input(params):
+def test_pred_input(params, enc = None):
     def _dummy_labels(x):
         return x, x
 
@@ -175,12 +170,7 @@ def test_pred_input(params):
     dataset = dataset.map(_dummy_labels)
     return dataset
 
-def handle_pred_output(predictions, logger, tok="gpt2", out_name="test"):
-    if tok == "gpt2":
-        enc = GPT2Tokenizer.from_pretrained('gpt2')
-    else:
-        tokenizer_path = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
-        enc = Tokenizer.from_file(tokenizer_path)
+def handle_pred_output(predictions, logger, enc, out_name="test"):
     with tf.gfile.Open(f"{out_name}.txt", "a") as f:
         for i, p in enumerate(predictions):
             p = p["outputs"]
@@ -193,7 +183,7 @@ def handle_pred_output(predictions, logger, tok="gpt2", out_name="test"):
             logger.info(text)
             logger.info("\n" + "=" * 80 + "\n")
 
-def test_handle_pred_output(predictions, logger, tok=None, **kwargs):
+def test_handle_pred_output(predictions, logger, enc, **kwargs):
     for i, p in enumerate(predictions):
         logger.info("=" * 40 + " INPUT " + str(i) + " " + "=" * 40 + "\n")
         logger.info(p["orig_inputs"])

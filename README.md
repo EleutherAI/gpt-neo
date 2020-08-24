@@ -20,7 +20,8 @@ $ pip3 install \
     jsonlines \
     lm_dataformat \
     sacred \
-    tokenizers
+    tokenizers \
+    numpy
 ```
 
 or
@@ -33,7 +34,7 @@ $ pip3 install -r requirements.txt
 
 Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
-Create your VM through a google shell (`ssh.google.com`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the correct versions of the libraries with pip (see above).
+Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the correct versions of the libraries with pip (see above).
 
 Download the dummy data: `wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
 
@@ -78,11 +79,19 @@ $ python main.py --test --new
 ```
 It should converge within 5 minutes. If not, something is wrong.
 
-## Training (old)
+## Peeking at a Dataset
+
+If you are ever confused by the dataset of a particular config file, you can easily check the minimum and maximum token ids with a single command. This is useful for making sure that the vocabulary size of the model is at least as large as the maximum token id. Tensorflow will not error if you try to gather on a matrix with out of bounds indices, so you need to make sure your vocabulary size is sufficiently large.
+
+```bash
+$ python main --model {config_name} --check_dataset
+```
+
+## Training
 
 Connect to your VM, clone this repo and cd into the folder. Find a fitting config in `/configs` and tweak parameters as needed (see reference at the end of this document). Then run:
 
-`python3 main.py --model configs/your_config.json --steps_per_checkpoint n --tpu tpu-name`
+`python3 main.py --model {your_config_name} --steps_per_checkpoint n --tpu tpu-name`
 
 - `tpu`: Name of the TPU to use.
 - `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.

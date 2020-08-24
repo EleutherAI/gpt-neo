@@ -103,7 +103,7 @@ def sample_autoregressive(partial_sequences,
                                wrap=False)  # shifts inputs to the right for first inp
 
     with tf.variable_scope('gpt2'):
-        logits, _, _ = gpt2.model(shifted_inputs, other_features, params, inputs.mesh, context=context_first_part)
+        logits, _, _ = gpt2.model({'inputs': shifted_inputs}, other_features, params, inputs.mesh, context=context_first_part)
     del logits
     constant_states = context_first_part.constant_states
 
@@ -172,7 +172,7 @@ def sample_autoregressive(partial_sequences,
 
         # TODO: inputs here should be inputs_this_step but it seems to break things :<
         with tf.variable_scope('gpt2', reuse=True):
-            logits, _, _ = gpt2.model(ids, other_features, params, inputs.mesh, context = context)
+            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = context)
         # if never_end:
         #     logits += mtf.one_hot(
         #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),
@@ -199,9 +199,10 @@ def sample_autoregressive(partial_sequences,
 
         ids_this_step = mtf.sample_with_temperature(
             logits, other_features["vocab_dim"], temperature)
+        one_new_id = ids_this_step * mtf.one_hot(position, length_dim, dtype=tf.int32)
+        one_new_id = mtf.shift(one_new_id, offset=1, dim=length_dim, wrap=False)
+        new_ids = ids + one_new_id
         new_position = position + 1
-        new_ids = ids + ids_this_step * mtf.one_hot(
-            position, length_dim, dtype=tf.int32)
         return [new_position, new_ids]
 
     while_loop_inputs = [initial_position, inputs]
