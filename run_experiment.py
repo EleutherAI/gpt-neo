@@ -119,6 +119,9 @@ def main(_run):
                 print('Logged to sacred: step={},loss={}'.format(step, val))
                 curr_step = step
 
+        if args.no_delete_tpu:
+            break
+
 
 def goodbye(id):
     print("You are now leaving the Python sector.")

@@ -33,5 +33,6 @@
     "microbatches_per_batch": 1,
     "attention_types": [[["local", "global"],12]],
     "predict_steps": 1,
-    "recompute_grad": true
+    "recompute_grad": true,
+    "microbatches_per_batch": 2
 }
