@@ -98,7 +98,7 @@ def main(_run):
     tensorboard_port = get_open_port()
     print('Tensorboard at port:', tensorboard_port)
     print('Tensorboard url: ', 'http://eleutherai.bmk.sh:'+ tensorboard_port)
-    os.system("screen -S tensorboard_{} -d -m tensorboard --logdir {} --port {} --bind_all --reload_multifile=true".format(_run._id, params["model_path"], tensorboard_port))
+    os.system("screen -S tensorboard_{} -d -m 'tensorboard --logdir {} --port {} --bind_all --reload_multifile=true || tensorboard --logdir {} --port {}'".format(_run._id, params["model_path"], tensorboard_port,params["model_path"], tensorboard_port,))
     atexit.register(goodbye, _run._id)
 
     curr_step = 0
