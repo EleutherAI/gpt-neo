@@ -1,6 +1,6 @@
 {
     "n_head": 12,
-    "n_vocab": 50257,
+    "n_vocab": 50304,
     "embed_dropout": 0,
     "lr": 0.0006,
     "lr_decay": "cosine",
@@ -30,8 +30,8 @@
     "scale_by_depth": true,
     "scale_by_in": false,
     "attention_types" :  [[["global"],12]],
-    "mesh_shape": "x:128,y:2",
-    "layout": "embd:y,batch:x",
+    "mesh_shape": "x:64,y:4",
+    "layout": "batch:x,heads:y,vocab:y",
     "activation_function": "gelu",
     "recompute_grad": false,
     "gradient_clipping": 1.0
