@@ -26,7 +26,7 @@
     "scale_by_depth": true,
     "scale_by_in": true,
     "local": false,
-    "mesh_shape": "hd:4,data:64",
+    "mesh_shape": "hd:2,data:128",
     "layout": "heads:hd,batch:data",
     "precision": "float32",
     "activation_function": "gelu",
