@@ -113,7 +113,7 @@ def main(_run):
             if data is None:
                 continue
             for ts, step, val in data:
-                if step < curr_step:
+                if step <= curr_step:
                     continue
 
                 _run.log_scalar('loss', val, step)
