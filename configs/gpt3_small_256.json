@@ -29,7 +29,7 @@
     "n_layer": 12,
     "scale_by_depth": true,
     "scale_by_in": false,
-    "attention_types" :  [[["global"],12]],
+    "attention_types": [[["local", "global"],6]],
     "mesh_shape": "x:64,y:4",
     "layout": "batch:x,heads:y,vocab:y",
     "activation_function": "gelu",
