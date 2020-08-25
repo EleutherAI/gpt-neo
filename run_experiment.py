@@ -21,7 +21,7 @@ parser.add_argument('--auto_layout', action="store_true")
 parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
 parser.add_argument('--new', action='store_true')
 parser.add_argument('--test', action='store_true')
-parser.add_argument('--predict', action='store_true')
+parser.add_argument('--no_delete_tpu', action='store_true')
 args = parser.parse_args()
 
 args.model = args.model if args.model.endswith('.json') else './configs/{}.json'.format(args.model)
@@ -56,7 +56,10 @@ def train_thread(tpu, id):
     print('Running:', cmd)
     os.system(cmd)
     print('exited training!')
-
+    
+    if args.no_delete_tpu:
+        print('recreate done, exiting train_thread - not killing tpu!')
+        return
     print("Recreating {} in 60sec...".format(tpu))
     time.sleep(60)
     os.system("pu recreate {} --yes".format(tpu))
