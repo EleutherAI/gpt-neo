@@ -186,7 +186,7 @@ def handle_pred_output(predictions, logger, enc, out_name="test"):
 def test_handle_pred_output(predictions, logger, enc, **kwargs):
     for i, p in enumerate(predictions):
         logger.info("=" * 40 + " INPUT " + str(i) + " " + "=" * 40 + "\n")
-        logger.info(p["orig_inputs"])
+        logger.info(p["inputs"])
         logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
         logger.info(p["outputs"])
         logger.info("\n" + "=" * 80 + "\n")
