@@ -20,7 +20,7 @@
     "res_dropout": 0,
     "eval_batch_size": 64,
     "predict_batch_size": 64,
-    "iterations": 500,
+    "iterations": 2500,
     "n_embd": 1536,
     "datasets": [["gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords", "", 11, "documents_random", 1.0]],
     "model": "GPT2",
