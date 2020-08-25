@@ -21,6 +21,7 @@ parser.add_argument('--auto_layout', action="store_true")
 parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
 parser.add_argument('--new', action='store_true')
 parser.add_argument('--test', action='store_true')
+parser.add_argument('--predict', action='store_true')
 parser.add_argument('--no_delete_tpu', action='store_true')
 args = parser.parse_args()
 
