@@ -15,6 +15,7 @@ from utils import save_config, expand_attention_types_params, yes_or_no, remove_
 from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output
 from model_fns import model_fn
 from encoders import fetch_encoder
+from configs import fetch_model_params
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
 
@@ -52,9 +53,7 @@ def main():
     logger.handlers = handlers
 
     # Read params of model
-    model_path = args.model if args.model.endswith('.json') else 'configs/{}.json'.format(args.model)
-    with open(model_path, 'r') as f:
-        params = json.loads(f.read())
+    params = fetch_model_params(args.model)
 
     # Fetch encoder per params
 
