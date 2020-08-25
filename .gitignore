@@ -111,3 +111,6 @@ logs/
 test_*
 test/
 .vscode
+
+
+run_configs/
