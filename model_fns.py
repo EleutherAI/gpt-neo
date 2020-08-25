@@ -118,12 +118,9 @@ def model_fn(features, labels, mode, params):
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
-        orig_inputs = lowering.export_to_tf_tensor(mtf_features["inputs"])
         inputs = lowering.export_to_tf_tensor(inputs)
         outputs = lowering.export_to_tf_tensor(mtf_samples)
-
         predictions = {
-            "orig_inputs": orig_inputs,
             "inputs": inputs,
             "outputs": outputs}
 
