@@ -1,4 +1,5 @@
 {
+    "dataset_ids": ["openwebtext-documents"],
     "n_head": 16,
     "n_vocab": 50432,
     "embed_dropout": 0.1,
@@ -18,7 +19,7 @@
     "eval_batch_size": 32,
     "iterations": 500,
     "n_embd": 2048,
-    "datasets": [["gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords", "", 11, "documents_random", 1.0]],
+    "datasets": [["openwebtext-documents", 11, "documents_random", 1.0]],
     "model": "GPT2",
     "model_path": "gs://neo-models/gpt3_xl_replication",
     "n_ctx": 2048,

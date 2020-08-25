@@ -9,7 +9,7 @@ import json
 import threading
 import requests
 import glob
-
+from configs import fetch_model_params
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
@@ -25,9 +25,7 @@ parser.add_argument('--predict', action='store_true')
 parser.add_argument('--no_delete_tpu', action='store_true')
 args = parser.parse_args()
 
-args.model = args.model if args.model.endswith('.json') else './configs/{}.json'.format(args.model)
-with open(args.model, 'r') as f:
-    params = json.loads(f.read())
+params = fetch_model_params(args.model)
 
 ex = sacred.Experiment(args.experiment_name)
 ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
