@@ -63,7 +63,7 @@ def model_fn(features, labels, mode, params):
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-        batch_size = 1
+        batch_size = params["eval_batch_size"]
         params["mode"] = "predict"
     elif mode == tf.estimator.ModeKeys.EVAL:
         batch_size = params["eval_batch_size"]
