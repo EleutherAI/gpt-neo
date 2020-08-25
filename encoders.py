@@ -9,7 +9,7 @@ def fetch_encoder(params):
         return Tokenizer.from_file(tokenizer_path)
 
     # if "tokenizer_path" is not supplied in the config, default to usual logic
-    if params["n_vocab"] == 50257:
+    if params["n_vocab"] > 50257:
         return GPT2Tokenizer.from_pretrained('gpt2')
 
     enc = Tokenizer.from_file(DEFAULT_TOKENIZER_PATH)
