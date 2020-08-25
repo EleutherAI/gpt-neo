@@ -18,6 +18,6 @@ def fetch_encoder(params):
 # GPT2Tokenizer and Tokenizer has different ways of fetching token ids
 def encode(encoder, text):
     result = encoder.encode(text)
-    if isinstance(result, GPT2Tokenizer):
+    if isinstance(result, list):
         return result
     return result.ids

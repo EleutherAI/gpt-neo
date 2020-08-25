@@ -10,3 +10,4 @@ sacred
 tensorflow==1.15.2
 tensorflow-datasets
 tokenizers
+transformers

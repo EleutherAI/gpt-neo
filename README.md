@@ -21,6 +21,7 @@ $ pip3 install \
     lm_dataformat \
     sacred \
     tokenizers \
+    transformers \
     numpy
 ```
 
