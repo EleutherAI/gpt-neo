@@ -15,8 +15,9 @@ def fetch_model_params(model):
     n_vocab = params['n_vocab']
     datasets = {}
     dataset_ids = params.get('dataset_ids', [])
+    no_datasets = params.get('no_dataset', False)
 
-    assert len(dataset_ids) > 0, 'You must specify at least one dataset id in the model config'
+    assert no_datasets or len(dataset_ids) > 0, 'You must specify at least one dataset id in the model config'
 
     for dataset_id in dataset_ids:
         assert dataset_id in DATASETS, f'dataset {dataset_id} was not found under dataset_configs/ folder. please follow the example.json in that folder'

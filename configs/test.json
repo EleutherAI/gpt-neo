@@ -1,4 +1,5 @@
 {
+   "no_dataset": true,
    "n_head": 8,
    "n_vocab": 32,
    "embed_dropout":0.1,

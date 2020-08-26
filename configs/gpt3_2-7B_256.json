@@ -1,4 +1,5 @@
 {
+    "dataset_ids": ["openwebtext-documents"],
     "n_head": 32,
     "n_vocab": 50257,
     "embed_dropout": 0,
@@ -22,7 +23,7 @@
     "predict_batch_size": 128,
     "iterations": 500,
     "n_embd": 2560,
-    "datasets": [["gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords", "", 11, "documents_random", 1.0]],
+    "datasets": [["openwebtext-documents", 11, "documents_random", 1.0]],
     "model": "GPT2",
     "model_path": "gs://neo-models/GPT3_2-7B",
     "n_ctx": 2048,

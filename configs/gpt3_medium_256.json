@@ -1,4 +1,5 @@
 {
+    "dataset_ids": ["openwebtext-documents"],
     "n_head": 16,
     "n_vocab": 50304,
     "embed_dropout": 0,
