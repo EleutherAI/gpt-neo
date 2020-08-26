@@ -42,10 +42,27 @@ def generic_text(params, eval=False):
     print(params["datasets"])
     print('##############################')
 
-    datasets = [text_dataset(tf.io.gfile.glob(dataset[i]),
-                params, stitch=dataset[2], datatype=dataset[3], batch=False)
-                for dataset in params["datasets"]]
-    weights = [dataset[4] for dataset in params["datasets"]]
+    weights = []
+    datasets = []
+
+    for dataset in params["datasets"]:
+        dataset_id, stitch, datatype, weight = dataset
+
+        assert dataset_id in params['dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
+        dataset_config = params['dataset_configs'][dataset_id]
+
+        path_key = 'path' if not eval else 'eval_path'
+        path = dataset_config[path_key]
+
+        datasets.append(text_dataset(
+            tf.io.gfile.glob(path),
+            params,
+            stitch = stitch,
+            datatype = datatype,
+            batch = False)
+        )
+
+        weights.append(weight)
 
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
     dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
