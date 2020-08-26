@@ -423,9 +423,9 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
     vdim = logits.shape[2]  # get vocab dimension
     if params["mode"] is not "predict":
         labels = mtf_features["labels"]
-
+        z_loss = params.get('z_loss', 1e-4)
         with tf.variable_scope('xentropy_final'):
-            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim)
+            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim, z_loss=z_loss)
         with tf.variable_scope('reduce_mean_final'):
             loss = mtf.reduce_mean(loss_batch)
 
