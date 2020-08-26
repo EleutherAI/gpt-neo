@@ -116,8 +116,9 @@ def main(_run):
                 if step <= curr_step:
                     continue
 
+                _run.log_scalar('tb_ts', ts, step)
                 _run.log_scalar('loss', val, step)
-                print('Logged to sacred: step={},loss={}'.format(step, val))
+                print('Logged to sacred: step={},loss={},tb_ts={}'.format(step, val, ts))
                 curr_step = step
 
         if args.no_delete_tpu:
