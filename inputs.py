@@ -139,7 +139,9 @@ def text_dataset(files, params, stitch, datatype, batch=True):
     return dataset
 
 
-def pred_input(params, enc = None, text="not all heroes wear"):
+def pred_input(params, enc = None, text="In a shocking finding, scientist discovered a herd of unicorns living in a remote, "
+                                        "previously unexplored valley, in the Andes Mountains. Even more surprising to the "
+                                        "researchers was the fact that the unicorns spoke perfect English."):
     tokens = encode(enc, text)
 
     if len(tokens) > params["n_ctx"]:
