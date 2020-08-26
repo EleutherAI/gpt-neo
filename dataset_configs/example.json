@@ -1,0 +1,6 @@
+{
+	"n_vocab": 32768,
+	"path": "./tfrecords/openwebtext_*.tfrecords",
+	"eval_path": "",
+	"tokenizer_path": "./datasets/openwebtext/byte-level-bpe.tokenizer.json"
+}

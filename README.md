@@ -126,6 +126,7 @@ Host GptVM
 Then, you'll be able to access tensorboard with your browser at `localhost:6006`.
 
 # Generating your own Dataset
+
 You can use the `datasets/create_tfrecords.py` script to encode your text data into tfrecords suited for the training. First install the dependencies:
 
 `pip3 install ftfy tqdm tokenizers lm_dataformat`
@@ -158,6 +159,38 @@ In chunk mode, all documents are concatenated (with seperator tokens between doc
 - `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
 - `seperator`: Written in list format, the seperator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
 - `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
+
+# Using a Dataset in a Model
+
+To use a dataset in a model, you must first register that dataset under `./dataset_configs` folder. First you choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
+
+```python
+{
+    "n_vocab": 32768,
+    "path": "./path/to/your/*.tfrecords",
+    "eval_path": "./path/to/your/eval/*.tfrecords",
+    "tokenizer_path": "./path/to/your/byte-level-bpe.tokenizer.json"
+}
+```
+
+If you have a dataset that encoded using a publicly available tokenizer from Huggingface, you can specify that as well. Say we are using the same tokenizer as the one used for `gpt2`
+
+```python
+{
+    "n_vocab": 50257,
+    "path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
+    "eval_path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
+    "tokenizer_is_pretrained": true,
+    "tokenizer_path": "gpt2"
+}
+```
+
+Finally, when you are defining your model configuration, you add the filename that you created above to the `dataset_ids` array.
+
+```python
+"dataset_ids": [<dataset id>],
+"datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
+```
 
 # Downloading Pretrained Models
 
