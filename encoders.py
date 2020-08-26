@@ -4,6 +4,10 @@ from transformers import GPT2Tokenizer
 DEFAULT_TOKENIZER_PATH = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
 
 def fetch_encoder(params):
+    no_dataset = params.get('no_dataset', False)
+    if no_dataset:
+        return None
+
     dataset = next(iter(params['dataset_configs'].values()))
     path = dataset['tokenizer_path']
     is_pretrained = dataset.get('tokenizer_is_pretrained', False)
