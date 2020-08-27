@@ -9,25 +9,6 @@ No pretrained model yet, everything has to be built from scratch!
 # Requirements
 
 ```bash
-$ pip3 install \
-    tensorflow==1.15.2 \
-    mesh-tensorflow==0.1.16 \
-    tensorflow-datasets \
-    ortools \
-    google-api-python-client \
-    oauth2client \
-    pytest \
-    jsonlines \
-    lm_dataformat \
-    sacred \
-    tokenizers \
-    transformers \
-    numpy
-```
-
-or
-
-```bash
 $ pip3 install -r requirements.txt
 ```
 
@@ -135,45 +116,71 @@ Your data must either be in the form of lots of normal text files (one document 
 
 You can run the script without parameters to see help for all options. There are two main modes:
 
+## Document Mode
+
+Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
+
+```bash
+export NAME="<NAME>"
+export BASE_DIR="<base>"
+export OUTPUT_DIR="<output>"
+export MIN_NUM_TOKENS=5
+
+python3 create_tfrecords.py --mode documents \
+                            --name ${NAME} \
+                            --base_dir ${BASE_DIR} \
+                            --output_dir ${OUTPUT_DIR}\
+                            --encoder_path ${ENCODER_DIR} \
+                            --minimum_size ${MIN_NUM_TOKENS}
+```
+- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
+- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
+- `output_dir`: Where to save the tfrecords to
+- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `configs/datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/train_tokenizer.py` for an example of how such a tokenizer can be trained.
+- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
+
+## Chunk Mode
+
+In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
+
+```bash
+export NAME="<NAME>"
+export BASE_DIR="<base>"
+export OUTPUT_DIR="<output>"
+export MIN_NUM_TOKENS=5
+export SEP=<sep>
+export CHUNK_SIZE=""
+
+python3 create_tfrecords.py --mode chunks \
+                            --name ${NAME} \
+                            --base_dir ${BASE_DIR} \
+                            --output_dir ${OUTPUT_DIR}\
+                            --encoder_path ${ENCODER_DIR} \
+                            --minimum_size ${MIN_NUM_TOKENS}
+                            --separator ${SEP} \
+                            --chunk_size ${CHUNK_SIZE}
+```
+
+- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
+- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
+- `output_dir`: Where to save the tfrecords to
+- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. See The Create your Tokenizer Section on how to train a Tokenizer.
+- `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
+- `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
+
 ## Create your Tokenizer
 
 Neural nets only work on numbers, so strings must be chopped up into tiny unique subsequences and assigned an ID. This is done via a process called tokenization, and must be first cast over your corpus of textual data. It is as simple as one command to generate your tokenizer (assignment of substring sequences to an id).
 
 ```bash
-$ python datasets/train_tokenizer \
+$ python datasets/train_tokenizer.py \
     --base_dir ./path/to/your/txt/files \
-    --output_dir ./output/path \
+    --output_dir ./output/ \
     --file-type txt \
     --vocab-size 50257
-
-# if it succeeded, you should see the message
-# 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
 ```
-
-## Document Mode
-
-Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
-
-`python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --minimum_size <min> `
-
-- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
-- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
-- `output_dir`: Where to save the tfrecords to
-- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
-- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discareded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
-
-## Chunk Mode
-
-In chunk mode, all documents are concatenated (with seperator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
-
-`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --seperator <sep> --chunk_size <size>`
-
-- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
-- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
-- `output_dir`: Where to save the tfrecords to
-- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
-- `seperator`: Written in list format, the seperator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
-- `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
+If it succeeded, you should see the message:
+> 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
 
 # Using a Dataset in a Model
 
@@ -188,7 +195,7 @@ To use a dataset in a model, you must first register that dataset under `./datas
 }
 ```
 
-If you have a dataset that encoded using a publicly available tokenizer from Huggingface, you can specify that as well. Say we are using the same tokenizer as the one used for `gpt2`
+If you have a dataset that is encoded using a publicly available tokenizer from Huggingface, you can specify that as well. Say we are using the same tokenizer as the one used for `gpt2`
 
 ```python
 {
@@ -238,7 +245,7 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
     + `train glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during training
     + `eval glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during evaluation
     + `stitch`: If `sampling_mode` `random_sample` is used, the input pipeline samples this amount of texts into one to sample from. You must select stitch so that `stitch * minimum_document_length >= n_ctx`
-    + `sampling_mode`: `chunks` (tfrecords are preprocessed into the correct length and are read sequentially) or `documents_random` (`stitch` amount of documents are concatenated and then a `n_ctx` chunk is randomly subsampled)
+    + `sampling_mode`: `chunks` (tfrecords are preprocessed into the correct length and are read sequentially) or `documents_random` (`stitch` amount of documents are concatenated and then a `n_ctx` chunk is randomly sub-sampled)
     + `weights`: How much relative weight this dataset should have compared to others
 - `model`: Which model to train. Currently only `GPT2` is supported, WIP: 'GPT2MOE' GPT model with Mixture of Experts
 - `model_path`: Google storage location to save model checkpoints.
