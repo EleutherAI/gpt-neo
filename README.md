@@ -135,6 +135,21 @@ Your data must either be in the form of lots of normal text files (one document 
 
 You can run the script without parameters to see help for all options. There are two main modes:
 
+## Create your Tokenizer
+
+Neural nets only work on numbers, so strings must be chopped up into tiny unique subsequences and assigned an ID. This is done via a process called tokenization, and must be first cast over your corpus of textual data. It is as simple as one command to generate your tokenizer (assignment of substring sequences to an id).
+
+```bash
+$ python datasets/train_tokenizer \
+    --base_dir ./path/to/your/txt/files \
+    --output_dir ./output/path \
+    --file-type txt \
+    --vocab-size 50257
+
+# if it succeeded, you should see the message
+# 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
+```
+
 ## Document Mode
 
 Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
