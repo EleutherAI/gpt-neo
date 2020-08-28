@@ -118,14 +118,14 @@ def _bytes_feature(value):
 
 def read_example(example_proto, max_seq_len=1024) -> dict:
     features = {
-        "id": tf.FixedLenFeature([1], tf.int64),
+        # "id": tf.FixedLenFeature([1], tf.int64),
         "content": tf.FixedLenFeature([max_seq_len], tf.int64)
     }
     return tf.parse_single_example(example_proto, features)
 
 def create_example(eid, data) -> tf.train.Example:
     feature = {
-        "id": _int64_feature([eid]),
+        # "id": _int64_feature([eid % math.max64]),
         "content": _int64_feature(data)
     }
     return tf.train.Example(features=tf.train.Features(feature=feature))
