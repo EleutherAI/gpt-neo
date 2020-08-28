@@ -65,6 +65,7 @@ def readlines_txt(src):
 
 LINE_READER = {
     '.txt': readlines_txt,
+    '.tsv': readlines_txt,
     # '.ztx':
 }
 def readlines(src):
