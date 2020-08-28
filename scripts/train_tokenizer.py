@@ -38,6 +38,8 @@ def main(args):
     if not txtfiles:
         logging.error('no data files found')
         return
+    
+    os.makedirs(args.output, exist_ok=True)
 
     # Initialize a tokenizer
     tokenizer = Tokenizer(models.BPE())
@@ -50,12 +52,20 @@ def main(args):
 
     # And then train
     trainer = trainers.BpeTrainer(vocab_size=args.vocab_size, min_frequency=2, special_tokens=["<|endoftext|>"])
-    tokenizer.train(trainer, txtfiles)
+    tokenizer.train(trainer, txtfiles[:100])
 
     # And Save it
     tokenizer_path = os.path.join(args.output, "byte-level-bpe.tokenizer.json")
     tokenizer.save(tokenizer_path, pretty=True)
+    encoded_gold = tokenizer.encode("I can feel the magic, can you?")
     logging.info('tokenizer saved at %s', tokenizer_path)
+
+    # Test it by loading it back 
+    tokenizer = Tokenizer.from_file(tokenizer_path)
+    encoded = tokenizer.encode("I can feel the magic, can you?")
+
+    if not all(a == b for a,b in zip(encoded.ids, encoded_gold.ids)):
+        logging.error("saved tokenizer and trained tokenizer do not match")
 
 if __name__ == "__main__":
     app.run(main, flags_parser=parse_flags)
