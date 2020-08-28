@@ -11,20 +11,19 @@ from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
 from tokenizers.normalizers import NFKC
 from tqdm import auto as tqdm
 from absl import app, logging
+from absl.flags import argparse_flags
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def parse_flags(argv):
+    parser = argparse_flags.ArgumentParser()
     parser.add_argument("--input", type=str, required=True, help="Location of the dataset files. Files ending in .zst are treated as \
                         archives, all others as raw text. Can be a glob (/dataset/*.xz, /dataset/*.txt)")
     parser.add_argument("--output", type=str, required=True, help="Location to write the generated tokenizer configuration")
-    # parser.add_argument("--file_type", type=str, choices=["xz", "txt"], default="xz", help="Extension of file to parse")
     parser.add_argument("--vocab_size", type=int, help="Size of vocabulary", required = True)
     parser.add_argument("--random_seed", type=int, --seed=1337, help="seed")
-    args = parser.parse_args()
+    args = parser.parse_args(argv[1:])
     return args
 
-def main(_):
-    args = parse_args()
+def main(args):
 
     random.seed(args.random_seed)
 
@@ -59,4 +58,4 @@ def main(_):
     logging.info('tokenizer saved at %s', tokenizer_path)
 
 if __name__ == "__main__":
-    app.run(main)
+    app.run(main, flags_parser=parse_flags)
