@@ -52,7 +52,7 @@ def main(args):
 
     # And then train
     trainer = trainers.BpeTrainer(vocab_size=args.vocab_size, min_frequency=2, special_tokens=["<|endoftext|>"])
-    tokenizer.train(trainer, txtfiles[:100])
+    tokenizer.train(trainer, txtfiles)
 
     # And Save it
     tokenizer_path = os.path.join(args.output, "byte-level-bpe.tokenizer.json")
