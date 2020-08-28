@@ -18,14 +18,11 @@ def parse_args():
     args = parser.parse_args()
     return args
 
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
 
 def main(_):
     args = parse_args()
 
-    set_seed(args.random_seed)
+    random.seed(args.random_seed)
 
     archives = list(glob(args.input))
     if not len(archives):
