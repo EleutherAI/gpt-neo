@@ -26,7 +26,7 @@ def parse_args():
 def main(_):
     args = parse_args()
 
-    random.set_seed(args.random_seed)
+    random.seed(args.random_seed)
 
     archives = list(glob(args.input))
     if not len(archives):

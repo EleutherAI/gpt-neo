@@ -22,8 +22,6 @@ def parse_args():
 def main(_):
     args = parse_args()
 
-    random.seed(args.random_seed)
-
     archives = list(glob(args.input))
     if not len(archives):
         archives = list(glob(os.path.join(args.input, '*.*')))
