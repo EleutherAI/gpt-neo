@@ -14,9 +14,9 @@ from absl import app, logging
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", type=str, help="Location of the dataset files. Files ending in .zst are treated as \
+    parser.add_argument("--input", type=str, required=True, help="Location of the dataset files. Files ending in .zst are treated as \
                         archives, all others as raw text. Can be a glob (/dataset/*.xz, /dataset/*.txt)")
-    parser.add_argument("--output", type=str, help="Location to write the generated tokenizer configuration")
+    parser.add_argument("--output", type=str, required=True, help="Location to write the generated tokenizer configuration")
     # parser.add_argument("--file_type", type=str, choices=["xz", "txt"], default="xz", help="Extension of file to parse")
     parser.add_argument("--vocab_size", type=int, help="Size of vocabulary", required = True)
     parser.add_argument("--random_seed", type=int, --seed=1337, help="seed")
