@@ -19,7 +19,7 @@ def parse_flags(argv):
                         archives, all others as raw text. Can be a glob (/dataset/*.xz, /dataset/*.txt)")
     parser.add_argument("--output", type=str, required=True, help="Location to write the generated tokenizer configuration")
     parser.add_argument("--vocab_size", type=int, help="Size of vocabulary", required = True)
-    parser.add_argument("--random_seed", type=int, --seed=1337, help="seed")
+    parser.add_argument("--random_seed", type=int, default=1337, help="seed")
     args = parser.parse_args(argv[1:])
     return args
 
@@ -27,17 +27,17 @@ def main(args):
 
     random.seed(args.random_seed)
 
-    archives = list(glob(args.input))
-    if not len(archives):
-        archives = list(glob(os.path.join(args.input, '*.*')))
-    
-    if not len(archives):
-        logging.error('no files found at location %s', args.input)
-        return 
-    
-    data_files = random.sample(data_files, int(0.2 * len(data_files)))
+    txtfiles = list(p for p in glob(args.input) if not os.path.isdir(p))
 
-    assert len(data_files) > 0, 'No data files found'
+    # try with general glob 
+    if not txtfiles:
+        txtfiles = list(glob(os.path.join(args.input, '*.*')))
+
+    archives = list(p for p in txtfiles if not os.path.isdir(p))
+
+    if not txtfiles:
+        logging.error('no data files found')
+        return
 
     # Initialize a tokenizer
     tokenizer = Tokenizer(models.BPE())
@@ -50,10 +50,10 @@ def main(args):
 
     # And then train
     trainer = trainers.BpeTrainer(vocab_size=args.vocab_size, min_frequency=2, special_tokens=["<|endoftext|>"])
-    tokenizer.train(trainer, data_files)
+    tokenizer.train(trainer, txtfiles)
 
     # And Save it
-    tokenizer_path = out_path / "byte-level-bpe.tokenizer.json"
+    tokenizer_path = os.path.join(args.output, "byte-level-bpe.tokenizer.json")
     tokenizer.save(tokenizer_path, pretty=True)
     logging.info('tokenizer saved at %s', tokenizer_path)
 

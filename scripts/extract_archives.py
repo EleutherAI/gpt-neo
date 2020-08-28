@@ -24,9 +24,10 @@ def main(args):
     archives = list(p for p in glob(args.input) if not os.path.isdir(p))
 
     # try with general glob 
-    if not len(archives):
+    if not archives:
         archives = list(glob(os.path.join(args.input, '*.*')))
-    archives = list(p for p in glob(args.input) if not os.path.isdir(p))
+
+    archives = list(p for p in archives if not os.path.isdir(p))
     
     if not len(archives):
         logging.error('no files found at location %s', args.input)
