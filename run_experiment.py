@@ -91,7 +91,7 @@ def main(_run):
     print('WARNING: please remember to remove old metric log files from the model directory.')
 
     os.makedirs('run_configs', exist_ok=True)
-    shutil.copy(args.model, 'run_configs/config_{}.json'.format(_run._id))
+    shutil.copy(args.model if args.model.endswith('.json') else 'configs/{}.json'.format(args.model), 'run_configs/config_{}.json'.format(_run._id))
 
     tensorboard_port = get_open_port()
     print('Tensorboard at port:', tensorboard_port)
