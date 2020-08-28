@@ -1,8 +1,11 @@
 import ftfy
+import tensorflow as tf
 
 class BufferedEncodedStream(object):
-    # Loads a file into memory, optionally fixes unicode, encodes it and adds the seperator to the beginning
-    # If set to text_mode the input is assumed to not be a file but the direct string data
+    """
+    Loads a file into memory, optionally fixes unicode, encodes it and adds the seperator to the beginning
+    If set to text_mode the input is assumed to not be a file but the direct string data
+    """
     def __init__(self, inp, encoder, seperator=None, fix=False, minimum_size=0, text_mode=False):
         if text_mode:
             d = inp
@@ -16,7 +19,7 @@ class BufferedEncodedStream(object):
         
         if len(self.data) < minimum_size or all([x == 0 for x in self.data]): # Sanity check
             self.data = [] # Don't return file contents if it doesn't pass the sanity check
-        elif seperator is not None: # Only add seperator if sanity check didn't failt
+        elif seperator is not None: # Only add seperator if sanity check didn't fail
             self.data = seperator + self.data # Seperator should be [tokens]
         
         self.idx = 0
@@ -104,3 +107,25 @@ class EncodedConcatenatedFiles(object):
             data.extend(data_read)
 
         return np.array(data, np.int32)
+
+def _int64_feature(value):
+    """Returns an int64_list from a bool / enum / int / uint."""
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
+
+def _bytes_feature(value):
+  """Returns a bytes_list from a string / byte."""
+  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+def read_example(example_proto, max_seq_len=1024) -> dict:
+    features = {
+        "id": tf.FixedLenFeature([1], tf.int64),
+        "content": tf.FixedLenFeature([max_seq_len], tf.int64)
+    }
+    return tf.parse_single_example(example_proto, features)
+
+def create_example(eid, data) -> tf.train.Example:
+    feature = {
+        "id": _int64_feature([eid]),
+        "content": _int64_feature(data)
+    }
+    return tf.train.Example(features=tf.train.Features(feature=feature))

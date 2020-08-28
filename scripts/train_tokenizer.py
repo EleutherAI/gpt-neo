@@ -23,22 +23,25 @@ def parse_flags(argv):
     args = parser.parse_args(argv[1:])
     return args
 
+def listfiles(location):
+    txt_files = list(p for p in glob(location) if not os.path.isdir(p))
+
+    # try with general glob 
+    if not txt_files:
+        txt_files = list(glob(os.path.join(location, '*.*')))
+
+    txt_files = list(p for p in txt_files if not os.path.isdir(p))
+    return txt_files
+
 def main(args):
 
     random.seed(args.random_seed)
 
-    txtfiles = list(p for p in glob(args.input) if not os.path.isdir(p))
-
-    # try with general glob 
-    if not txtfiles:
-        txtfiles = list(glob(os.path.join(args.input, '*.*')))
-
-    archives = list(p for p in txtfiles if not os.path.isdir(p))
-
-    if not txtfiles:
+    txt_files = listfiles(args.input)  
+    if not txt_files:
         logging.error('no data files found')
         return
-    
+
     os.makedirs(args.output, exist_ok=True)
 
     # Initialize a tokenizer
@@ -52,7 +55,7 @@ def main(args):
 
     # And then train
     trainer = trainers.BpeTrainer(vocab_size=args.vocab_size, min_frequency=2, special_tokens=["<|endoftext|>"])
-    tokenizer.train(trainer, txtfiles)
+    tokenizer.train(trainer, txt_files)
 
     # And Save it
     tokenizer_path = os.path.join(args.output, "byte-level-bpe.tokenizer.json")

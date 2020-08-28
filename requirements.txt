@@ -12,3 +12,4 @@ tensorflow-datasets
 tokenizers
 transformers
 ftfy
+pyfarmhash
