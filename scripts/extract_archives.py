@@ -3,11 +3,22 @@ import random
 import argparse
 import shutil
 from glob import glob
+import ftfy
+import time
+from multiprocessing import Pool, cpu_count
 
 from lm_dataformat import Reader
 from tqdm import auto as tqdm
 from absl import app, logging
 from absl.flags import argparse_flags
+
+import re
+
+NOA = re.compile(r'[^\x00-\x7F]+')
+
+def clean_text(text):
+    text = ftfy.fix_text(text, normalization='NFKC')
+    return NOA.sub(' ', text)
 
 def flags_parser(args):
     parser = argparse_flags.ArgumentParser()
@@ -18,6 +29,32 @@ def flags_parser(args):
     parser.add_argument("--encoding", type=str, default="UTF-8", help="The encoding to use for the dataset")
     args = parser.parse_args(args[1:])
     return args
+
+def process_single_file(src_dst):
+    src, dst = src_dst
+    name, file_ext = os.path.splitext(os.path.basename(src))
+
+    if file_ext in ('.xz', ):
+        with open(dst, "w", encoding='UTF-8') as wf, Reader(arch) as rf:
+            for s in rf.stream_data():
+                wf.write(s)
+                wf.write("\n\n")
+    elif file_ext in ('.txt', ):
+        with open(src, "r", encoding='UTF-8') as rf, open(dst, "w", encoding='UTF-8') as wf:
+            for l in rf.readlines():
+                wf.write(clean_text(l))
+    else:
+        logging.error('unsupported file %s with ext %s' % (src, file_ext))
+        return 0
+    return 1
+
+def parallel(src_dst_list, total):
+    count = cpu_count() - 1 or 1
+    pool = Pool(processes=count)
+    ret = 0
+    for i in tqdm.tqdm(pool.imap(process_single_file, src_dst_list), total=total):
+        ret += i
+    return ret
 
 def main(args):
     # default
@@ -41,21 +78,17 @@ def main(args):
         shutil.rmtree(args.output)
 
     os.makedirs(args.output)
-    for src in tqdm.tqdm(archives):
-        name, file_ext = os.path.splitext(os.path.basename(src))
 
-        dst = os.path.join(args.output, name + '.txt')
-        if file_ext in ('.xz', ):
-            with open(dst, "w", encoding='UTF-8') as wf, Reader(arch) as rf:
-                for s in rf.stream_data():
-                    wf.write(s)
-                    wf.write("\n\n")
-        elif file_ext in ('.txt', ):
-            shutil.copyfile(src, dst)
-        else:
-            logging.error('unsupported file %s with ext %s' % (src, file_ext))
+    src_dst_gen = ( 
+        (src, os.path.join(args.output, os.path.splitext(os.path.basename(src))[0] + '.txt')) 
+            for src in archives
+    )
+    
+    start = time.time()
+    count = parallel(src_dst_gen, total=len(archives))
+    end = time.time()
 
-    logging.info('tokenizer saved at %s', args.output)
+    logging.info("processed %d files in {:.2f}s, {} / {} good files.".format(end-start, count, len(archives)))
 
 if __name__ == "__main__":
     app.run(main, flags_parser=flags_parser)
