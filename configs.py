@@ -22,7 +22,7 @@ def fetch_model_params(model):
     for dataset_id in dataset_ids:
         assert dataset_id in DATASETS, f'dataset {dataset_id} was not found under dataset_configs/ folder. please follow the example.json in that folder'
         dataset = DATASETS[dataset_id]
-        assert params['n_vocab'] == dataset['n_vocab'], f"the embedding table size {params['n_vocab']} must be equal to the vocab size used to encode the dataset {dataset_id} ({dataset['n_vocab']})"
+        assert params['n_vocab'] >= dataset['n_vocab'], f"the embedding table size {params['n_vocab']} must be greater or equal to the vocab size used to encode the dataset {dataset_id} ({dataset['n_vocab']})"
         datasets[dataset_id] = dataset
 
     params["dataset_configs"] = datasets
