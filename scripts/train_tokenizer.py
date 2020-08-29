@@ -8,10 +8,17 @@ from pathlib import Path
 from lm_dataformat import Reader
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
-from tokenizers.normalizers import NFKC
+from tokenizers.normalizers import Lowercase, NFKC, Sequence
+from tokenizers.pre_tokenizers import ByteLevel
+
+from models import vocab
+
 from tqdm import auto as tqdm
 from absl import app, logging
 from absl.flags import argparse_flags
+"""
+Trains a tokenizer over a rawtxt corpus
+"""
 
 def parse_flags(argv):
     parser = argparse_flags.ArgumentParser()
@@ -33,6 +40,18 @@ def listfiles(location):
     txt_files = list(p for p in txt_files if not os.path.isdir(p))
     return txt_files
 
+def setup_tokenizer(args):
+    # Initialize a tokenizer
+    tokenizer = Tokenizer(models.BPE())
+
+    # Customize pre-tokenization and decoding
+    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
+    tokenizer.decoder = decoders.ByteLevel()
+    tokenizer.post_processor = processors.ByteLevel(trim_offsets=True)
+    normalizers = [ NFKC() ]
+    tokenizer.normalizer = Sequence(normalizers) 
+    return tokenizer
+
 def main(args):
 
     random.seed(args.random_seed)
@@ -44,26 +63,26 @@ def main(args):
 
     os.makedirs(args.output, exist_ok=True)
 
-    # Initialize a tokenizer
-    tokenizer = Tokenizer(models.BPE())
+    # setup
+    tokenizer = setup_tokenizer(args)
 
-    # Customize pre-tokenization and decoding
-    tokenizer.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=True)
-    tokenizer.decoder = decoders.ByteLevel()
-    tokenizer.post_processor = processors.ByteLevel(trim_offsets=True)
-    tokenizer.normalizer = NFKC()
-
-    # And then train
-    trainer = trainers.BpeTrainer(vocab_size=args.vocab_size, min_frequency=2, special_tokens=["<|endoftext|>"])
+    # train
+    trainer = trainers.BpeTrainer(vocab_size=args.vocab_size, 
+                                  min_frequency=2, 
+                                  initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
+                                  special_tokens=[
+                                        vocab.PAD,
+                                        vocab.EOS
+                                    ])
     tokenizer.train(trainer, txt_files)
 
-    # And Save it
+    # save
     tokenizer_path = os.path.join(args.output, "byte-level-bpe.tokenizer.json")
     tokenizer.save(tokenizer_path, pretty=True)
     encoded_gold = tokenizer.encode("I can feel the magic, can you?")
     logging.info('tokenizer saved at %s', tokenizer_path)
 
-    # Test it by loading it back 
+    # test
     tokenizer = Tokenizer.from_file(tokenizer_path)
     encoded = tokenizer.encode("I can feel the magic, can you?")
 
