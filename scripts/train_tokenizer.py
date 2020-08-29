@@ -11,7 +11,7 @@ from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
 from tokenizers.normalizers import Lowercase, NFKC, Sequence
 from tokenizers.pre_tokenizers import ByteLevel
 
-from models import vocab
+import constants
 
 from tqdm import auto as tqdm
 from absl import app, logging
@@ -71,8 +71,8 @@ def main(args):
                                   min_frequency=2, 
                                   initial_alphabet=pre_tokenizers.ByteLevel.alphabet(),
                                   special_tokens=[
-                                        vocab.PAD,
-                                        vocab.EOS
+                                        constants.PAD,
+                                        constants.EOS
                                     ])
     tokenizer.train(trainer, txt_files)
 
