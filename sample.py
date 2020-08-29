@@ -99,11 +99,8 @@ def sample_autoregressive(partial_sequences,
 
     from models.gpt2 import gpt2
 
-    shifted_inputs = mtf.shift(inputs, offset=1, dim=length_dim,
-                               wrap=False)  # shifts inputs to the right for first inp
-
     with tf.variable_scope('gpt2'):
-        logits, _, _ = gpt2.model({'inputs': shifted_inputs}, other_features, params, inputs.mesh, context=context_first_part)
+        logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context=context_first_part)
     del logits
     constant_states = context_first_part.constant_states
 
@@ -199,8 +196,8 @@ def sample_autoregressive(partial_sequences,
 
         ids_this_step = mtf.sample_with_temperature(
             logits, other_features["vocab_dim"], temperature)
+        ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
         one_new_id = ids_this_step * mtf.one_hot(position, length_dim, dtype=tf.int32)
-        one_new_id = mtf.shift(one_new_id, offset=1, dim=length_dim, wrap=False)
         new_ids = ids + one_new_id
         new_position = position + 1
         return [new_position, new_ids]

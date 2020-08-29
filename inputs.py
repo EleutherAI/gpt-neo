@@ -177,12 +177,11 @@ def test_pred_input(params, enc = None):
     def _dummy_labels(x):
         return x, x
 
-    length = params["n_ctx"] // 2 - 2
+    length = params["n_ctx"] // 2 - 1
     remaining = params["n_ctx"] // 2
     bos = tf.constant(1, shape=[1, 1], dtype=tf.int64)
-    pad = tf.constant(3, shape=[1, 1], dtype=tf.int64)
     src_seq = tf.random.uniform(shape=[1, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
-    seq = tf.concat([bos, src_seq, pad], axis=1)
+    seq = tf.concat([bos, src_seq], axis=1)
     seq = tf.pad(seq, [[0, 0], [0, remaining]])
     dataset = tf.data.Dataset.from_tensors(seq)
 
