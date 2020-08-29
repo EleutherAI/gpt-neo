@@ -13,7 +13,9 @@ from absl import app, logging
 from absl.flags import argparse_flags
 
 import re
-
+"""
+Extract and cleans text and webarchive files
+"""
 NOA = re.compile(r'[^\x00-\x7F]+')
 
 def clean_text(text):
@@ -37,7 +39,7 @@ def process_single_file(src_dst):
     if file_ext in ('.xz', ):
         with open(dst, "w", encoding='UTF-8') as wf, Reader(arch) as rf:
             for s in rf.stream_data():
-                wf.write(s)
+                wf.write(clean_text(s))
                 wf.write("\n\n")
     elif file_ext in ('.txt', ):
         with open(src, "r", encoding='UTF-8') as rf, open(dst, "w", encoding='UTF-8') as wf:
