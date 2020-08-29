@@ -112,13 +112,12 @@ def token_generator(tokenizer, sources, max_seq_len):
         buff = []
 
 
-
 def transform_many_and_write_one_tfrecord(job):
     tokenizer, max_seq_len, sources, dst = job
     with tf.io.TFRecordWriter(dst) as w:
         for example_tokens in token_generator(tokenizer, sources, max_seq_len):
             text = tokenizer.decode(example_tokens)
-            eid = farmhash.hash64(text)
+            eid = farmhash.fingerprint64(text)
             example = pipeline.create_example(eid, example_tokens)
             w.write(example.SerializeToString())
     return len(sources)

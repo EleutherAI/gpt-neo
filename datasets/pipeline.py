@@ -125,7 +125,7 @@ def read_example(example_proto, max_seq_len=1024) -> dict:
 
 def create_example(eid, data) -> tf.train.Example:
     feature = {
-        # "id": _int64_feature([eid % math.max64]),
+        "id": _int64_feature([eid]),
         "content": _int64_feature(data)
     }
     return tf.train.Example(features=tf.train.Features(feature=feature))
