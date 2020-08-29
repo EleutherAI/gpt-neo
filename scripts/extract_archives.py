@@ -88,7 +88,7 @@ def main(args):
     count = parallel(src_dst_gen, total=len(archives))
     end = time.time()
 
-    logging.info("processed %d files in {:.2f}s, {} / {} good files.".format(end-start, count, len(archives)))
+    logging.info("processed {} files in {:.2f}s, {} / {} good files.".format(len(archives), end-start, count, len(archives)))
 
 if __name__ == "__main__":
     app.run(main, flags_parser=flags_parser)
