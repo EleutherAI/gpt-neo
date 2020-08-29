@@ -76,7 +76,7 @@ def main(args):
         if not args.force:
             logging.error('output directory %s exists. use --force to remove everything inside it', args.output)
             return
-        logging.error('output directory %s exists. deleting.')
+        logging.error('output directory %s exists. deleting.', args.output)
         shutil.rmtree(args.output)
 
     os.makedirs(args.output)
