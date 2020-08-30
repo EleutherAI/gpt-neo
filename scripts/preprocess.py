@@ -150,7 +150,7 @@ def transform_many_and_write_one_tfrecord(job):
     tokenizer, sources, dst = job
     with tf.io.TFRecordWriter(dst) as w:
         for source in sources:
-            for features in batch_tokenizer(tokenizer, sources):
+            for features in batch_tokenizer(tokenizer, source):
                 example = create_example(PreProcessedTextLine(features))
                 w.write(example.SerializeToString())
     return len(sources)
