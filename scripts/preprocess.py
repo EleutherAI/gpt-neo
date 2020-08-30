@@ -147,11 +147,11 @@ def create_example(features: PreProcessedTextLine) -> tf.train.Example:
 
 
 def transform_many_and_write_one_tfrecord(job):
-    tokenizer, max_seq_len, sources, dst = job
+    tokenizer, sources, dst = job
     with tf.io.TFRecordWriter(dst) as w:
         for source in sources:
             for features in batch_tokenizer(tokenizer, sources):
-                example = pipeline.create_example(PreProcessedTextLine(features))
+                example = create_example(PreProcessedTextLine(features))
                 w.write(example.SerializeToString())
     return len(sources)
 
@@ -206,18 +206,15 @@ def main(args):
     def getdst(name, idx, total):
         return os.path.join(args.output, "%s_%05d_%05d.tfrecord" % (name, idx, total))
 
-    tokenizer.enable_truncation(max_length=1024)
-   
     jobs = ( (tokenizer, 
-                args.max_seq_len,
-                chunks, 
-                getdst(args.name, idx, len(file_chunks))) for idx, chunks in enumerate(file_chunks) )
+              chunks, 
+              getdst(args.name, idx, len(file_chunks))) for idx, chunks in enumerate(file_chunks) )
 
     start = time.time()
     ret = parallel(jobs, total=len(txt_files))
     end = time.time()
 
-    logging.info("Done! In %.2fs, %d / %d good files.", end-start, ret, len(txt_files))
+    logging.info("job completed in %.2fs, %d / %d good files.", end-start, ret, len(txt_files))
 
 
 if __name__ == '__main__':
