@@ -1,7 +1,13 @@
+from typing import List
+
 import numpy as np
 import tensorflow.compat.v1 as tf
+from mesh_tensorflow import transformer
+from tensorflow.python.platform import tf_logging as logging
 from tokenizers import Tokenizer
+
 from encoders import encode
+
 
 def test_generic_text(params, eval=False):
     batch_size = params['train_batch_size']
@@ -154,104 +160,53 @@ def text_dataset(files, params, stitch, datatype, batch=True):
 
     return dataset
 
-class Dataset:
-    def __init__(self, files, params, stitch, datatype, batch=True):
-        super().__init__()
-        self._ds = tf.data.Dataset.from_tensor_slices(files)
-        self._datatype = datatype
+def read_example(example_proto, max_seq_len=1024) -> dict:
+    features = {
+        "id": tf.io.VarLenFeature(tf.int64),
+        "content": tf.io.FixedLenFeature([], tf.string),
+        "target": tf.io.VarLenFeature(tf.int64),
+        "offset_start": tf.io.VarLenFeature(tf.int64),
+        "offset_end": tf.io.VarLenFeature(tf.int64),
+    }
+    parsed_features = tf.io.parse_single_example(example_proto, features)
+    return {
+        "id": tf.cast(parsed_features['id'], tf.uint64),
+        "content": parsed_features['content'],
+        "target": tf.sparse.to_dense(tf.cast(parsed_features['target'], tf.int64)),
+        "offset_start": tf.sparse.to_dense(tf.cast(parsed_features['offset_start'], tf.uint64)),
+        "offset_end": tf.sparse.to_dense(tf.cast(parsed_features['offset_end'], tf.uint64)),
+    } 
 
-    def fetch_from_gcs(self):
-        self._ds = self._ds.interleave(tf.data.TFRecordDataset, cycle_length=4, block_length=1, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        return self
 
-    def parse_example(self):
-        if "documents" in self._datatype:
-            def _parse_function(example_proto):
-                features = {
-                    # "hash": tf.VarLenFeature(tf.string),
-                    "text": tf.VarLenFeature(tf.int64)
-                }
-                parsed_features = tf.parse_single_example(example_proto, features)
-                return parsed_features["text"], parsed_features["text"].dense_shape[0]
-        else:
-            def _parse_function(example_proto):
-                features = {
-                    "text": tf.VarLenFeature(tf.int64)
-                }
-                parsed_features = tf.parse_single_example(example_proto, features)
-                return parsed_features["text"]  # Assuming the text is not sparse
-        self._ds = self._ds.map(_parse_function, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-        return self
+class LanguageModelInputConfig:
+    batch_size:int
+    prefetch: int
+    pack: bool 
 
-    def sample_from_stream(self):
-        pass
+class LanguageModelInput:
+  """Wrapper class that acts as the input_fn to TPUEstimator."""
 
-    def __call__(self, files):
-        ds = ( self.fetch_from_gcs()
-                   .parse_example()
-        )
+  def __init__(self, glob_files:List[str]):
+    logging.info('init ToyModelInput()')
+    self._glob_files = glob_files
 
-        # Subsample method
-        if "documents" in datatype:
-            # Since samples can be less than the correct length, and TPUs don't like variable lengths, this function stitches together enough samples
-            # to have a text at least 1024 tokens long. For this to work the stitch parameter must be correctly tuned so that
-            # stitch * min(characters_in_text) >= amount
-            def _stitch_text(x, y):
-                x = tf.sparse.to_dense(x)
+  def __call__(self, params):
+    """Input function which provides a single batch for train or eval."""
+    # Retrieves the batch size for the current shard. The # of shards is
+    # computed according to the input pipeline deployment. See
+    # `tf.estimator.tpu.RunConfig` for details.
+    batch_size = params['batch_size']
+    logging.info('call ToyModelInput() with batch size {}'.format(batch_size))
 
-                def _get_x(i):
-                    return tf.gather(x[i], tf.range(y[i]))
-
-                out = _get_x(0)
-                eos_id = 50256 if params["n_vocab"] == 50257 else 0
-
-                for i in range(1, stitch):
-                    out = tf.concat([out, [eos_id], _get_x(i)], axis=0)  # text1<|endoftext|>text2
-
-                return out
-
-            # Hack-y way to stitch together multiple texts
-            dataset = dataset.shuffle(1000 * stitch).batch(stitch, drop_remainder=True).map(_stitch_text,
-                                                                                            num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-            # Sample 1024(+1) tokens from the stitched together text
-            if datatype == "documents_random":
-                def _sample_text(x):
-                    s = tf.size(x)
-                    r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
-                    r1 = tf.range(r, r + params["n_ctx"])
-                    r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
-                    r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
-                    r2 = tf.reshape(r2, [
-                        params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
-                    vals1 = tf.gather(x, r1)
-                    vals2 = tf.gather(x, r2)
-
-                    vals1 = tf.reshape(vals1, [params["n_ctx"]])
-                    vals2 = tf.reshape(vals2, [params["n_ctx"]])
-                    vals1 = tf.cast(vals1, dtype=tf.int32)
-                    vals2 = tf.cast(vals2, dtype=tf.int32)
-                    return vals1, vals2
-
-            else:
-                def _sample_text(x):
-                    vals1 = x[:params["n_ctx"]]
-                    vals2 = x[1:params["n_ctx"] + 1]
-
-                    vals1 = tf.reshape(vals1, [params["n_ctx"]])
-                    vals2 = tf.reshape(vals2, [params["n_ctx"]])
-                    vals1 = tf.cast(vals1, dtype=tf.int32)
-                    vals2 = tf.cast(vals2, dtype=tf.int32)
-                    return vals1, vals2
-
-            dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        if batch:
-            dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
-
-        dataset = dataset.repeat()
-
-        return dataset
+    files = tf.io.gfile.glob(self._glob_files)
+    ds = tf.data.Datset.from_tensor_slices(files)
+    dataset = ds.batch(batch_size, drop_remainder=True)
+    if params['prefetch']:
+        ds = ds.prefetch(params['prefetch'])
+    ds = transformer.datasets.pack_or_pad(ds, 
+                pack=params['pack'],
+                feature_keys=['target'], ensure_eos=True)
+    return ds
 
 
 def pred_input(params, enc = None, text="In a shocking finding, scientist discovered a herd of unicorns living in a remote, "
