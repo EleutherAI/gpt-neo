@@ -169,7 +169,7 @@ def parallel(src_dst_list, total):
     return ret
 
 def load_tokenizer(location):
-    if tf.io.gfile.exists(location):
+    if tf.io.gfile.exists(os.path.join(location, 'merge.txt')):
         # use tf gfile in case the dictionary is remote
         fastok = GPT2TokenizerFast.from_pretrained(location)
         fastok.add_special_tokens({
