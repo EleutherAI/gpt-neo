@@ -1,23 +1,24 @@
 import argparse
+import collections
 import json
 import os
-import time
 import random
-from multiprocessing import Pool, cpu_count
+import time
 from glob import glob
-from tokenizers import Tokenizer
-from transformers import GPT2Tokenizer, GPT2TokenizerFast, GPT2Config
+from multiprocessing import Pool, cpu_count
 
+import farmhash
 import numpy as np
 import tensorflow as tf
+from absl import app, logging
+from absl.flags import argparse_flags
 from lm_dataformat import Reader
 from tokenizers import Tokenizer
 from tqdm import auto as tqdm
-from absl import app, logging
-from absl.flags import argparse_flags
-import farmhash
+from transformers import GPT2Config, GPT2Tokenizer, GPT2TokenizerFast
 
 from datasets import pipeline
+
 
 def parse_args(argv):
     parser = argparse_flags.ArgumentParser()
@@ -95,7 +96,7 @@ def chunks(l, n):
 def batch_tokenizer(tokenizer, txtfile_location):
     # just convert to the token ids, we will do adaptative padding on training time.
     lines = tf.io.gfile.GFile(txtfile_location).readlines()
-    uids = [ farmhash.fingerprint64(line) for line in lines ]
+    uids = [ farmhash.fingerprint64(line) for line in lines]
     batches = tokenizer.batch_encode_plus(lines,
             return_token_type_ids=True,
             pad_to_max_length=False,
@@ -112,7 +113,7 @@ def batch_tokenizer(tokenizer, txtfile_location):
                 [ offset[1] for offset in batches['offset_mapping']]
             )
 
-import collections
+PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'content', 'target', 'offset_start', 'offset_end'])
 
 def _int64_feature(value):
     """Returns an int64_list from a bool / enum / int / uint."""
@@ -139,7 +140,6 @@ def create_example(features: PreProcessedTextLine) -> tf.train.Example:
     }
     return tf.train.Example(features=tf.train.Features(feature=feature))
 
-PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'content', 'target', 'offset_start', 'offset_end'])
 
 def transform_many_and_write_one_tfrecord(job):
     tokenizer, max_seq_len, sources, dst = job
