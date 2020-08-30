@@ -19,6 +19,18 @@ from configs import fetch_model_params
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
 
+def setup_logging(args):
+    # Setup logging
+    Path("logs").mkdir(exist_ok=True)
+    tf.logging.set_verbosity(logging.INFO)
+    handlers = [
+        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
+        logging.StreamHandler(sys.stdout)
+    ]
+    logger = logging.getLogger('tensorflow')
+    logger.handlers = handlers
+    return logger
+
 def main():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
@@ -42,15 +54,7 @@ def main():
     handle_pred_output_fn = handle_pred_output if not args.test else test_handle_pred_output
     assert args.model is not None, 'Model must be set'
 
-    # Setup logging
-    Path("logs").mkdir(exist_ok=True)
-    tf.logging.set_verbosity(logging.INFO)
-    handlers = [
-        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
-        logging.StreamHandler(sys.stdout)
-    ]
-    logger = logging.getLogger('tensorflow')
-    logger.handlers = handlers
+    logger = setup_logging(args)
 
     # Read params of model
     params = fetch_model_params(args.model)
@@ -141,7 +145,7 @@ def main():
         params=params)
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
-    logger.info('Current step {}'.format(current_step))
+    logger.info('Current step {}', current_step)
 
     if args.predict:
         predictions = estimator.predict(input_fn=pred_input_fn)
