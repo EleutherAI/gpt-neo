@@ -120,9 +120,9 @@ def batch_tokenizer(tokenizer, txtfile_location):
 
 PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'content', 'target', 'offset_start', 'offset_end'])
 
-def _int64_feature(value):
+def _uint64_feature(value):
     """Returns an int64_list from a bool / enum / int / uint."""
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=np.array(value, dtype=np.uint64)))
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
@@ -130,21 +130,21 @@ def _bytes_feature(value):
 
 def read_example(example_proto, max_seq_len=1024) -> dict:
     features = {
-        "id": tf.VarLenFeature(tf.int64, default=-1),
+        "id": tf.VarLenFeature(tf.uint64, default=-1),
         "content": tf.VarLenFeature(tf.bytes, default=0),
-        "target": tf.VarLenFeature(tf.int64, default=0),
-        "offset_start": tf.VarLenFeature(tf.int64, default=0),
-        "offset_end": tf.VarLenFeature(tf.int64, default=0),
+        "target": tf.VarLenFeature(tf.uint64, default=0),
+        "offset_start": tf.VarLenFeature(tf.uint64, default=0),
+        "offset_end": tf.VarLenFeature(tf.uint64, default=0),
     }
     return tf.parse_single_example(example_proto, features)
 
 def create_example(features: PreProcessedTextLine) -> tf.train.Example:
     feature = {
-        "id": _int64_feature([features.id]),
+        "id": _uint64_feature([features.id]),
         "content": _bytes_feature(features.content.encode('utf-8')),
-        "target": _int64_feature(features.target),
-        "offset_start": _int64_feature(features.offset_start),
-        "offset_end": _int64_feature(features.offset_end),
+        "target": _uint64_feature(features.target),
+        "offset_start": _uint64_feature(features.offset_start),
+        "offset_end": _uint64_feature(features.offset_end),
     }
     return tf.train.Example(features=tf.train.Features(feature=feature))
 
