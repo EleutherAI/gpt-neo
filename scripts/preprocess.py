@@ -5,8 +5,9 @@ import time
 import random
 from multiprocessing import Pool, cpu_count
 from glob import glob
+from tokenizers import Tokenizer
+from transformers import GPT2Tokenizer, GPT2TokenizerFast, GPT2Config
 
-import ftfy
 import numpy as np
 import tensorflow as tf
 from lm_dataformat import Reader
@@ -20,44 +21,16 @@ from datasets import pipeline
 
 def parse_args(argv):
     parser = argparse_flags.ArgumentParser()
-    parser.add_argument("--mode", type=str, choices=["chunks", "documents"], default="documents", help="Whether a tfrecord example is a constant sized chunk or a full document")
-    parser.add_argument("--input", type=str, default="/home/GPTNeo/LLMD-CommonCrawl/openwebtext", help="Path to where your files are located. Files ending in .zst are treated as \
+    parser.add_argument("--input", type=str, required=True, help="Path to where your files are located. Files ending in .zst are treated as \
                         archives, all others as raw text.")
-    parser.add_argument("--files_per", type=int, default=200, help="Number of text files per tfrecord")
+    # parser.add_argument("--examples", type=int, default=1024, help="Number of examples per tfrecord")
     parser.add_argument("--name", type=str, default="openwebtext", help="Name of output files will be {name}_%05d.tfrecord where i is the number of the file")
-    parser.add_argument("--staging", type=str, default="staging", help="Where to write tfrecords being built")
     parser.add_argument("--output", type=str, default="output", help="Where to write tfrecords")
-    parser.add_argument("--summaries", type=str, default="summaries", help="Where to put logs")
-    # parser.add_argument("--processes", type=int, default=8, help="How many subprocesses to spawn. Should be ~number of cores")
     parser.add_argument("--tokenizer", type=str, default="byte-level-bpe.tokenizer.json", help="Name or path of a tokenizer spec")
-    parser.add_argument("--min_seq_len", type=int, default=100, help="Minimum size a document has to be to be included")
-    parser.add_argument("--max_seq_len", type=int, default=1024, help="max seq length to feed to the transformer. should be the same as the input dimension")
-    parser.add_argument("--fix_unicode", action="store_true", help="If set fix unicode normalization with ftfy")
-    parser.add_argument("--separator", type=str, default="[0]", help="Seperator to place between files in chunk mode")
-    parser.add_argument("--chunk_size", type=int, default=1024, help="How big a chunk should be in chunk mode")
     parser.add_argument("--random_seed", type=int, default=1337, help="seed")
     args = parser.parse_args(argv[1:])
     return args
 
-# Helper functions and classes
-def chunks(l, n):
-    # Divides a list into chunks
-    out = []
-    for i in range(0, len(l), n):
-        out.append(l[i:i + n])
-    return out
-
-def read_in_chunks(stream, chunk_size=1024):
-    # Read a stream in chunk_size sized chunks
-    while True:
-        data = stream.read(chunk_size)
-        if len(data) == 0:
-            break
-        yield data
-
-def chunk_list(l, n):
-    # Divides a list l into n chunks
-    return [ l[i:i + n] for i in range(0, len(l), n) ]
 
 def readlines_txt(src):
     with open(src) as fd:
@@ -75,6 +48,14 @@ def readlines(src):
         logging.warning('no readlines for file %s', src)
         return
     return f(src)
+
+# Helper functions and classes
+def chunks(l, n):
+    # Divides a list into chunks
+    out = []
+    for i in range(0, len(l), n):
+        out.append(l[i:i + n])
+    return out
 
 # END_OF_TEXT_TOKEN_ID = 0
 # def pad_sequence(buff, missing_elements):
@@ -178,7 +159,17 @@ def parallel(src_dst_list, total):
     return ret
 
 def load_tokenizer(location):
-    return Tokenizer.from_file(location)
+    tok = Tokenizer.from_file(location)
+    model_location = os.path.split(location)[0]
+    tok.model.save(model_location)
+    fastok = GPT2TokenizerFast.from_pretrained(model_location)
+
+    fastok.add_special_tokens({
+        'eos_token': '[EOS]',
+        'pad_token': '[PAD]',
+        # TODO MISS [UNK]
+    })
+    return fastok
 
 def listfiles(location):
     txt_files = list(p for p in glob(location) if not os.path.isdir(p))
