@@ -1,6 +1,7 @@
 import argparse
 import collections
 import json
+import numpy as np
 import os
 import random
 import time
@@ -122,7 +123,7 @@ PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'co
 
 def _uint64_feature(value):
     """Returns an int64_list from a bool / enum / int / uint."""
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=np.int64(value)))
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=np.int64(np.array(value, dtype=np.uint64))))
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
