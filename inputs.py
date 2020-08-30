@@ -1,20 +1,29 @@
-from typing import List
+from typing import List, Optional, Dict
 
 import numpy as np
 import tensorflow.compat.v1 as tf
-from tokenizers import Tokenizer
-from encoders import encode
-from tensorflow.python.platform import tf_logging as logging
-
-from typing import List
 from mesh_tensorflow import transformer
-
 from pydantic.dataclasses import dataclass
+from tensorflow.python.platform import tf_logging as logging
+from tokenizers import Tokenizer
+
+from datasets import DatasetConfig
+from encoders import encode
+
 
 @dataclass
 class RandomTokenGeneratorConfig:
     context_length: int
     vocab_size: int
+
+@dataclass
+class InfeedConfig:
+    batch_size: int
+    dataset: DatasetConfig
+    random: Optional[RandomTokenGeneratorConfig]
+
+    def __getitem__(self, value):
+        return 42
 
 class RandomTokenGenerator:
     """Generates Random Tokens"""
@@ -312,3 +321,8 @@ def test_handle_pred_output(predictions, logger, enc, **kwargs):
         logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
         logger.info(p["outputs"])
         logger.info("\n" + "=" * 80 + "\n")
+
+
+def load_infeed(config: Dict):
+    T = config['type']
+    return InfeedConfig(**config)

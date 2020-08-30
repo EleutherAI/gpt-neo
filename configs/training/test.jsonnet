@@ -46,6 +46,10 @@ local Other() = {
 
 local InFeed() = {
    batch_size: 1,
+   random: {
+      context_length: 25,
+      vocab_size: 16000,
+   },
 };
 
 local Schedule() = {

@@ -1,8 +1,9 @@
+from typing import Dict
+from pydantic.dataclasses import dataclass
 
-
-class Dataset:
-    pass
-
+@dataclass
+class DatasetConfig:
+    src: str
 
 def from_config(config: Dict):
     pass

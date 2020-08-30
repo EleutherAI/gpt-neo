@@ -1,41 +1,22 @@
-import tensorflow as tf
-import mesh_tensorflow as mtf
-import tensorflow.compat.v1 as v1
-import collection
-from absl import logging
-
-import models
-import datasets
-
-# Trainer = collections.namedtuple('Trainer', 
-#                                   ['name',
-#                                    'input_fn', 
-#                                    'config',
-#                                    'model_fn',
-#                                     # 'predict_fn', 
-#                                    'handle_prediction_output_fn'])
-
-from pydantic import BaseModel, validator
-from pydantic.dataclasses import dataclass
+import collections
 from typing import Any, Dict, Optional
 
-@dataclass
-class DatasetConfig:
-    src: str
+import mesh_tensorflow as mtf
+import tensorflow as tf
+import tensorflow.compat.v1 as v1
+from absl import logging
+from pydantic import BaseModel, validator
+from pydantic.dataclasses import dataclass
+
+import datasets
+import models
+from devices import tpu
+
 
 @dataclass
 class ClusterConfig:
     num_cores: int
     use_tpu: bool
-
-@dataclass
-class InfeedConfig:
-    batch_size: int
-    dataset: DatasetConfig
-    random: Optional[RandomTokenGeneratorConfig]
-
-    def __getitem__(self, value):
-        return 42
 
 @dataclass
 class ModelConfig:
@@ -44,23 +25,23 @@ class ModelConfig:
 @dataclass
 class TrainerConfig:
     cluster: ClusterConfig
-    infeed: InfeedConfig
+    infeed: Dict
     model: Dict
     trainer: Dict
     other: Any
     regularization: Dict
-
+    tpu: Optional[tpu.TPUConfig]
 
 class Trainer:
 
-    def __init__(self, model, dataset, config):
+    def __init__(self, model, dataset, config: TrainerConfig):
         self.model = model
         self.dataset = dataset
         self.config = config
         self.device = 'tpu' if config.tpu else 'cpu'
 
     @classmethod
-    def from_config(cls, config:TrainConfig):
+    def from_config(cls, config:TrainerConfig):
         model = models.from_config(config.model)
         dataset = datasets.from_config(config.datasets)
 
@@ -161,10 +142,7 @@ def load_trainer_config(location):
 
     return params
 
-def load_infeed(config: InfeedConfig):
-    if config.random:
-        return RandomTokenGenerator(config.random)
-    return config
+
 
 def load_trainer(args) -> Trainer:
     with tf.io.gfile.GFile(args.config) as fd:
@@ -233,5 +211,13 @@ def check_dataset(trainer, args):
             except tf.errors.OutOfRangeError:
                 break
         
+def parse_args(args, parser=None):
+    # Parse command line arguments
+    parser = parser if parser else argparse_flags.ArgumentParser()
+    parser.add_argument('runspec', type=str, help="the json file specifiing the configuration for this run") # Name of TPU to train on, if any
+    return parser.parse_args(args[1:])
+
 def main(args):
-    pass
+    logging.info('starting train process')
+
+    trainer = load_trainer(args)
