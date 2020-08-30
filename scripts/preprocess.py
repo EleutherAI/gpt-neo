@@ -56,7 +56,7 @@ def sizechunks(l, n):
     for fpath in l:
         chunk.append(fpath)
         sz += tf.io.gfile.stat(fpath).length
-        if sz > n:
+        if sz >= n:
             out.append(chunk)
             sz = 0
     if chunk: 
@@ -200,7 +200,6 @@ def main(args):
     tokenizer = load_tokenizer(args.tokenizer)
 
     file_chunks = sizechunks(txt_files, args.size) # Assign files_per file to a tfrecord file each
-    args.chunk_size = args.chunk_size + 1 # Chunks need to be 1 token longer so there's a target for the last token
 
     logging.info("Got %d files, divided into %d chunks.", len(txt_files), len(file_chunks))
 
