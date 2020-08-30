@@ -17,22 +17,19 @@ from tokenizers import Tokenizer
 from tqdm import auto as tqdm
 from transformers import GPT2Config, GPT2Tokenizer, GPT2TokenizerFast
 
-from datasets import pipeline
-
 from tensorflow.compat import v1
 
 def parse_args(argv):
     parser = argparse_flags.ArgumentParser()
     parser.add_argument("--input", type=str, required=True, help="Path to where your files are located. Files ending in .zst are treated as \
                         archives, all others as raw text.")
-    # parser.add_argument("--examples", type=int, default=1024, help="Number of examples per tfrecord")
+    parser.add_argument("--size", type=int, default=200 * 2**20, help="the size in MiB of uncompressed text to add to a record, default 200MiB")
     parser.add_argument("--name", type=str, default="openwebtext", help="Name of output files will be {name}_%05d.tfrecord where i is the number of the file")
     parser.add_argument("--output", type=str, default="output", help="Where to write tfrecords")
     parser.add_argument("--tokenizer", type=str, default="byte-level-bpe.tokenizer.json", help="Name or path of a tokenizer spec")
     parser.add_argument("--random_seed", type=int, default=1337, help="seed")
     args = parser.parse_args(argv[1:])
     return args
-
 
 def readlines_txt(src):
     with open(src) as fd:
@@ -52,11 +49,18 @@ def readlines(src):
     return f(src)
 
 # Helper functions and classes
-def chunks(l, n):
-    # Divides a list into chunks
+def sizechunks(l, n):
     out = []
-    for i in range(0, len(l), n):
-        out.append(l[i:i + n])
+    chunk = []
+    sz = 0
+    for fpath in l:
+        chunk.append(fpath)
+        sz += tf.io.gfile.stat(fpath).length
+        if sz > n:
+            out.append(chunk)
+            sz = 0
+    if chunk: 
+        out.append(chunk)
     return out
 
 # END_OF_TEXT_TOKEN_ID = 0
@@ -195,7 +199,7 @@ def main(args):
 
     tokenizer = load_tokenizer(args.tokenizer)
 
-    file_chunks = chunks(txt_files, args.files_per) # Assign files_per file to a tfrecord file each
+    file_chunks = sizechunks(txt_files, args.size) # Assign files_per file to a tfrecord file each
     args.chunk_size = args.chunk_size + 1 # Chunks need to be 1 token longer so there's a target for the last token
 
     logging.info("Got %d files, divided into %d chunks.", len(txt_files), len(file_chunks))
