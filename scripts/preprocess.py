@@ -19,6 +19,7 @@ from transformers import GPT2Config, GPT2Tokenizer, GPT2TokenizerFast
 
 from datasets import pipeline
 
+from tensorflow.compat import v1
 
 def parse_args(argv):
     parser = argparse_flags.ArgumentParser()
@@ -183,14 +184,13 @@ def listfiles(location):
 
 def main(args):
     random.seed(args.random_seed)
-    tf.random.set_random_seed(args.random_seed)
+    v1.set_random_seed(args.random_seed)
 
     txt_files = listfiles(args.input)  
     if not txt_files:
         logging.error('no data files found')
         return
 
-    os.makedirs(args.summaries, exist_ok=True)
     os.makedirs(args.output, exist_ok=True)
 
     tokenizer = load_tokenizer(args.tokenizer)
@@ -210,8 +210,6 @@ def main(args):
                 args.max_seq_len,
                 chunks, 
                 getdst(args.name, idx, len(file_chunks))) for idx, chunks in enumerate(file_chunks) )
-
-    #print(list(jobs))
 
     start = time.time()
     ret = parallel(jobs, total=len(txt_files))
