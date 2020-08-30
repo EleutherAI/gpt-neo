@@ -9,36 +9,51 @@ from tensorflow.python.platform import tf_logging as logging
 from typing import List
 from mesh_tensorflow import transformer
 
-def test_generic_text(params, eval=False):
-    batch_size = params.batch_size
+from pydantic.dataclasses import dataclass
 
-    def _generate():
-        while True:
-            length = params['n_ctx'] // 2 - 1
-            bos = np.full((batch_size, 1), 1)
-            eos = np.full((batch_size, 1), 2)
-            pad = np.full((batch_size, 1), 3)
-            src_seq = np.random.randint(4,  (params['n_vocab'] - 1), (batch_size, length))
-            tgt_seq = src_seq + 1
-            seq = np.concatenate([bos, src_seq, pad, tgt_seq, eos], axis=1)
+@dataclass
+class RandomTokenGeneratorConfig:
+    context_length: int
+    vocab_size: int
 
-            for ind in range(batch_size):
-                yield seq[ind]
+class RandomTokenGenerator:
+    """Generates Random Tokens"""
+    def __init__(self, config: RandomTokenGeneratorConfig):
+        super().__init__()
+        self.config = config
 
-    def _sample_text(x):
-        vals1 = x[:params["n_ctx"]]
-        vals2 = x[1:params["n_ctx"] + 1]
+    def __call__(self):
+        batch_size = self.config.batch_size
+        vocab_size = self.config.vocab_size
+        context_length = self.config.context_length
 
-        vals1 = tf.reshape(vals1, [params["n_ctx"]])
-        vals2 = tf.reshape(vals2, [params["n_ctx"]])
-        vals1 = tf.cast(vals1, dtype=tf.int32)
-        vals2 = tf.cast(vals2, dtype=tf.int32)
-        return vals1, vals2
+        def _generate():
+            while True:
+                length = context_length // 2 - 1
+                bos = np.full((batch_size, 1), 1)
+                eos = np.full((batch_size, 1), 2)
+                pad = np.full((batch_size, 1), 3)
+                src_seq = np.random.randint(4,  (vocab_size - 1), (batch_size, length))
+                tgt_seq = src_seq + 1
+                seq = np.concatenate([bos, src_seq, pad, tgt_seq, eos], axis=1)
 
-    dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
-    dataset = dataset.map(_sample_text)
-    dataset = dataset.batch(batch_size)
-    return dataset
+                for ind in range(batch_size):
+                    yield seq[ind]
+
+        def _sample_text(x):
+            vals1 = x[:context_length]
+            vals2 = x[1:context_length + 1]
+
+            vals1 = tf.reshape(vals1, [context_length])
+            vals2 = tf.reshape(vals2, [context_length])
+            vals1 = tf.cast(vals1, dtype=tf.int32)
+            vals2 = tf.cast(vals2, dtype=tf.int32)
+            return vals1, vals2
+
+        dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
+        dataset = dataset.map(_sample_text)
+        dataset = dataset.batch(batch_size)
+        return dataset
 
 def generic_text(params, eval=False):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]

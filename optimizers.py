@@ -5,6 +5,14 @@ from __future__ import print_function
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
+from pydantic import BaseModel, validator
+from pydantic.dataclasses import dataclass
+from typing import Any, Dict, Optional
+
+@dataclass
+class OptimizerConfig:
+    pass
+
 def clip_by_global_norm(grads, clip_norm):
     """Clip the grads by global norm."""
     global_norm = mtf.sqrt(mtf.add_n([mtf.reduce_sum(mtf.square(t)) for t in grads if t is not None]))
