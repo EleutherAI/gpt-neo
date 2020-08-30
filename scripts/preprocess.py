@@ -171,11 +171,7 @@ def parallel(src_dst_list, total):
 def load_tokenizer(location):
     if tf.io.gfile.exists(location):
         # use tf gfile in case the dictionary is remote
-        buff = tf.io.gfile.GFile(location).read()
-        tok = Tokenizer.from_buffer(buff)
-        model_location = os.path.split(location)[0]
-        tok.model.save(model_location)
-        fastok = GPT2TokenizerFast.from_pretrained(model_location)
+        fastok = GPT2TokenizerFast.from_pretrained(location)
         fastok.add_special_tokens({
             'eos_token': '[EOS]',
             'pad_token': '[PAD]',

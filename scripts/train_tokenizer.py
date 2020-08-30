@@ -88,6 +88,10 @@ def main(args):
 
     if not all(a == b for a,b in zip(encoded.ids, encoded_gold.ids)):
         logging.error("saved tokenizer and trained tokenizer do not match")
+    
+    tokenizer.model.save(args.output)
+    
+    logging.info('tokenizer model saved at %s', args.output)
 
 if __name__ == "__main__":
     app.run(main, flags_parser=parse_flags)
