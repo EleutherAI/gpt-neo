@@ -61,36 +61,36 @@ def main(args):
             logging.error('no file found at %s', args.input)
             return
 
-        for f in random.choices(files, k=args.sample_size):
+        sampled_files = random.choices(files, k=args.sample_size)
 
-            ds = tf.data.Dataset.from_tensor_slices(files)
-            ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=4)
-            ds = ds.map(read_example)
-            ds = ds.shuffle(1024)
+        ds = tf.data.Dataset.from_tensor_slices(sampled_files)
+        ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=4)
+        ds = ds.map(read_example)
+        ds = ds.shuffle(1024)
 
-            it = ds.make_one_shot_iterator()
-            example = it.get_next()
-            
-            while True: 
-                try:
-                    result = sess.run(example) #, max_id_tf, min_id_tf])
-                    pt = PreProcessedTextLine(
-                        id = result['id'],
-                        content=result['content'],
-                        target=result['target'],
-                        offset_start=result['offset_start'],
-                        offset_end=result['offset_end'],
-                    )
+        it = ds.make_one_shot_iterator()
+        example = it.get_next()
+        
+        while True: 
+            try:
+                result = sess.run(example) #, max_id_tf, min_id_tf])
+                pt = PreProcessedTextLine(
+                    id = result['id'],
+                    content=result['content'],
+                    target=result['target'],
+                    offset_start=result['offset_start'],
+                    offset_end=result['offset_end'],
+                )
 
 
-                    ids = tokenizer.decode(result['target'])
+                ids = tokenizer.decode(result['target'])
 
-                    logging.info('gold text:    %r', pt.content.decode('utf-8'))
-                    logging.info('decoded:       %r', ids),
-                    logging.info('tokenization: %s', [pt.content.decode('utf-8')[slice(int(start), int(end))] for start,end in zip(pt.offset_start, pt.offset_end)])
-                    logging.info('-' * 10)
-                except tf.errors.OutOfRangeError:
-                    break
+                logging.info('gold text:    %r', pt.content.decode('utf-8'))
+                logging.info('decoded:       %r', ids),
+                logging.info('tokenization: %s', [pt.content.decode('utf-8')[slice(int(start), int(end))] for start,end in zip(pt.offset_start, pt.offset_end)])
+                logging.info('-' * 10)
+            except tf.errors.OutOfRangeError:
+                break
 
 if __name__ == '__main__':
     app.run(main, flags_parser=parse_args)
