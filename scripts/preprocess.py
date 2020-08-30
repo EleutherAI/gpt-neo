@@ -100,7 +100,7 @@ def sizechunks(l, n):
 
 def batch_tokenizer(tokenizer, txtfile_location):
     # just convert to the token ids, we will do adaptative padding on training time.
-    lines = tf.io.gfile.GFile(txtfile_location, 'rt', encoding='utf8', ).readlines()
+    lines = [ l.decode('utf-8') for l in tf.io.gfile.GFile(txtfile_location, 'rb').readlines() ]
     uids = [ farmhash.fingerprint64(line) for line in lines]
     batches = tokenizer.batch_encode_plus(lines,
             return_token_type_ids=True,
