@@ -61,11 +61,12 @@ def main(args):
             logging.error('no file found at %s', args.input)
             return
 
-        sampled_files = random.choice(files)
+        sampled_files = random.choices(files, k=args.sample_size)
 
         ds = tf.data.Dataset.from_tensor_slices(sampled_files)
         ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=4)
         ds = ds.map(read_example)
+        ds = ds.batch(32)
         ds = ds.shuffle(1024)
         ds = ds.take(1)
         ds = ds.shuffle(1024)
