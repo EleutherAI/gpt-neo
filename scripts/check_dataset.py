@@ -61,11 +61,13 @@ def main(args):
             logging.error('no file found at %s', args.input)
             return
 
-        sampled_files = random.choices(files, k=args.sample_size)
+        sampled_files = random.choice(files, k=args.sample_size)
 
         ds = tf.data.Dataset.from_tensor_slices(sampled_files)
         ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=4)
         ds = ds.map(read_example)
+        ds = ds.shuffle(1024)
+        ds = ds.take(1)
         ds = ds.shuffle(1024)
 
         it = ds.make_one_shot_iterator()
@@ -81,7 +83,6 @@ def main(args):
                     offset_start=result['offset_start'],
                     offset_end=result['offset_end'],
                 )
-
 
                 ids = tokenizer.decode(result['target'])
 
