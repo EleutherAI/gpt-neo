@@ -126,12 +126,15 @@ def _int64_feature(value):
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
+  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 def read_example(example_proto, max_seq_len=1024) -> dict:
     features = {
-        # "id": tf.FixedLenFeature([1], tf.int64),
-        "content": tf.FixedLenFeature([max_seq_len], tf.int64)
+        "id": tf.VarLenFeature(tf.int64, default=-1),
+        "content": tf.VarLenFeature(tf.bytes, default=0),
+        "target": tf.VarLenFeature(tf.int64, default=0),
+        "offset_start": tf.VarLenFeature(tf.int64, default=0),
+        "offset_end": tf.VarLenFeature(tf.int64, default=0),
     }
     return tf.parse_single_example(example_proto, features)
 
