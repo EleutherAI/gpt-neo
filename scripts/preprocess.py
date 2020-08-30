@@ -100,7 +100,7 @@ def sizechunks(l, n):
 
 def batch_tokenizer(tokenizer, txtfile_location):
     # just convert to the token ids, we will do adaptative padding on training time.
-    lines = tf.io.gfile.GFile(txtfile_location).readlines()
+    lines = tf.io.gfile.GFile(txtfile_location, 'rt', encoding='utf8', ).readlines()
     uids = [ farmhash.fingerprint64(line) for line in lines]
     batches = tokenizer.batch_encode_plus(lines,
             return_token_type_ids=True,
@@ -114,8 +114,8 @@ def batch_tokenizer(tokenizer, txtfile_location):
     return zip( uids,
                 lines,
                 batches['input_ids'], 
-                [ start for start, end in batches['offset_mapping']],
-                [ end   for start, end in batches['offset_mapping']]
+                [ start for offsets in batches['offset_mapping'] for start, end in offsets],
+                [ end   for offsets in batches['offset_mapping'] for start, end in offsets]
             )
 
 PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'content', 'target', 'offset_start', 'offset_end'])
@@ -126,7 +126,7 @@ def _int64_feature(value):
 
 def _bytes_feature(value):
   """Returns a bytes_list from a string / byte."""
-  return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+  return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
 
 def read_example(example_proto, max_seq_len=1024) -> dict:
     features = {
@@ -138,7 +138,7 @@ def read_example(example_proto, max_seq_len=1024) -> dict:
 def create_example(features: PreProcessedTextLine) -> tf.train.Example:
     feature = {
         "id": _int64_feature([features.id]),
-        "content": _bytes_feature(features.content),
+        "content": _bytes_feature(features.content.encode('utf-8')),
         "target": _int64_feature(features.target),
         "offset_start": _int64_feature(features.offset_start),
         "offset_end": _int64_feature(features.offset_end),
@@ -151,7 +151,7 @@ def transform_many_and_write_one_tfrecord(job):
     with tf.io.TFRecordWriter(dst) as w:
         for source in sources:
             for features in batch_tokenizer(tokenizer, source):
-                example = create_example(PreProcessedTextLine(features))
+                example = create_example(PreProcessedTextLine(*features))
                 w.write(example.SerializeToString())
     return len(sources)
 
