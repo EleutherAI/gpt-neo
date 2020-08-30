@@ -24,7 +24,7 @@ def parse_args(argv):
     parser = argparse_flags.ArgumentParser()
     parser.add_argument("--input", type=str, required=True, help="Path to where your files are located. Files ending in .zst are treated as \
                         archives, all others as raw text.")
-    parser.add_argument("--size", type=int, default=200 * 2**20, help="the size in MiB of uncompressed text to add to a record, default 200MiB")
+    parser.add_argument("--size", type=int, default=50 * 2**20, help="the size in MiB of uncompressed text to add to a record, default 50MiB")
     parser.add_argument("--name", type=str, default="openwebtext", help="Name of output files will be {name}_%05d.tfrecord where i is the number of the file")
     parser.add_argument("--output", type=str, default="output", help="Where to write tfrecords")
     parser.add_argument("--tokenizer", type=str, default="byte-level-bpe.tokenizer.json", help="Name or path of a tokenizer spec")
@@ -60,6 +60,7 @@ def sizechunks(l, n):
         if sz >= n:
             out.append(chunk)
             sz = 0
+            chunk = []
     if chunk: 
         out.append(chunk)
     return out
