@@ -66,10 +66,9 @@ def main(args):
         ds = tf.data.Dataset.from_tensor_slices(sampled_files)
         ds = ds.interleave(tf.data.TFRecordDataset, cycle_length=4)
         ds = ds.map(read_example)
-        ds = ds.batch(32)
+        #ds = ds.batch(2)
         ds = ds.shuffle(1024)
-        ds = ds.take(1)
-        ds = ds.shuffle(1024)
+        ds = ds.take(args.sample_size)
 
         it = ds.make_one_shot_iterator()
         example = it.get_next()
