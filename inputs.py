@@ -2,15 +2,15 @@ from typing import List
 
 import numpy as np
 import tensorflow.compat.v1 as tf
-from mesh_tensorflow import transformer
-from tensorflow.python.platform import tf_logging as logging
 from tokenizers import Tokenizer
-
 from encoders import encode
+from tensorflow.python.platform import tf_logging as logging
 
+from typing import List
+from mesh_tensorflow import transformer
 
 def test_generic_text(params, eval=False):
-    batch_size = params['train_batch_size']
+    batch_size = params.batch_size
 
     def _generate():
         while True:
@@ -172,7 +172,8 @@ def read_example(example_proto, max_seq_len=1024) -> dict:
     return {
         "id": tf.cast(parsed_features['id'], tf.uint64),
         "content": parsed_features['content'],
-        "target": tf.sparse.to_dense(tf.cast(parsed_features['target'], tf.int64)),
+        # WARNING: remapping from target to targets
+        "targets": tf.sparse.to_dense(tf.cast(parsed_features['target'], tf.int64)),
         "offset_start": tf.sparse.to_dense(tf.cast(parsed_features['offset_start'], tf.uint64)),
         "offset_end": tf.sparse.to_dense(tf.cast(parsed_features['offset_end'], tf.uint64)),
     } 
@@ -181,14 +182,16 @@ def read_example(example_proto, max_seq_len=1024) -> dict:
 class LanguageModelInputConfig:
     batch_size:int
     prefetch: int
-    pack: bool 
+    pack: bool = True 
+    split: str = 'TRAIN'
+
 
 class LanguageModelInput:
   """Wrapper class that acts as the input_fn to TPUEstimator."""
 
-  def __init__(self, glob_files:List[str]):
+  def __init__(self, file_pattern:List[str]):
     logging.info('init ToyModelInput()')
-    self._glob_files = glob_files
+    self._file_pattern = file_pattern
 
   def __call__(self, params):
     """Input function which provides a single batch for train or eval."""
@@ -196,16 +199,48 @@ class LanguageModelInput:
     # computed according to the input pipeline deployment. See
     # `tf.estimator.tpu.RunConfig` for details.
     batch_size = params['batch_size']
-    logging.info('call ToyModelInput() with batch size {}'.format(batch_size))
+    max_seq_length = params['max_sequence_length'] 
 
-    files = tf.io.gfile.glob(self._glob_files)
-    ds = tf.data.Datset.from_tensor_slices(files)
-    dataset = ds.batch(batch_size, drop_remainder=True)
+    logging.info('call LanguageModelInput() with batch size {} and sequence length', 
+                                                            batch_size, max_seq_length)
+    
+    filenames = tf.io.gfile.glob(self._file_pattern)
+    logging.info("Found %s files matching %s" % (len(filenames), self._file_pattern))
+    if not filenames:
+        raise ValueError("No matching files found")
+    dataset = tf.data.TFRecordDataset(filenames, buffer_size=64 * 1024 * 1024)
+    keys = ["target"] 
+    EOS = 1
+    PAD = 0
+    def decode_example(serialized_example):
+        """Return a dict of Tensors from a serialized tensorflow.Example."""
+        decoded = tf.io.parse_example(
+            serialized=[serialized_example],
+            features={k: tf.VarLenFeature(tf.int64) for k in keys})
+        decoded = {k: v.values for k, v in decoded.items()}
+        # append EOS
+        decoded = {k: tf.concat([v, [EOS]], 0) for k, v in decoded.items()}
+        return decoded
+
+    ds = ds.map(decode_example,
+                    num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    # pack the dataset 
+    ds = transformer.datasets.pack_or_pad(
+            ds,
+            sequence_length=max_seq_length,
+            pack=params['pack'],
+            feature_keys=None, 
+            ensure_eos=False)
+    # ds is  
+    if params['split'] == 'TRAIN':
+        if params['repeat']:
+            ds = ds.repeat()
+        ds = ds.shuffle(1000)
+        ds = ds.batch(batch_size, drop_remainder=True)
+    else:
+        ds = ds.batch(batch_size)
     if params['prefetch']:
         ds = ds.prefetch(params['prefetch'])
-    ds = transformer.datasets.pack_or_pad(ds, 
-                pack=params['pack'],
-                feature_keys=['target'], ensure_eos=True)
     return ds
 
 

@@ -1,0 +1,70 @@
+{
+   "cluster": {
+      "num_cores": 256,
+      "use_tpu": false
+   },
+   "infeed": {
+      "batch_size": 1,
+      "dataset": {
+         "src": "gs://experiments-us-central1/childrensbooks/*.tfrecord"
+      }
+   },
+   "model": {
+      "activation_function": "gelu",
+      "attention_types": [
+         [
+            [
+               "global"
+            ],
+            1
+         ]
+      ],
+      "auto_layout": false,
+      "auto_layout_and_mesh_shape": false,
+      "layout": "",
+      "mesh_shape": "",
+      "model": "GPT2",
+      "n_ctx": 512,
+      "n_embd": 512,
+      "n_head": 8,
+      "n_layer": 1,
+      "n_vocab": 32,
+      "scale_by_depth": false,
+      "scale_by_in": false
+   },
+   "other": {
+      "iterations": 500,
+      "no_weight_tie": false,
+      "remove_partial_sequences": true,
+      "scalenorm": true,
+      "stop_at_token": 2
+   },
+   "regularization": {
+      "attn_dropout": 0.10000000000000001,
+      "embed_dropout": 0.10000000000000001,
+      "gradient_clipping": 0.5,
+      "res_dropout": 0.10000000000000001,
+      "weight_decay": 0.10000000000000001
+   },
+   "trainer": {
+      "learning_rate": {
+         "lr": 0.0001,
+         "lr_decay": "cosine",
+         "warmup_steps": 0
+      },
+      "model_path": "",
+      "optimizer": {
+         "ada_epsilon1": 1.0000000000000001e-30,
+         "ada_epsilon2": 0.001,
+         "beta1": 0.90000000000000002,
+         "beta1_adam": 0.90000000000000002,
+         "beta2": 0.999,
+         "epsilon": 1.0000000000000001e-09,
+         "name": "adam"
+      },
+      "schedule": {
+         "steps": 0,
+         "steps_per_checkpoint": 100
+      }
+   }
+}

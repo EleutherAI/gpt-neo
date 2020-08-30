@@ -1,101 +1,195 @@
 """GPT-like model in Mesh-Tensorflow"""
 import argparse
+import collections
 import json
 import logging
 import os
+import random
 import sys
 from functools import partial
 from pathlib import Path
 
+from typing import Any, Dict
+
 import mesh_tensorflow as mtf
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
+from absl.flags import argparse_flags
+from absl import app
+
+from tensorflow.compat import v1
+from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath
-from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output
-from model_fns import model_fn
-from encoders import fetch_encoder
-from configs import fetch_model_params
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
 
+from encoders import fetch_encoder
+from inputs import (generic_text, handle_pred_output, pred_input,
+                    test_generic_text, test_handle_pred_output,
+                    test_pred_input)
+from model_fns import model_fn
+from utils import (expand_attention_types_params, remove_gs_or_filepath,
+                   save_config, yes_or_no)
+
+import dataclasses
+
+from pydantic import BaseModel, validator
+from pydantic.dataclasses import dataclass
+
+
+@dataclass
+class DatasetConfig:
+    src: str
+
+@dataclass
+class ClusterConfig:
+    num_cores: int
+    use_tpu: bool
+
+@dataclass
+class InfeedConfig:
+    batch_size: int
+    dataset: DatasetConfig
+
+    def __getitem__(self, value):
+        return 42
+
+@dataclass
+class ModelConfig:
+    activation_function: str
+
+@dataclass
+class TrainerConfig:
+    cluster: ClusterConfig
+    infeed: InfeedConfig
+    model: Dict
+    trainer: Dict
+    other: Any
+    regularization: Dict
+
 def setup_logging(args):
     # Setup logging
-    Path("logs").mkdir(exist_ok=True)
-    tf.logging.set_verbosity(logging.INFO)
-    handlers = [
-        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
-        logging.StreamHandler(sys.stdout)
-    ]
-    logger = logging.getLogger('tensorflow')
-    logger.handlers = handlers
-    return logger
+    # Path("logs").mkdir(exist_ok=True)
+    logging.set_verbosity(logging.INFO)
+    # handlers = [
+    #     logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
+    #     logging.StreamHandler(sys.stdout)
+    # ]
+    # logger = logging.getLogger('tensorflow')
+    # logger.handlers = handlers
+    #return logger
 
-def main():
+def parse_args(args):
     # Parse command line arguments
-    parser = argparse.ArgumentParser()
+    parser = argparse_flags.ArgumentParser()
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
-    parser.add_argument('--model', type=str, default=None) # JSON file that contains model parameters
-    parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
-    parser.add_argument('--auto_layout', action="store_true")
-    parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
-    parser.add_argument('--new', action='store_true')
-    parser.add_argument('--test', action='store_true')
-    parser.add_argument('--predict', action='store_true')
-    parser.add_argument('--check_dataset', action='store_true')
-    args = parser.parse_args()
+    parser.add_argument('--config', required=True, default='test', type=str) # JSON file that contains model parameters
+    # parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
+    # parser.add_argument('--auto_layout', action="store_true")
+    # parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
+    # parser.add_argument('--new', action='store_true')
+    parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--train', action='store_true', default=False)
+    parser.add_argument('--eval', action='store_true', default=False)
+    parser.add_argument('--predict', action='store_true', default=False)
+    #parser.add_argument('--check-input', action='store_true', default=True)
+    parser.add_argument('--dry_run', action='store_true', 
+                                     default=True, 
+                                     help="load the configuration and everything but run for zero steps")
+    return parser.parse_args(args[1:])
 
-    # rewire to use testing related functions if --test is on
+Trainer = collections.namedtuple('Trainer', 
+                                    ['name',
+                                    'input_fn', 
+                                    'config',
+                                    'model_fn',
+                                    # 'predict_fn', 
+                                    'handle_prediction_output_fn'])
+
+def load_trainer_config(location):
+
+    with tf.io.gfile.GFile(location) as fd: 
+        params = json.loads(fd.read())
+
+    n_vocab = params['n_vocab']
+    params['datasets'] = []
+    datasets = params.get('datasets', [])
+    
+    for d in datasets:
+        with tf.io.gfile.GFile(d) as fd: 
+            dataset_config = json.load(fd.read())
+            params['datasets'].append(dataset_config)
+
+    return params
+
+def load_trainer(args) -> Trainer:
+    with tf.io.gfile.GFile(args.config) as fd:
+        params = json.load(fd)
+
+    cfg = TrainerConfig(**params)
+    
+    json.dump(params, sys.stdout, indent=2)
+
     if args.test:
-        args.model = 'test'
-
-    input_fn = generic_text if not args.test else test_generic_text
-    pred_input_fn = pred_input if not args.test else test_pred_input
-    handle_pred_output_fn = handle_pred_output if not args.test else test_handle_pred_output
-    assert args.model is not None, 'Model must be set'
-
-    logger = setup_logging(args)
-
-    # Read params of model
-    params = fetch_model_params(args.model)
+        # rewire to use testing related functions if --test is on
+        return Trainer(
+            name='test',
+            config=cfg,
+            model_fn=lambda *args: None,
+            input_fn=test_generic_text,
+            # pred_input_fn=test_pred_input,
+            handle_prediction_output_fn=test_handle_pred_output
+        )
+    
+    if args.model == '':
+        raise ValueError('Model must be set')
+    
+    # params = load_trainer_config(args.model)
 
     # Fetch encoder per params
-
     encoder = fetch_encoder(params)
-    pred_input_fn = partial(pred_input_fn, enc = encoder)
+   
+    # model.pred_input_fn = partial(pred_input_fn, enc = encoder)
 
-    # Sample from Dataset if check dataset flag is on
-    if args.check_dataset:
-        tf.enable_eager_execution()
-        dataset = input_fn(params)
-        dataset_iter = dataset.make_one_shot_iterator()
-        tensor, _ = next(dataset_iter)
-        enc = fetch_encoder(params)
+    return Trainer(
+        name=args.model,
+        input_fn=generic_text,
+        config=cfg,
+        # pred_input_fn=pred_input,
+        handle_prediction_output_fn=handle_pred_output,
+    )
 
-        for p in tensor[:1]:
-            txt = enc.decode(p)
-        #txt = enc.decode(tensor)
-        max_id = tf.reduce_max(tensor)
-        min_id = tf.reduce_min(tensor)
+def check_dataset(trainer, args):
+    sample_size = 10
+    sampled_files = random.choices(trainer.config.infeed.dataset.src, k=sample_size)
+    with v1.Session(graph=tf.Graph()) as sess:
+        ds = trainer.input_fn(trainer.config.infeed)
 
-        print(tensor)
-        print(tensor.shape)
-        print('-' * 50)
-        print(txt[:500], '\n...\n', txt[-500:])
-        print('-' * 50)
-        print('min token id: ', min_id)
-        print('max token id: ', max_id)
-        exit()
+        it = ds.make_one_shot_iterator()
+        example = it.get_next()
+        
+        for _ in range(42):
+            try:
+                result = sess.run(example) #, max_id_tf, min_id_tf])
+                # pt = PreProcessedTextLine(
+                #     id = result['id'],
+                #     content=result['content'],
+                #     target=result['target'],
+                #     offset_start=result['offset_start'],
+                #     offset_end=result['offset_end'],
+                # )
 
+                # ids = tokenizer.decode(result['target'])
 
-    # confirm deletion of checkpoint files if --new flag
-    if args.new:
-        path = params["model_path"]
-        if yes_or_no("Are you sure you want to remove '{}' to start afresh?".format(path)):
-            remove_gs_or_filepath(path)
-        else:
-            exit()
+                # logging.info('gold text:    %r', pt.content.decode('utf-8'))
+                # logging.info('decoded:       %r', ids),
+                # logging.info('tokenization: %s', [pt.content.decode('utf-8')[slice(int(start), int(end))] for start,end in zip(pt.offset_start, pt.offset_end)])
+                # logging.info('-' * 10)
+                print(result)
+            except tf.errors.OutOfRangeError:
+                break
 
+def load_model_config(params, args):
     # saves config to logdir for experiment management
     # save_config(pprint.pformat(params), params["model_path"])
     save_config(params, params["model_path"])
@@ -108,16 +202,36 @@ def main():
     params["use_tpu"] = True if not args.tpu is None else False
     params["num_cores"] = mesh_shape.size
     params["steps_per_checkpoint"] = args.steps_per_checkpoint
+    
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
-    logger.info('params = {}'.format(params))
+    logging.info('params = {}', params)
 
     #TODO: we would like this to be as small as possible,
     # but if we're splitting by batch, a value < the dimensions batch is divided over will error.
     # can we change the mesh layout so batch will not be split at prediction time?
     params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
+    return params
+
+def main(args):
+    logger = setup_logging(args)
+    
+    trainer = load_trainer(args)
+    
+    # Sample from Dataset if check dataset flag is on
+    if args.dry_run:
+        check_dataset(trainer, args)
+        return
+
+    # confirm deletion of checkpoint files if --new flag
+    # if args.new:
+    #     path = params["model_path"]
+    #     if yes_or_no("Are you sure you want to remove '{}' to start afresh?".format(path)):
+    #         remove_gs_or_filepath(path)
+    #     else:
+    #         exit()
 
     # Set up TPUs and Estimator
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
@@ -201,5 +315,4 @@ def main():
 
 if __name__ == '__main__':
     tf.disable_v2_behavior()
-    main()
-
+    app.run(main, flags_parser=parse_args)
