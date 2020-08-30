@@ -1,10 +1,12 @@
 import random
+import collections
 
 import tensorflow as tf
 from absl import app, logging
 from absl.flags import argparse_flags
 from tokenizers import Tokenizer
 
+PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'content', 'target', 'offset_start', 'offset_end'])
 
 def parse_args(argv):
     parser = argparse_flags.ArgumentParser()
@@ -54,6 +56,8 @@ def main(args):
             while True: 
                 try:
                     example, max_id, min_id = sess.run([example, max_id_tf, min_id_tf])
+                    
+                    example = PreProcessedTextLine(**example)
 
                     txt = tokenizer.decode(example['content'])
 
@@ -63,6 +67,7 @@ def main(args):
                     print('-' * 50)
                     print('min token id: ', min_id)
                     print('max token id: ', max_id)
+                    print('tokenization:', [pt.content[slice(start,end)] for start,end in zip(pt.offset_start, pt.offset_end)])
                 except tf.errors.OutOfRangeError:
                     break
 

@@ -25,9 +25,9 @@ def parse_args(argv):
     parser.add_argument("--input", type=str, required=True, help="Path to where your files are located. Files ending in .zst are treated as \
                         archives, all others as raw text.")
     parser.add_argument("--size", type=int, default=50 * 2**20, help="the size in MiB of uncompressed text to add to a record, default 50MiB")
-    parser.add_argument("--name", type=str, default="openwebtext", help="Name of output files will be {name}_%05d.tfrecord where i is the number of the file")
+    parser.add_argument("--name", type=str, required=True, help="Name of output files will be {name}_%%05d.tfrecord where i is the number of the file")
     parser.add_argument("--output", type=str, default="output", help="Where to write tfrecords")
-    parser.add_argument("--tokenizer", type=str, default="byte-level-bpe.tokenizer.json", help="Name or path of a tokenizer spec")
+    parser.add_argument("--tokenizer", type=str, required=True, help="Name or path of a tokenizer spec")
     parser.add_argument("--random_seed", type=int, default=1337, help="seed")
     args = parser.parse_args(argv[1:])
     return args
@@ -169,16 +169,23 @@ def parallel(src_dst_list, total):
     return ret
 
 def load_tokenizer(location):
-    tok = Tokenizer.from_file(location)
-    model_location = os.path.split(location)[0]
-    tok.model.save(model_location)
-    fastok = GPT2TokenizerFast.from_pretrained(model_location)
-
-    fastok.add_special_tokens({
-        'eos_token': '[EOS]',
-        'pad_token': '[PAD]',
-        # TODO MISS [UNK]
-    })
+    if tf.io.gfile.exists(location):
+        # use tf gfile in case the dictionary is remote
+        buff = tf.io.gfile.GFile(location).read()
+        tok = Tokenizer.from_buffer(buff)
+        model_location = os.path.split(location)[0]
+        tok.model.save(model_location)
+        fastok = GPT2TokenizerFast.from_pretrained(model_location)
+        fastok.add_special_tokens({
+            'eos_token': '[EOS]',
+            'pad_token': '[PAD]',
+            'pad_token': '[UNK]',
+        })
+    else:
+        if location.startswith('/'):
+            raise ValueError('invalid location %s', location)
+        else:
+            fastok = GPT2TokenizerFast.from_pretrained(location)
     return fastok
 
 def listfiles(location):
