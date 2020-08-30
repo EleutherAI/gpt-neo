@@ -194,7 +194,6 @@ def main(args):
     os.makedirs(args.output, exist_ok=True)
 
     tokenizer = load_tokenizer(args.tokenizer)
-    args.separator = json.loads(args.separator) # Encode the separator to list
 
     file_chunks = chunks(txt_files, args.files_per) # Assign files_per file to a tfrecord file each
     args.chunk_size = args.chunk_size + 1 # Chunks need to be 1 token longer so there's a target for the last token
