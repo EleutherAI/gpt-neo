@@ -114,8 +114,8 @@ def batch_tokenizer(tokenizer, txtfile_location):
     return zip( uids,
                 lines,
                 batches['input_ids'], 
-                [ offset[0] for offset in batches['offset_mapping']],
-                [ offset[1] for offset in batches['offset_mapping']]
+                [ start for start, end in batches['offset_mapping']],
+                [ end   for start, end in batches['offset_mapping']]
             )
 
 PreProcessedTextLine = collections.namedtuple('PreProcessedTextLine', ['id', 'content', 'target', 'offset_start', 'offset_end'])
