@@ -175,6 +175,6 @@ if __name__ == '__main__':
     tf.disable_v2_behavior()
     register_subcommand('configure')
     register_subcommand('train')
-    # register_subcommand('evaluate')
+    register_subcommand('eval')
     # register_subcommand('predict')
     app.run(main, flags_parser=parse_args)

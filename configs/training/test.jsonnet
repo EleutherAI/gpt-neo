@@ -1,33 +1,10 @@
 local optimizers = import 'optimizers.libsonnet';
+local models = import '../models.libsonnet';
 
 local lr() = {
    lr: 0.0001,
    lr_decay: "cosine",
    warmup_steps: 0,
-};
-
-local Dataset() = {
-   kind: 'tfrecord',
-   sources: ['/tmp/uds-preprocess/*.tfrecord'],
-};
-
-local GPT2() = {
-   type: "GPT2",
-   n_ctx: 8,
-   n_embd: 8,
-   n_head: 8,
-   n_vocab: 32,
-   n_layer: 1,
-   scale_by_depth: false,
-   scale_by_in: false,
-   mesh_shape: "batch:1",
-   layout: "batch:1",
-   activation_function: "gelu",
-   attention_types: [
-      [["global"], 1]
-   ],
-   auto_layout: false,
-   auto_layout_and_mesh_shape: false,
 };
 
 local Other() = {
@@ -37,14 +14,6 @@ local Other() = {
    no_weight_tie: false,
 };
 
-local InFeed() = {
-   batch_size: 8,
-   random: {
-      context_length: 8,
-      vocab_size: 16000,
-   },
-   dataset: Dataset(),
-};
 
 local Schedule() = {
    steps: self.steps_per_iteration * 5,                // total number of steps to run
@@ -62,8 +31,8 @@ local CPU() = {
 
 local Trainer() = {
    device: CPU(),
-   infeed: InFeed(),
-   model: GPT2(),
+   infeed: models.InFeed(),
+   model: models.GPT2(),
    model_path: "/tmp/checkpoints/",
    runspec: {
       optimizer: optimizers.Adam(),

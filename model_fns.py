@@ -53,7 +53,7 @@ def model_fn(gpt2, features, labels, mode, params):
         tf.logging.info('device_list = {}'.format(device_list))
 
         # TODO: Better estimation of replica cache size?
-        replica_cache_size = 300 * 1000000  # 300M per replica
+        replica_cache_size = 300 * 1_000_000  # 300M per replica
 
         # Worker 0 caches all the TPU binaries.
         # num_replicas is how many times you want to copy the entire graph for data parallelism

@@ -86,6 +86,7 @@ class Trainer:
                 'opt_name': self.config.runspec.optimizer['name'],
                 'train_steps': self.config.schedule.steps,
                 'steps_per_checkpoint': self.config.schedule.steps_per_checkpoint,
+                'steps_per_iteration': self.config.schedule.steps_per_iteration,
                 'model_path': self.config.model_path,
                 **self.config.runspec.optimizer,
                 **self.config.runspec.learning_rate
@@ -93,8 +94,8 @@ class Trainer:
             max_steps=self.config.schedule.steps,
             use_tpu=self.config.device.get("kind", 'cpu') == 'tpu',
             model_path=self.config.model_path,
-            steps_per_iteration=self.config.schedule.steps_per_iteration,
-            steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
+            # steps_per_iteration=self.config.schedule.steps_per_iteration,
+            # steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
             infeed=TPUInfeedSpec(
                 batch_size=infeed.config.batch_size, 
                 function=infeed,
@@ -287,8 +288,6 @@ def main(args):
     j = trainer.create_jobspec()
     j.train = True
     trainer.execute(j)
-
-    # estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
 
     # train
     logging.info("completed train process")

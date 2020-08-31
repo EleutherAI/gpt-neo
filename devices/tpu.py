@@ -29,8 +29,8 @@ class TPUInfeedSpec:
 
 @dataclass
 class TPUJobSpec:
-    steps_per_iteration: int 
-    steps_per_checkpoint: int 
+    # steps_per_iteration: int 
+    # steps_per_checkpoint: int 
     max_steps: int
     model_path: str
     function: Callable[[Dict[str,Any]], Any]
@@ -66,11 +66,11 @@ class TPU:
             model_dir=job.model_path,
             save_checkpoints_steps=None,  # Disable the default saver
             save_checkpoints_secs=None,  # Disable the default saver
-            log_step_count_steps=job.steps_per_iteration,
-            save_summary_steps=job.steps_per_checkpoint,
+            log_step_count_steps=job.params['steps_per_iteration'],
+            save_summary_steps=job.params['steps_per_checkpoint'],
             tpu_config=tpu_config.TPUConfig(
                 num_shards=job.function.mesh_shape.size,
-                iterations_per_loop=job.steps_per_iteration,
+                iterations_per_loop=job.params['steps_per_iteration'],
                 num_cores_per_replica=1,
                 per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
 
