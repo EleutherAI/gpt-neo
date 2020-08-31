@@ -33,6 +33,7 @@ class TPUJobSpec:
     train: bool = False
     test: bool = False
     predict: bool = False
+    use_tpu: bool = False
 
 class TPU:
     def __init__(self, config: TPUConfig):
@@ -68,7 +69,7 @@ class TPU:
                 per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
 
         estimator = tpu_estimator.TPUEstimator(
-            use_tpu=True,
+            use_tpu=job.use_tpu,
             model_fn=job.function,
             config=run_config,
             train_batch_size=job.batch_size,
@@ -82,11 +83,14 @@ class TPU:
             else: 
                 current_step = 0
 
-            fn = functools.partial(job.function, eval=False)
+            #fn = functools.partial(job.function, eval=False)
 
             while current_step < job.max_steps:
                 # Else, don't stop and restart
-                estimator.train(input_fn=fn, max_steps=job.max_steps)
+                def my_model(features, labels, mode, params):
+                    pass
+                estimator.train(input_fn=lambda params: functools.partial(job.function, params=params),
+                                max_steps=job.max_steps)
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
                 logging.info('step {}', current_step)
 

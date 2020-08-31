@@ -78,6 +78,7 @@ class Trainer:
             function=self.model,
             params={},
             max_steps=1000,
+            use_tpu=self.config.device.get('address', False),
             model_path=self.config.model_path,
             steps_per_iteration=self.config.schedule.steps_per_iteration,
             steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
@@ -245,7 +246,7 @@ def main(args):
 
     # patch config 
     if args.tpu:
-        tconfig.device.address = args.tpu
+        tconfig.device['address'] = args.tpu
 
     trainer = Trainer(tconfig)
 

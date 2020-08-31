@@ -1,11 +1,13 @@
 from pydantic.dataclasses import dataclass
-from pydantic import AnyUrl
+from pydantic import AnyUrl, BaseModel
 from typing import List, Any, Dict, Union
 import mesh_tensorflow as mtf
 import tensorflow as tf
+from model_fns import model_fn
 
-@dataclass
-class GPT2Config:
+from . import gpt2
+
+class GPT2Config(BaseModel):
    scale_by_depth: bool
    scale_by_in: bool
    mesh_shape: str
@@ -37,8 +39,14 @@ class GPT2:
     def set_shape(self, shape):
         self._shape = shape
 
-    def __call__(self, features: [Dict[str, tf.Tensor]], params:Dict[str,Union[int, str]]):
-        pass
+    def __call__(self, features: [Dict[str, tf.Tensor]], labels, mode, params:Dict[str,Union[int, str]]):
+        params.update(dict(
+            model='GPT2',
+            use_tpu=False,
+            eval=False,
+        ))
+        params.update(dict(self.config))
+        model_fn(gpt2, features, labels, mode, params)
 
 
 def from_config(config: Dict):

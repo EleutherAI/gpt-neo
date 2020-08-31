@@ -4,13 +4,19 @@ import tensorflow.compat.v1 as tf
 import math
 import mesh_tensorflow.transformer as mtf_transformer
 from utils import loss_denominator
-from models.utils import expand_tile
 
 # --------------------------------------------------------------------------------
 # LAYERS:
 
 sentinel = object()
 
+def expand_tile(value, newdim, axis=0):
+    """Add a new axis of given size."""
+    if axis == 0:
+        return mtf.broadcast(value,
+                             [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
+    if axis == 1:
+        return mtf.broadcast(value, value.shape.dims + [newdim])
 
 def identity(x, *args, **kwargs):
     return x

@@ -1,19 +1,34 @@
-import mesh_tensorflow as mtf
-import tensorflow.compat.v1 as tf
-from tensorflow.python.tpu import tpu_estimator
-import mesh_tensorflow.auto_mtf
-import mesh_tensorflow.transformer as mtf_transformer
 from collections import defaultdict
 
-from optimizers import get_optimizer
-from utils import (TpuSummaries, get_graph_info)
-from models.utils import biasmask_attn_weights
+import mesh_tensorflow as mtf
+import mesh_tensorflow.auto_mtf
+import mesh_tensorflow.transformer as mtf_transformer
+import tensorflow as tf
+import tensorflow.compat.v1 as tf
 from tensorflow.python.ops import resources
+from tensorflow.python.tpu import tpu_estimator
+
+from optimizers import get_optimizer
 from sample import sample_autoregressive
+from utils import TpuSummaries, get_graph_info
 
-from models.gpt2 import gpt2
 
-def model_fn(features, labels, mode, params):
+
+
+def biasmask_attn_weights(mesh, nd, ns, dtype):
+    # the old mask_attn_weights applied directly to the QK;
+    # this returns a bias that the attention code from mtf adds to the attention matrix.
+    # w has shape [batch, heads, dst_sequence, src_sequence], where information flows from src to dst.
+    # n_src and n_dest are both the same, i.e equal to sequence length
+    # we rename ns because we want bias to have shape [batch, heads, memory_length, sequence] to match up with QK^T
+    # information flows from k and v (memory_length) to q (sequence)
+    i = mtf.range(mesh, nd, tf.int32) + ns.size - nd.size
+    j = mtf.range(mesh, ns, tf.int32)
+    i, j = map(lambda t: mtf.broadcast(t, [nd, ns]), (i, j))
+    return mtf.cast(mtf.less(i, j), dtype) * -1e10
+
+
+def model_fn(gpt2, features, labels, mode, params):
     # grab global step no.
     params = defaultdict(lambda: None, params)
     global_step = tf.train.get_global_step()
@@ -275,4 +290,3 @@ def model_fn(features, labels, mode, params):
                 evaluation_hooks=[restore_hook],
                 loss=tf_loss,
                 eval_metrics=eval_metrics)
-
