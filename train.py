@@ -106,7 +106,7 @@ class Trainer:
     def execute(self, jobspec):
         if self.device is None:
             self.device = devices.from_config(self.config.device)
-        self.device.execute(jobspec)
+        return self.device.execute(jobspec)
 
     def train(self):
         model, config = self.model, self.config

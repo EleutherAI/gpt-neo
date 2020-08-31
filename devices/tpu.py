@@ -78,9 +78,9 @@ class TPU:
             use_tpu=job.use_tpu,
             model_fn=job.function,
             config=run_config,
-            train_batch_size=job.infeed.batch_size,
-            eval_batch_size=None,
-            predict_batch_size=None,
+            train_batch_size=job.infeed.batch_size, # these change with the configuration
+            eval_batch_size=job.infeed.batch_size,
+            predict_batch_size=job.infeed.batch_size,
             params=job.params)
 
         if job.train:
@@ -95,5 +95,15 @@ class TPU:
                 estimator.train(input_fn=job.infeed.function, max_steps=job.max_steps)
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
                 logging.info('step %s', current_step)
+            logging.info('completed device execution after %s steps', current_step)
+            return { 'current_step': current_step }
 
-        logging.info('completed device execution after %s steps', current_step)
+        if job.eval:
+            # If eval is on - stop and eval every ckpt
+            logging.info('starting to evaluate.')
+            eval_results = estimator.evaluate(
+                input_fn=job.infeed.function,
+                steps=job.max_steps)
+            logging.info('completed eval. results: %s', eval_results)
+            return eval_results
+

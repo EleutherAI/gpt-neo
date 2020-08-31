@@ -1,3 +1,4 @@
+import json
 from typing import Any, Dict, Optional, Union
 
 import mesh_tensorflow as mtf
@@ -8,7 +9,6 @@ from absl.flags import argparse_flags
 from pydantic import BaseModel, validator
 from pydantic.dataclasses import dataclass
 
-import multiprocessing
 
 import config
 import models
@@ -16,17 +16,6 @@ import inputs
 from devices.tpu import TPUJobSpec, TPUInfeedSpec
 import devices
 
-@dataclass
-class CPUDeviceSpec:
-    kind: str = 'cpu'
-    num_cores: int = multiprocessing.cpu_count()
-
-@dataclass
-class TPUDeviceSpec:
-    model: str
-    kind: str = 'cpu'
-
-DeviceSpec = Union[CPUDeviceSpec, TPUDeviceSpec]
 
 @dataclass
 class ScheduleSpec:
@@ -38,7 +27,7 @@ class EvalConfig:
     model: Dict
     model_path: str
     schedule: ScheduleSpec
-    device: DeviceSpec = CPUDeviceSpec()
+    device: devices.DeviceSpec = devices.CPUDeviceSpec()
 
     @classmethod
     def from_config(cls, location):
@@ -50,6 +39,7 @@ class Evaluator:
         self.config = config
         self.model = None
         self.infeed = None
+        self.device = None
 
     def load_model(self):
         if not (self.model is None):
@@ -72,9 +62,11 @@ class Evaluator:
                 # patch legacy config
                 'eval_steps': self.config.schedule.steps,
                 'model_path': self.config.model_path,
+                'steps_per_iteration': self.config.schedule.steps,
+                'steps_per_checkpoint': self.config.schedule.steps,
             },
             max_steps=self.config.schedule.steps,
-            use_tpu=type(self.config.device) is TPUDeviceSpec,
+            use_tpu=type(self.config.device) is devices.TPUDeviceSpec,
             model_path=self.config.model_path,
             # steps_per_iteration=self.config.schedule.steps_per_iteration,
             # steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
@@ -88,7 +80,7 @@ class Evaluator:
     def execute(self, jobspec):
         if self.device is None:
             self.device = devices.from_config(self.config.device)
-        self.device.execute(jobspec)
+        return self.device.execute(jobspec)
 
 def parse_args(args, parser=None):
     # Parse command line arguments
@@ -99,6 +91,7 @@ def parse_args(args, parser=None):
     )  # Name of TPU to train on, if any
     parser.add_argument("--testrun", action="store_true", default=False)
     parser.add_argument("--check-dataset", action="store_true", default=False)
+    parser.add_argument("--output", type=str, help="save results to a file")
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, (if any)")
 
 
@@ -115,8 +108,7 @@ def main(args):
 
     # patch config
     if args.tpu:
-        econfig.device["kind"] = "tpu"
-        econfig.device["address"] = args.tpu
+        econfig.device = devices.TPUDeviceSpec(address=args.tpu)
 
     evaluator = Evaluator(econfig)
 
@@ -129,8 +121,12 @@ def main(args):
 
     j = evaluator.create_jobspec()
     j.eval = True
-    evaluator.execute(j)
-
+    results = evaluator.execute(j)
+   
+    with tf.io.gfile.GFile(args.output, 'w') as fd:
+        jnice = { k:v.item() for k,v in results.items() }
+        json.dump(jnice, fd, indent=2)
+    
     logging.info("completed evaluation process")
 
 
