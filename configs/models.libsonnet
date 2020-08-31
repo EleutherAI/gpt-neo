@@ -2,7 +2,7 @@ local Dataset() = {
     kind: 'tfrecord',
     sources: ['/tmp/uds-preprocess/*.tfrecord'],
 };
-local vocab_size = 16000;
+local vocab_size = 128;
 {
 
     GPT2() :: {
@@ -11,14 +11,14 @@ local vocab_size = 16000;
         n_embd: 8,
         n_head: 8,
         n_vocab: vocab_size,
-        n_layer: 1,
+        n_layer: 2,
         scale_by_depth: false,
         scale_by_in: false,
         mesh_shape: "batch:1",
         layout: "batch:1",
         activation_function: "gelu",
         attention_types: [
-            [["global"], 1]
+            [["global"], self.n_layer],
         ],
         auto_layout: false,
         auto_layout_and_mesh_shape: false,

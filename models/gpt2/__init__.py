@@ -53,7 +53,7 @@ class GPT2:
             embed_dropout=0.1,
             attn_dropout=0.1,
             res_dropout=0.1,
-            attention_types = ['global'] # [[['global'], 1]], #expand_attention_types_params(self.config.attention_types)
+            attention_types = expand_attention_types_params(self.config.attention_types)
         ))
         return model_fns.model_fn(gpt2, features, labels, mode, params)
 
