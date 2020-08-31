@@ -133,14 +133,30 @@ def model_fn(gpt2, features, labels, mode, params):
         inputs = mtf_features["inputs"]
         if params["remove_partial_sequences"] is None:
             params["remove_partial_sequences"] = False
-        mtf_samples = sample_autoregressive(
-            inputs, other_features=other_features, params=params, variable_dtype=tf.float32,
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+        if params.get("autoregressive_task", False):
+            mtf_samples = sample_autoregressive(
+                inputs, 
+                other_features=other_features, 
+                params=params, 
+                variable_dtype=tf.float32,
+                remove_partial_sequences=params["remove_partial_sequences"], 
+                stop_at_token=params["stop_at_token"])
+        else:
+            # seq2seq
+            with tf.variable_scope('gpt2'):
+                logits, _, _ = gpt2.model({ 'inputs': inputs}, other_features, params, inputs.mesh)
+            mtf_samples = logits
+
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
         inputs = lowering.export_to_tf_tensor(inputs)
         outputs = lowering.export_to_tf_tensor(mtf_samples)
+        inputs = tf.identity(inputs, name='tokens')
+        outputs = tf.reshape(outputs, 
+                            shape=mtf_samples.shape.to_integer_list, 
+                            #shape=(batch_size, sequence, vocab_size), 
+                            name='logits')
         predictions = {
             "inputs": inputs,
             "outputs": outputs}

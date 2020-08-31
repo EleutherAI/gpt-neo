@@ -16,7 +16,7 @@ local Other() = {
 
 
 local Schedule() = {
-   steps: self.steps_per_iteration * 5,                // total number of steps to run
+   steps: self.steps_per_iteration * 10,                // total number of steps to run
    steps_per_iteration: 1000,  // how many steps to loop on-device
    steps_per_checkpoint: self.steps_per_iteration, // save a checkpoint after this num of steps
 };

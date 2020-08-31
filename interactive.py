@@ -133,8 +133,10 @@ class InteractiveTask(cmd.Cmd):
             for k, v in (meta_graph.signature_def[key_prediction].outputs.items())
         }
 
+        print(tensor_name_output)
+
         def transform(value):
-            return sess.run( feed_dict={tensor_name_input: value} , fetches=[tensor_name_output])
+            return sess.run( feed_dict={tensor_name_input: value} , fetches={ 'outputs': 'logits:0'})
 
         self.transform = transform
         return self
@@ -147,14 +149,25 @@ class InteractiveTask(cmd.Cmd):
         pad = 0 # pad token
         eos = 1 # end of sentence token
         bos = 2 # begin of sentence token
-        v = np.concatenate([ [bos], [int(v) + 3 for v in arg.split(',')], [eos], [pad] * 8], axis=0)
-        print(self.transform([v[:8]]))
+        SHIFT = 3
+        oin = arg.split(' ')
+        v = np.concatenate([ [bos], [int(v) + SHIFT for v in oin], [eos], [pad] * 8], axis=0)
+        io = self.transform([v[:8]])
+        print(io['outputs'].shape) # batch size, sequence, vocabulary
+        max_value = np.argmax(io['outputs'], axis=-1)
+        print(max_value.shape)
+        print(max_value)
+        values = max_value - SHIFT #[:, 1:len(oin)] - SHIFT)
+        print(' '.join(str(v) for v in values[values > 0]))
 
     def do_bye(self, arg):
-        'Stop recording, close the turtle window, and exit:  BYE'
-        print('Thank you for using Turtle')
-        self.close()
-        bye()
+        print('Thank you for using neogpt')
+        return True
+    def do_q(self, arg):
+        print('Thank you for using neogpt')
+        return True
+    def do_quit(self, arg):
+        print('Thank you for using neogpt')
         return True
 
 def parse_args(args, parser=None):

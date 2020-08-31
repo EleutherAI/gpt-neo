@@ -19,7 +19,7 @@ import devices
 from devices.tpu import TPUJobSpec, TPUInfeedSpec
 
 def serving_input_receiver_fn():
-    feature = tf.placeholder(tf.int32, shape=[None, 8])
+    feature = tf.placeholder(tf.int32, shape=[None, 8], name="tokens")
     return tf.estimator.export.TensorServingInputReceiver(feature, feature)
 
 @dataclass
@@ -91,6 +91,7 @@ class Trainer:
                 'steps_per_checkpoint': self.config.schedule.steps_per_checkpoint,
                 'steps_per_iteration': self.config.schedule.steps_per_iteration,
                 'model_path': self.config.model_path,
+                'vocab_size': infeed.config.random.vocab_size,
                 **self.config.runspec.optimizer,
                 **self.config.runspec.learning_rate
             },
@@ -111,6 +112,7 @@ class Trainer:
         def create_export_jobspec(self):
             model = self.load_model()
             infeed = self.load_infeed()
+            EOS = 1
             return TPUJobSpec(
                 function=self.model,
                 params={ 
@@ -120,6 +122,7 @@ class Trainer:
                     'steps_per_checkpoint': self.config.schedule.steps_per_checkpoint,
                     'steps_per_iteration': self.config.schedule.steps_per_iteration,
                     'model_path': self.config.model_path,
+                    'stop_at_token': EOS,
                     **self.config.runspec.optimizer,
                     **self.config.runspec.learning_rate
                 },
