@@ -12,7 +12,7 @@ local Dataset() = {
 };
 
 local GPT2() = {
-   model: "GPT2",
+   type: "GPT2",
    n_ctx: 512,
    n_embd: 512,
    n_head: 8,
@@ -28,13 +28,11 @@ local GPT2() = {
    ],
    auto_layout: false,
    auto_layout_and_mesh_shape: false,
-   
 };
 
 local Other() = {
    stop_at_token: 2,
    remove_partial_sequences: true,
-   iterations: 500,
    scalenorm: true,
    no_weight_tie: false,
 };
@@ -49,22 +47,24 @@ local InFeed() = {
 };
 
 local Schedule() = {
-   steps: 100,
-   steps_per_checkpoint: 100,
+   steps: 100,                // total number of steps to run
+   steps_per_checkpoint: 100, // save a checkpoint after this num of steps
+   steps_per_iteration: 500,  // how many steps to loop on-device
 };
 
 local TPU() = {
    num_cores: 256,
 };
 
-local Cluster() = {
-   tpu: TPU()
+local CPU() = {
+   num_cores: 1,
 };
 
 local Trainer() = {
-   cluster: Cluster(),
+   device: CPU(),
    infeed: InFeed(),
    model: GPT2(),
+   model_path: "/tmp/checkpoints/{runid}",
    runspec: {
       optimizer: optimizers.Adam(),
       // model_path: std.extVar('MODEL_PATH'), // the location to save the checkpoints

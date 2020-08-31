@@ -9,7 +9,6 @@ import sys
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Optional
-import dataclasses
 
 
 import mesh_tensorflow as mtf
@@ -19,8 +18,7 @@ from absl import app
 
 from tensorflow.compat import v1
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.python.tpu import tpu_config, tpu_estimator
-from tensorflow_estimator.python.estimator import estimator as estimator_lib
+
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
 
@@ -29,8 +27,7 @@ from inputs import (generic_text, handle_pred_output, pred_input,
                     RandomTokenGenerator, RandomTokenGeneratorConfig, test_handle_pred_output,
                     test_pred_input)
 from model_fns import model_fn
-from utils import (expand_attention_types_params, remove_gs_or_filepath,
-                   save_config, yes_or_no)
+from utils import (remove_gs_or_filepath, save_config, yes_or_no)
 
 
 
@@ -86,31 +83,6 @@ def parse_args(args):
     return parser.parse_args(args[1:])
 
 
-def load_model_config(params, args):
-    # saves config to logdir for experiment management
-    # save_config(pprint.pformat(params), params["model_path"])
-    save_config(params, params["model_path"])
-
-    mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
-
-    # add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
-    params["auto_layout"] = args.auto_layout
-    params["auto_layout_and_mesh_shape"] = args.auto_layout_and_mesh_shape
-    params["use_tpu"] = True if not args.tpu is None else False
-    params["num_cores"] = mesh_shape.size
-    params["steps_per_checkpoint"] = args.steps_per_checkpoint
-    
-    # expand attention types param
-    params["attention_types"] = expand_attention_types_params(params["attention_types"])
-    assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
-    logging.info('params = {}', params)
-
-    #TODO: we would like this to be as small as possible,
-    # but if we're splitting by batch, a value < the dimensions batch is divided over will error.
-    # can we change the mesh layout so batch will not be split at prediction time?
-    params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
-    params["predict"] = args.predict
-    return params
 
 import importlib
 

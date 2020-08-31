@@ -1,21 +1,18 @@
 from tokenizers import Tokenizer
 from transformers import GPT2Tokenizer
+from pydantic.dataclasses import dataclass
+from pydantic import AnyUrl
 
-DEFAULT_TOKENIZER_PATH = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
+@dataclass
+class EncoderConfig:
+    is_pretrained: bool 
+    location: AnyUrl
 
-def fetch_encoder(params):
-    no_dataset = params.get('no_dataset', False)
-    if no_dataset:
-        return None
+def fetch_encoder(config: EncoderConfig):
+    if config.is_pretrained:
+        return GPT2Tokenizer.from_pretrained(config.location)
 
-    dataset = next(iter(params['dataset_configs'].values()))
-    path = dataset['tokenizer_path']
-    is_pretrained = dataset.get('tokenizer_is_pretrained', False)
-
-    if is_pretrained:
-        return GPT2Tokenizer.from_pretrained(path)
-
-    return Tokenizer.from_file(path)
+    return Tokenizer.from_file(config.location)
 
 # GPT2Tokenizer and Tokenizer has different ways of fetching token ids
 def encode(encoder, text):

@@ -1,0 +1,46 @@
+from pydantic.dataclasses import dataclass
+from pydantic import AnyUrl
+from typing import List, Any, Dict, Union
+import mesh_tensorflow as mtf
+
+@dataclass
+class GPT2Config:
+   scale_by_depth: bool
+   scale_by_in: bool
+   mesh_shape: str
+   layout: str
+   attention_types: List[Any]
+   n_ctx: int = 512
+   n_embd: int = 512
+   n_head: int = 8
+   n_vocab: int = 32
+   n_layer: int = 1
+   activation_function: str = "gelu"
+   auto_layout: bool = False
+   auto_layout_and_mesh_shape: bool = False
+
+
+def expand_attention_types_params(params_list):
+    newlist = []
+    for item in params_list:
+        for _ in range(item[1]):
+            newlist.extend(item[0])
+    return newlist
+
+class GPT2:
+
+    def __init__(self, config: GPT2Config):
+        self.config = config
+        self.mesh_shape = mtf.convert_to_shape(config.mesh_shape)
+
+    def set_shape(self, shape):
+        self._shape = shape
+
+    def __call__(self, params:Dict[str,Union[int, str]]):
+        pass
+
+
+def from_config(config: Dict):
+    params = GPT2Config(**config)
+    model = GPT2(params)
+    return model

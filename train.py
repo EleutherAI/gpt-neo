@@ -1,6 +1,6 @@
 import collections
 import random
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import mesh_tensorflow as mtf
 import tensorflow as tf
@@ -14,30 +14,15 @@ import config
 import datasets
 import models
 import inputs 
+import devices
 
-from devices.tpu import TPUConfig
-
-
-@dataclass
-class CPUConfig:
-    pass
-
-
-@dataclass
-class ClusterConfig:
-    tpu: Optional[TPUConfig] = None
-    cpu: Optional[CPUConfig] = None
-
-
-@dataclass
-class ModelConfig:
-    activation_function: str
-
+from devices.tpu import TPUJobSpec
 
 @dataclass
 class ScheduleSpec:
     steps: int
     steps_per_checkpoint: int
+    steps_per_iteration: int
 
 @dataclass
 class RunSpec:
@@ -46,33 +31,62 @@ class RunSpec:
 
 @dataclass
 class TrainerConfig:
-    cluster: ClusterConfig
+    device: Dict
     infeed: Dict
     model: Dict
     other: Any
     regularization: Dict
     runspec: RunSpec
     schedule: ScheduleSpec
-
-class Trainer:
-    def __init__(self, model, dataset, config: TrainerConfig):
-        self.model = model
-        self.dataset = dataset
-        self.config = config
-        self.device = "tpu" if config.tpu else "cpu"
+    #checkpoints_location: str
+    model_path: str
 
     @classmethod
-    def from_config(cls, config: TrainerConfig):
-        model = models.from_config(config.model)
-        dataset = datasets.from_config(config.datasets)
+    def from_config(cls, location):
+        config_dict = config.load(location)
+        return cls(**config_dict)
 
-        return cls(model, dataset, config)
+
+class Trainer:
+    def __init__(self, config: TrainerConfig):
+        self.config = config
+        # self.device = "tpu" if config.tpu else "cpu"
+        self.infeed = None
+        self.model = None
+        self.device = None
 
     def save_checkpoint(self):
         state = self.model.state_dict()
         logging.info("saving model checkpoint to %s", self.config.ckpt_path)
         self.save(state, self.config.ckpt_path)
         logging.info("saved model checkpoint to %s", self.config.ckpt_path)
+
+    def load_model(self):
+        if not (self.model is None): return self.model
+        self.model = models.from_config(self.config.model)
+        return self.model
+            
+    def load_infeed(self):
+        if not (self.infeed is None): return self.infeed
+        self.infeed = inputs.from_config(self.config.infeed)
+        return self.infeed
+
+    def create_jobspec(self):
+        model = self.load_model()
+        infeed = self.load_infeed()
+        return TPUJobSpec(
+            function = self.model,
+            params = {},
+            model_path = self.config.model_path,
+            steps_per_iteration=self.config.schedule.steps_per_iteration,
+            steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
+            batch_size=infeed.config.batch_size,
+        )
+
+    def execute(self, jobspec):
+        if self.device is None:
+            self.device = devices.from_config(self.config.device) 
+        self.device.execute(jobspec)
 
     def train(self):
         model, config = self.model, self.config
@@ -148,15 +162,15 @@ class Trainer:
         #         self.save_checkpoint()
 
 
-def load_trainer(args) -> Trainer:
-    #     config.load
-    # #     with tf.io.gfile.GFile(args.config) as fd:
-    # #         params = json.load(fd)
-    # #     cfg = TrainerConfig(**params)
-    # #     json.dump(params, sys.stdout, indent=2)
-    config_dict = config.load(args.runspec)
-    trainer = TrainerConfig(**config_dict)
-    return trainer
+# def load_trainer(args) -> Trainer:
+#     #     config.load
+#     # #     with tf.io.gfile.GFile(args.config) as fd:
+#     # #         params = json.load(fd)
+#     # #     cfg = TrainerConfig(**params)
+#     # #     json.dump(params, sys.stdout, indent=2)
+#     config_dict = config.load(args.runspec)
+#     trainer = TrainerConfig(**config_dict)
+#     return trainer
 
     # if args.testrun:
     #    pass
@@ -190,18 +204,19 @@ def load_trainer(args) -> Trainer:
 #     )
 
 def check_dataset(trainer, args):
-    input_fn: inputs.RandomTokenGenerator = inputs.from_config(trainer.infeed)
-    steps = trainer.schedule.steps
+    steps = trainer.config.schedule.steps
+    infeed = trainer.load_infeed()
+
     logging.info('running for %d steps', steps)
     with v1.Session(graph=tf.Graph()) as sess:
-        ds = input_fn()
+        ds = infeed()
 
         it = ds.make_one_shot_iterator()
         example = it.get_next()
         for i in range(steps):
             try:
                 result = sess.run(example)
-                logging.info('%d/%d: %r', i, trainer.schedule.steps, result)
+                logging.info('%d/%d: %r', i, steps, result)
             except tf.errors.OutOfRangeError:
                 logging.error('dataset ended prematurely after only %d of the %d expected steps', i, steps)
 
@@ -224,9 +239,26 @@ def local_parse_args(args):
 
 def main(args):
     logging.info("started train process")
-    trainer = load_trainer(args)
+
+    tconfig = TrainerConfig.from_config(args.runspec)
+    
+    trainer = Trainer(tconfig)
+
     if args.check_dataset:
         check_dataset(trainer, args)
+         
+    # saves config to logdir for experiment management
+    # save_config(pprint.pformat(params), params["model_path"])
+    # save_config(params, params["model_path"])
+
+    trainer.load_model()
+
+    j = trainer.create_jobspec()
+    trainer.execute(j)
+    
+    #estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
+
+    # train
     logging.info("completed train process")
 
 
