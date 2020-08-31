@@ -75,7 +75,7 @@ def parse_args(args):
     # # parser.add_argument('--auto_layout', action="store_true")
     # # parser.add_argument('--auto_layout_and_mesh_shape', action="store_true")
     # # parser.add_argument('--new', action='store_true')
-    # parser.add_argument('--test', action='store_true', default=False)
+
     # parser.add_argument('--train', action='store_true', default=False)
     # parser.add_argument('--eval', action='store_true', default=False)
     # parser.add_argument('--predict', action='store_true', default=False)
@@ -198,7 +198,6 @@ def main(args):
         while current_step < params["train_steps"]:
             # Else, don't stop and restart
             estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
-
 
 if __name__ == '__main__':
     tf.disable_v2_behavior()

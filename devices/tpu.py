@@ -10,8 +10,9 @@ class Device:
 
 @dataclass
 class TPUConfig:
-    name: Optional[str]
-    address: Optional[str]
+    name: Optional[str] = None
+    address: Optional[AnyUrl] = None
+    num_cores: int = 8
 
 @dataclass
 class JobSpec:

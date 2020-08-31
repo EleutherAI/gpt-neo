@@ -10,13 +10,16 @@ from pydantic.dataclasses import dataclass
 
 import datasets
 import models
-from devices import tpu
+from devices.tpu import TPUConfig
 
+@dataclass
+class CPUConfig:
+    pass
 
 @dataclass
 class ClusterConfig:
-    num_cores: int
-    use_tpu: bool
+    tpu: Optional[TPUConfig] = None
+    cpu: Optional[CPUConfig] = None
 
 @dataclass
 class ModelConfig:
@@ -30,7 +33,6 @@ class TrainerConfig:
     trainer: Dict
     other: Any
     regularization: Dict
-    tpu: Optional[tpu.TPUConfig]
 
 class Trainer:
 
@@ -126,60 +128,45 @@ class Trainer:
         #         best_loss = test_loss
         #         self.save_checkpoint()
 
-def load_trainer_config(location):
-
-    with tf.io.gfile.GFile(location) as fd: 
-        params = json.loads(fd.read())
-
-    n_vocab = params['n_vocab']
-    params['datasets'] = []
-    datasets = params.get('datasets', [])
-    
-    for d in datasets:
-        with tf.io.gfile.GFile(d) as fd: 
-            dataset_config = json.load(fd.read())
-            params['datasets'].append(dataset_config)
-
-    return params
-
-
+import config
 
 def load_trainer(args) -> Trainer:
-    with tf.io.gfile.GFile(args.config) as fd:
-        params = json.load(fd)
-
-    cfg = TrainerConfig(**params)
-    
-    json.dump(params, sys.stdout, indent=2)
-
-    if args.test:
+    #     config.load
+    # #     with tf.io.gfile.GFile(args.config) as fd:
+    # #         params = json.load(fd)
+    # #     cfg = TrainerConfig(**params)
+    # #     json.dump(params, sys.stdout, indent=2)
+    config_dict = config.load(args.runspec)
+    trainer = TrainerConfig(**config_dict)
+    # if args.testrun:
+    #    pass
         # rewire to use testing related functions if --test is on
-        return Trainer(
-            name='test',
-            config=cfg,
-            model_fn=lambda *args: None,
-            input_fn=load_input_fn(cfg.infeed),
-            # pred_input_fn=test_pred_input,
-            handle_prediction_output_fn=test_handle_pred_output
-        )
+        # return Trainer(
+        #     name='test',
+        #     config=cfg,
+        #     model_fn=lambda *args: None,
+        #     input_fn=load_input_fn(cfg.infeed),
+        #     # pred_input_fn=test_pred_input,
+        #     handle_prediction_output_fn=test_handle_pred_output
+        # )
     
-    if args.model == '':
-        raise ValueError('Model must be set')
+#     if args.model == '':
+#         raise ValueError('Model must be set')
     
-    # params = load_trainer_config(args.model)
+#     # params = load_trainer_config(args.model)
 
-    # Fetch encoder per params
-    encoder = fetch_encoder(params)
+#     # Fetch encoder per params
+#     encoder = fetch_encoder(params)
    
-    # model.pred_input_fn = partial(pred_input_fn, enc = encoder)
+#     # model.pred_input_fn = partial(pred_input_fn, enc = encoder)
 
-    return Trainer(
-        name=args.model,
-        input_fn=generic_text,
-        config=cfg,
-        # pred_input_fn=pred_input,
-        handle_prediction_output_fn=handle_pred_output,
-    )
+#     return Trainer(
+#         name=args.model,
+#         input_fn=generic_text,
+#         config=cfg,
+#         # pred_input_fn=pred_input,
+#         handle_prediction_output_fn=handle_pred_output,
+#     )
 
 def check_dataset(trainer, args):
     sample_size = 10
@@ -192,13 +179,13 @@ def check_dataset(trainer, args):
         
         for _ in range(42):
             try:
-                result = sess.run(example) #, max_id_tf, min_id_tf])
+                result = sess.run(example)
                 # pt = PreProcessedTextLine(
-                #     id = result['id'],
-                #     content=result['content'],
-                #     target=result['target'],
-                #     offset_start=result['offset_start'],
-                #     offset_end=result['offset_end'],
+                #   id = result['id'],
+                #   content=result['content'],
+                #   target=result['target'],
+                #   offset_start=result['offset_start'],
+                #   offset_end=result['offset_end'],
                 # )
 
                 # ids = tokenizer.decode(result['target'])
@@ -207,17 +194,26 @@ def check_dataset(trainer, args):
                 # logging.info('decoded:       %r', ids),
                 # logging.info('tokenization: %s', [pt.content.decode('utf-8')[slice(int(start), int(end))] for start,end in zip(pt.offset_start, pt.offset_end)])
                 # logging.info('-' * 10)
-                print(result)
+                # print(result)
             except tf.errors.OutOfRangeError:
                 break
         
 def parse_args(args, parser=None):
     # Parse command line arguments
-    parser = parser if parser else argparse_flags.ArgumentParser()
     parser.add_argument('runspec', type=str, help="the json file specifiing the configuration for this run") # Name of TPU to train on, if any
+    parser.add_argument('--testrun', action='store_true', default=False)
+    parser.add_argument('--check-dataset', action='store_true', default=False)
+    
+def local_parse_args(args):
+    parser = argparse_flags.ArgumentParser()
+    parse_args(args, parser)
     return parser.parse_args(args[1:])
 
 def main(args):
-    logging.info('starting train process')
-
+    logging.info('started train process')
     trainer = load_trainer(args)
+    logging.info('completed train process')
+
+if __name__ == '__main__':
+    tf.disable_v2_behavior()
+    app.run(main, flags_parser=local_parse_args)

@@ -9,10 +9,14 @@ from absl import app
 from absl.flags import argparse_flags
 from absl import logging
 
-def parse_args(args, parser=None):
+def parse_args(args, parser):
     # Parse command line arguments
     parser = parser if parser else argparse_flags.ArgumentParser()
     parser.add_argument('input', type=str) # Name of TPU to train on, if any
+
+def local_parse_args(args):
+    parser = argparse_flags.ArgumentParser()
+    parse_args(args, parser)
     return parser.parse_args(args[1:])
 
 #  Returns content if worked, None if file not found, or throws an exception

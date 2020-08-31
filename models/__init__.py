@@ -1,8 +1,7 @@
 import optimizers
 
-def load_config():
-    pass
-
+def from_config(config):
+    return config
 
 class AbstractModel:
 

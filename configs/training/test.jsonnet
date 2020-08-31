@@ -57,9 +57,12 @@ local Schedule() = {
    steps_per_checkpoint: 100,
 };
 
-local Cluster() = {
-   use_tpu: false,
+local TPU() = {
    num_cores: 256,
+};
+
+local Cluster() = {
+   tpu: TPU()
 };
 
 {
