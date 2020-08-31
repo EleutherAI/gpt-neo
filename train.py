@@ -91,7 +91,7 @@ class Trainer:
                 **self.config.runspec.learning_rate
             },
             max_steps=self.config.schedule.steps,
-            use_tpu=self.config.device.get("address", False),
+            use_tpu=self.config.device.get("kind", 'cpu') == 'tpu',
             model_path=self.config.model_path,
             steps_per_iteration=self.config.schedule.steps_per_iteration,
             steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
@@ -270,6 +270,7 @@ def main(args):
 
     # patch config
     if args.tpu:
+        tconfig.device["kind"] = 'tpu'
         tconfig.device["address"] = args.tpu
 
     trainer = Trainer(tconfig)
