@@ -230,7 +230,7 @@ def parse_args(args, parser=None):
     )  # Name of TPU to train on, if any
     parser.add_argument("--testrun", action="store_true", default=False)
     parser.add_argument("--check-dataset", action="store_true", default=False)
-
+    parser.add_argument('--tpu', type=str,  help='Name of TPU to train on, (if any)')
 
 def local_parse_args(args):
     parser = argparse_flags.ArgumentParser()
@@ -242,7 +242,11 @@ def main(args):
     logging.info("started train process")
 
     tconfig = TrainerConfig.from_config(args.runspec)
-    
+
+    # patch config 
+    if args.tpu:
+        tconfig.device.address = args.tpu
+
     trainer = Trainer(tconfig)
 
     if args.check_dataset:

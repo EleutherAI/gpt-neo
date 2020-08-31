@@ -13,3 +13,5 @@ tokenizers
 transformers
 ftfy
 pyfarmhash
+pydantic
+jsonnet
