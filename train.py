@@ -90,7 +90,7 @@ class Trainer:
                 **self.config.runspec.optimizer,
                 **self.config.runspec.learning_rate
             },
-            max_steps=1000,
+            max_steps=self.config.schedule.steps,
             use_tpu=self.config.device.get("address", False),
             model_path=self.config.model_path,
             steps_per_iteration=self.config.schedule.steps_per_iteration,
