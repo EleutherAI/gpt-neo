@@ -63,7 +63,7 @@ def parse_args(args):
         cmd_parser = subparsers.add_parser(
             name, help=cmd.__doc__,
             # Do not make absl FLAGS available after the subcommand `roll_dice`.
-            inherited_absl_flags=None)
+            inherited_absl_flags=False)
         cmd.parse_args(args, cmd_parser)
 
     # parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
@@ -176,5 +176,6 @@ if __name__ == '__main__':
     register_subcommand('configure')
     register_subcommand('train')
     register_subcommand('eval')
+    register_subcommand('interactive')
     # register_subcommand('predict')
     app.run(main, flags_parser=parse_args)

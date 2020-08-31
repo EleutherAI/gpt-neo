@@ -91,7 +91,8 @@ def model_fn(gpt2, features, labels, mode, params):
     #     batch_size = params["train_batch_size"]
     #     params["mode"] = "train"
     batch_size = params[_BATCH_SIZE_KEY]
-
+    if batch_size is None:
+        batch_size = 1
     batch_dim = mtf.Dimension('batch', batch_size)
     batch_dims = [batch_dim]
     feature_length = sequence_length_dict["inputs"]

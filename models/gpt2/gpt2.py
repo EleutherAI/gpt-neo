@@ -427,7 +427,7 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
             logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
 
     vdim = logits.shape[2]  # get vocab dimension
-    if params["mode"] is not "predict":
+    if params["mode"] is not "predict" and 'labels' in mtf_features:
         labels = mtf_features["labels"]
         z_loss = params.get('z_loss', 1e-4)
         with tf.variable_scope('xentropy_final'):

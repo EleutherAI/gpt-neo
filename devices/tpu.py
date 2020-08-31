@@ -13,6 +13,7 @@ import functools
 TPU Configuration Module
 """
 
+
 class Device:
     pass
 
@@ -40,6 +41,8 @@ class TPUJobSpec:
     test: bool = False
     predict: bool = False
     use_tpu: bool = False
+    export: Optional[str] = None
+    signature: Optional[Callable] = None
 
 class TPU:
     def __init__(self, config: TPUConfig):
@@ -96,6 +99,10 @@ class TPU:
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
                 logging.info('step %s', current_step)
             logging.info('completed device execution after %s steps', current_step)
+
+            if job.export:
+                estimator.export_saved_model(job.export, job.signature)
+
             return { 'current_step': current_step }
 
         if job.eval:

@@ -18,6 +18,9 @@ import devices
 
 from devices.tpu import TPUJobSpec, TPUInfeedSpec
 
+def serving_input_receiver_fn():
+    feature = tf.placeholder(tf.int32, shape=[None, 8])
+    return tf.estimator.export.TensorServingInputReceiver(feature, feature)
 
 @dataclass
 class ScheduleSpec:
@@ -76,7 +79,7 @@ class Trainer:
         self.infeed = inputs.from_config(self.config.infeed)
         return self.infeed
 
-    def create_jobspec(self):
+    def create_train_jobspec(self):
         model = self.load_model()
         infeed = self.load_infeed()
         return TPUJobSpec(
@@ -101,7 +104,38 @@ class Trainer:
                 function=infeed,
                 params={}
             ),
+            export="/tmp/export",
+            signature=serving_input_receiver_fn,
         )
+
+        def create_export_jobspec(self):
+            model = self.load_model()
+            infeed = self.load_infeed()
+            return TPUJobSpec(
+                function=self.model,
+                params={ 
+                    # patch legacy config
+                    'opt_name': self.config.runspec.optimizer['name'],
+                    'train_steps': self.config.schedule.steps,
+                    'steps_per_checkpoint': self.config.schedule.steps_per_checkpoint,
+                    'steps_per_iteration': self.config.schedule.steps_per_iteration,
+                    'model_path': self.config.model_path,
+                    **self.config.runspec.optimizer,
+                    **self.config.runspec.learning_rate
+                },
+                max_steps=self.config.schedule.steps,
+                use_tpu=self.config.device.get("kind", 'cpu') == 'tpu',
+                model_path=self.config.model_path,
+                # steps_per_iteration=self.config.schedule.steps_per_iteration,
+                # steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
+                infeed=TPUInfeedSpec(
+                    batch_size=infeed.config.batch_size, 
+                    function=infeed,
+                    params={}
+                ),
+                export="/tmp/export",
+                signature=serving_input_receiver_fn,
+            )
 
     def execute(self, jobspec):
         if self.device is None:
@@ -256,6 +290,7 @@ def parse_args(args, parser=None):
     parser.add_argument("--testrun", action="store_true", default=False)
     parser.add_argument("--check-dataset", action="store_true", default=False)
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, (if any)")
+    parser.add_argument("--steps", type=int, help="max steps to run the train")
 
 
 def local_parse_args(args):
@@ -273,7 +308,10 @@ def main(args):
     if args.tpu:
         tconfig.device["kind"] = 'tpu'
         tconfig.device["address"] = args.tpu
+    if args.steps:
+        tconfig.schedule.steps = args.steps
 
+    logging.info('final config %r', tconfig)
     trainer = Trainer(tconfig)
 
     if args.check_dataset:
@@ -285,7 +323,7 @@ def main(args):
 
     trainer.load_model()
 
-    j = trainer.create_jobspec()
+    j = trainer.create_train_jobspec()
     j.train = True
     trainer.execute(j)
 

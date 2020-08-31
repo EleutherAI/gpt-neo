@@ -1,6 +1,7 @@
 import json
 from typing import Any, Dict, Optional, Union
 
+import cmd
 import mesh_tensorflow as mtf
 import tensorflow as tf
 import tensorflow.compat.v1 as v1
@@ -9,6 +10,9 @@ from absl.flags import argparse_flags
 from pydantic import BaseModel, validator
 from pydantic.dataclasses import dataclass
 
+from tensorflow.python.saved_model import loader
+from tensorflow.python.saved_model import signature_constants
+from tensorflow.python.saved_model import tag_constants
 
 import config
 import models
@@ -82,55 +86,90 @@ class Evaluator:
             self.device = devices.from_config(self.config.device)
         return self.device.execute(jobspec)
 
+class InteractiveTask(cmd.Cmd):
+    intro = 'Welcome to the gptneo shell. Type help or ? to list commands.\n'
+    prompt = '(gptneo) '
+    file = None
+
+    def init(self, args):
+        """
+        Loads saved model and run inference on TPU.
+        Args:
+            inputs: dataset to convert
+            saved_model_dir: The directory SavedModel being exported to.
+        Returns:
+            A dict of resulting tensors.
+        """
+
+        feature_spec = {
+            "uid": tf.io.FixedLenFeature([], tf.string),
+            #"inputs": tf.io.FixedLenFeature([1024], tf.int64),
+            "content": tf.io.FixedLenFeature([], tf.string), # raw string 
+            # "tokens": tf.io.VarLenFeature(tf.int64) # raw tokens (not splitted to 128)
+        } 
+
+        graph = tf.Graph()
+
+        self._sess = sess = tf.InteractiveSession(graph=graph, config=tf.ConfigProto(allow_soft_placement=True))
+
+        meta_graph = loader.load(sess, [tag_constants.SERVING], args.saved_model)
+
+        # describe_graph(meta_graph.graph_def)
+
+        key_prediction = signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+
+        print(meta_graph.signature_def[key_prediction].inputs)
+        
+        input_placeholder_name = 'input'
+        # meta graph inputs
+        tensor_name_input = (
+            meta_graph.signature_def[key_prediction].inputs[input_placeholder_name]
+            .name)
+        print(tensor_name_input)
+
+        # meta graph outputs
+        tensor_name_output = {
+            k: v.name
+            for k, v in (meta_graph.signature_def[key_prediction].outputs.items())
+        }
+
+        def transform(value):
+            return sess.run( feed_dict={tensor_name_input: value} , fetches=[tensor_name_output])
+
+        self.transform = transform
+        return self
+        # it = tf.compat.v1.data.make_initializable_iterator(ds)
+        # init_op = it.initializer
+        # example = it.get_next()
+        # sess.run(init_op)
+    def do_sum(self, arg):
+        import numpy as np
+        pad = 0 # pad token
+        eos = 1 # end of sentence token
+        bos = 2 # begin of sentence token
+        v = np.concatenate([ [bos], [int(v) + 3 for v in arg.split(',')], [eos], [pad] * 8], axis=0)
+        print(self.transform([v[:8]]))
+
+    def do_bye(self, arg):
+        'Stop recording, close the turtle window, and exit:  BYE'
+        print('Thank you for using Turtle')
+        self.close()
+        bye()
+        return True
+
 def parse_args(args, parser=None):
     # Parse command line arguments
-    parser.add_argument(
-        "runspec",
-        type=str,
-        help="the json file specifiing the configuration for this run",
-    )  # Name of TPU to train on, if any
-    parser.add_argument("--testrun", action="store_true", default=False)
-    parser.add_argument("--check-dataset", action="store_true", default=False)
-    parser.add_argument("--output", type=str, help="save results to a file")
-    parser.add_argument("--tpu", type=str, help="Name of TPU to train on, (if any)")
-
+    parser.add_argument("saved_model", type=str, help="location of the task saved model")
 
 def local_parse_args(args):
     parser = argparse_flags.ArgumentParser()
     parse_args(args, parser)
     return parser.parse_args(args[1:])
 
-
 def main(args):
     logging.info("started evaluation process")
 
-    econfig = EvalConfig.from_config(args.runspec)
-
-    # patch config
-    if args.tpu:
-        econfig.device = devices.TPUDeviceSpec(address=args.tpu)
-
-    evaluator = Evaluator(econfig)
-
-    if args.check_dataset:
-        check_dataset(trainer, args)
-
-    # saves config to logdir for experiment management
-    # save_config(pprint.pformat(params), params["model_path"])
-    # save_config(params, params["model_path"])
-
-    j = evaluator.create_jobspec()
-    j.eval = True
-    results = evaluator.execute(j)
-
-    if args.output:
-        with tf.io.gfile.GFile(args.output, 'w') as fd:
-            jnice = { k:v.item() for k,v in results.items() }
-            json.dump(jnice, fd, indent=2)
-
-
-
-    logging.info("completed evaluation process")
+    InteractiveTask().init(args).cmdloop()
 
 
 if __name__ == "__main__":

@@ -1,7 +1,7 @@
-from typing import List, Optional, Dict
+from typing import Dict, List, Optional
 
 import numpy as np
-import tensorflow.compat.v1 as tf
+import tensorflow as tf
 from mesh_tensorflow import transformer
 from pydantic.dataclasses import dataclass
 from tensorflow.python.platform import tf_logging as logging
@@ -21,6 +21,7 @@ class InfeedConfig:
     batch_size: int 
     dataset: Optional[DatasetConfig] = None
     random: Optional[RandomTokenGeneratorConfig] = None
+    max_seq_len: int = 8
 
 class RandomTokenGenerator:
     """Generates Random Tokens"""
@@ -83,6 +84,23 @@ class RandomTokenGenerator:
         #dataset = dataset.map(_sample_text)
         #dataset = dataset.batch(batch_size)
         return dataset
+
+
+# class SummToOneTask:
+#     def __init__(self, config):
+#         self.config = config
+
+#     def __call__(self, number:int):
+#         TOK_SHIFT = 3
+#         tokens = [ number + TOK_SHIFT ]
+
+#         if len(tokens) > params.n_ctx:
+#             tokens = tokens[:params.n_ctx]
+#         if len(tokens) < params.n_ctx:
+#             tokens = tf.pad(tokens, [[0, params.n_ctx - len(tokens)]])
+
+#         t = tf.broadcast_to(tokens, [params["batch_size"], params["n_ctx"]])
+#         return dataset
 
 def generic_text(params, eval=False):
     # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
