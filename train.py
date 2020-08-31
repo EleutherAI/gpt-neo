@@ -72,12 +72,13 @@ class Trainer:
         return self.infeed
 
     def create_jobspec(self):
-        model = self.load_model()
-        infeed = self.load_infeed()
+        model=self.load_model()
+        infeed=self.load_infeed()
         return TPUJobSpec(
-            function = self.model,
-            params = {},
-            model_path = self.config.model_path,
+            function=self.model,
+            params={},
+            max_steps=1000,
+            model_path=self.config.model_path,
             steps_per_iteration=self.config.schedule.steps_per_iteration,
             steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
             batch_size=infeed.config.batch_size,
@@ -254,6 +255,7 @@ def main(args):
     trainer.load_model()
 
     j = trainer.create_jobspec()
+    j.train = True
     trainer.execute(j)
     
     #estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])

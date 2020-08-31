@@ -7,6 +7,7 @@ import ipaddress
 from absl import logging
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
+import functools
 
 """
 TPU Configuration Module
@@ -24,10 +25,14 @@ class TPUConfig:
 class TPUJobSpec:
     steps_per_iteration: int 
     steps_per_checkpoint: int 
+    max_steps: int
     model_path: str
     function: Callable[[Dict[str,Any]], Any]
     params: Dict
     batch_size: int
+    train: bool = False
+    test: bool = False
+    predict: bool = False
 
 class TPU:
     def __init__(self, config: TPUConfig):
@@ -72,9 +77,16 @@ class TPU:
             params=job.params)
 
         if job.train:
-            while current_step < job.steps:
+            if tf.io.gfile.exists(job.model_path):
+                current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
+            else: 
+                current_step = 0
+
+            fn = functools.partial(job.function, eval=False)
+
+            while current_step < job.max_steps:
                 # Else, don't stop and restart
-                estimator.train(input_fn=partial(input_fn, eval=False), max_steps=job.steps)
+                estimator.train(input_fn=fn, max_steps=job.max_steps)
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
                 logging.info('step {}', current_step)
 

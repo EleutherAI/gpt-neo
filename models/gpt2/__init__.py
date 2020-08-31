@@ -2,6 +2,7 @@ from pydantic.dataclasses import dataclass
 from pydantic import AnyUrl
 from typing import List, Any, Dict, Union
 import mesh_tensorflow as mtf
+import tensorflow as tf
 
 @dataclass
 class GPT2Config:
@@ -36,7 +37,7 @@ class GPT2:
     def set_shape(self, shape):
         self._shape = shape
 
-    def __call__(self, params:Dict[str,Union[int, str]]):
+    def __call__(self, features: [Dict[str, tf.Tensor]], params:Dict[str,Union[int, str]]):
         pass
 
 
