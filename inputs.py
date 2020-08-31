@@ -27,10 +27,10 @@ class RandomTokenGenerator:
     def __init__(self, config: InfeedConfig):
         super().__init__()
         self.config = config
-        assert self.config.random.context_length >= (4 + 1) # 4 for the tokens and at least one number is needed
+        assert self.config.random.context_length >= (3 + 1) # 4 for the tokens and at least one number is needed
 
-    def __call__(self):
-        batch_size = self.config.batch_size
+    def __call__(self, params):
+        batch_size = params['batch_size']
         vocab_size = self.config.random.vocab_size
         context_length = self.config.random.context_length
 
@@ -41,41 +41,47 @@ class RandomTokenGenerator:
                 pad = np.full(shape, 0) # pad token
                 eos = np.full(shape, 1) # end of sentence token
                 bos = np.full(shape, 2) # begin of sentence token
-                sep = np.full(shape, 3) # sentence separator token
-                num_special_tokens = 4
+                num_special_tokens = 3
 
                 # compute a good length 
                 length = (context_length 
                           -1 # bos
                           -1 # sep
                           -1 # eos
-                        ) // 2
+                        ) #// 2
 
-                src_seq = np.random.randint(low=num_special_tokens + 1, high=vocab_size - 1, size=(batch_size, length))
+                src_seq = np.random.randint(low=num_special_tokens + 1, 
+                                            high=vocab_size - 1, 
+                                            size=(batch_size, length))
                 tgt_seq = src_seq + 1 # add one to predict next
 
                 # pad to total sequence
-                padding = [pad] * ( context_length - (1 + length + 1 + length + 1))
-                seq = np.concatenate([bos, src_seq, sep, tgt_seq, eos, *padding], axis=1)
-                
-                for i in range(batch_size):
-                    yield seq[i]
+                padding = [pad] * ( context_length - (1 + length + 1 ))
+                x = np.concatenate([bos, src_seq, eos, *padding], axis=1)
+                y = np.concatenate([bos, tgt_seq, eos, *padding], axis=1)
 
-        def _sample_text(x):
-            vals1 = x[:context_length]
-            vals2 = x[1:context_length + 1]
+                yield x, y # [batch_size, context_length], [batch_size, context_length]
+        #         for i in range(batch_size):
+        #             yield seq[i]
 
-            vals1 = tf.reshape(vals1, [context_length])
-            vals2 = tf.reshape(vals2, [context_length])
-            vals1 = tf.cast(vals1, dtype=tf.int32)
-            vals2 = tf.cast(vals2, dtype=tf.int32)
-            return vals1, vals2
+        # def _sample_text(x):
+        #     vals1 = x[:context_length]
+        #     vals2 = x[1:context_length + 1]
+
+        #     vals1 = tf.reshape(vals1, [context_length])
+        #     vals2 = tf.reshape(vals2, [context_length])
+        #     vals1 = tf.cast(vals1, dtype=tf.int32)
+        #     vals2 = tf.cast(vals2, dtype=tf.int32)
+        #     return vals1, vals2
+        
+        context_length = self.config.random.context_length
+        example_sequence_shape = tf.TensorShape((batch_size, context_length))
 
         dataset = tf.data.Dataset.from_generator(_generate, 
-                                                output_types=tf.int64)
-                                                # output_shapes=[batch_size])
-        # dataset = dataset.map(_sample_text)
-        dataset = dataset.batch(batch_size)
+                                                output_types=(tf.int64, tf.int64),
+                                                output_shapes=(example_sequence_shape, example_sequence_shape))
+        #dataset = dataset.map(_sample_text)
+        #dataset = dataset.batch(batch_size)
         return dataset
 
 def generic_text(params, eval=False):

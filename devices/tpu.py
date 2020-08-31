@@ -22,6 +22,12 @@ class TPUConfig:
     num_cores: int = 8
 
 @dataclass
+class TPUInfeedSpec:
+    batch_size: int
+    function: Callable[[Dict[str,Any]], Any]
+    params: Dict
+
+@dataclass
 class TPUJobSpec:
     steps_per_iteration: int 
     steps_per_checkpoint: int 
@@ -29,7 +35,7 @@ class TPUJobSpec:
     model_path: str
     function: Callable[[Dict[str,Any]], Any]
     params: Dict
-    batch_size: int
+    infeed: TPUInfeedSpec
     train: bool = False
     test: bool = False
     predict: bool = False
@@ -72,26 +78,22 @@ class TPU:
             use_tpu=job.use_tpu,
             model_fn=job.function,
             config=run_config,
-            train_batch_size=job.batch_size,
+            train_batch_size=job.infeed.batch_size,
             eval_batch_size=None,
             predict_batch_size=None,
             params=job.params)
 
         if job.train:
             if tf.io.gfile.exists(job.model_path):
+                logging.info('restoring checkpoint steps from %s', job.model_path)
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
+                logging.info('current step is now at %d', current_step)
             else: 
                 current_step = 0
 
-            #fn = functools.partial(job.function, eval=False)
-
             while current_step < job.max_steps:
-                # Else, don't stop and restart
-                def my_model(features, labels, mode, params):
-                    pass
-                estimator.train(input_fn=lambda params: functools.partial(job.function, params=params),
-                                max_steps=job.max_steps)
+                estimator.train(input_fn=job.infeed.function, max_steps=job.max_steps)
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(job.model_path))
-                logging.info('step {}', current_step)
+                logging.info('step %s', current_step)
 
-        raise ValueError
+        logging.info('completed device execution after %s steps', current_step)

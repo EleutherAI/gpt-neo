@@ -13,15 +13,15 @@ local Dataset() = {
 
 local GPT2() = {
    type: "GPT2",
-   n_ctx: 512,
-   n_embd: 512,
+   n_ctx: 8,
+   n_embd: 8,
    n_head: 8,
    n_vocab: 32,
    n_layer: 1,
    scale_by_depth: false,
    scale_by_in: false,
-   mesh_shape: "",
-   layout: "",
+   mesh_shape: "batch:1",
+   layout: "batch:1",
    activation_function: "gelu",
    attention_types: [
       [["global"], 1]
@@ -53,7 +53,7 @@ local Schedule() = {
 };
 
 local TPU() = {
-   num_cores: 256,
+   num_cores: 8,
 };
 
 local CPU() = {

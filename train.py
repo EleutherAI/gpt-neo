@@ -13,10 +13,11 @@ from pydantic.dataclasses import dataclass
 import config
 import datasets
 import models
-import inputs 
+import inputs
 import devices
 
-from devices.tpu import TPUJobSpec
+from devices.tpu import TPUJobSpec, TPUInfeedSpec
+
 
 @dataclass
 class ScheduleSpec:
@@ -24,10 +25,12 @@ class ScheduleSpec:
     steps_per_checkpoint: int
     steps_per_iteration: int
 
+
 @dataclass
 class RunSpec:
     learning_rate: Dict
     optimizer: Dict
+
 
 @dataclass
 class TrainerConfig:
@@ -38,7 +41,7 @@ class TrainerConfig:
     regularization: Dict
     runspec: RunSpec
     schedule: ScheduleSpec
-    #checkpoints_location: str
+    # checkpoints_location: str
     model_path: str
 
     @classmethod
@@ -62,32 +65,46 @@ class Trainer:
         logging.info("saved model checkpoint to %s", self.config.ckpt_path)
 
     def load_model(self):
-        if not (self.model is None): return self.model
+        if not (self.model is None):
+            return self.model
         self.model = models.from_config(self.config.model)
         return self.model
-            
+
     def load_infeed(self):
-        if not (self.infeed is None): return self.infeed
+        if not (self.infeed is None):
+            return self.infeed
         self.infeed = inputs.from_config(self.config.infeed)
         return self.infeed
 
     def create_jobspec(self):
-        model=self.load_model()
-        infeed=self.load_infeed()
+        model = self.load_model()
+        infeed = self.load_infeed()
         return TPUJobSpec(
             function=self.model,
-            params={},
+            params={ 
+                # patch legacy config
+                'opt_name': self.config.runspec.optimizer['name'],
+                'train_steps': self.config.schedule.steps,
+                'steps_per_checkpoint': self.config.schedule.steps_per_checkpoint,
+                'model_path': self.config.model_path,
+                **self.config.runspec.optimizer,
+                **self.config.runspec.learning_rate
+            },
             max_steps=1000,
-            use_tpu=self.config.device.get('address', False),
+            use_tpu=self.config.device.get("address", False),
             model_path=self.config.model_path,
             steps_per_iteration=self.config.schedule.steps_per_iteration,
             steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
-            batch_size=infeed.config.batch_size,
+            infeed=TPUInfeedSpec(
+                batch_size=infeed.config.batch_size, 
+                function=infeed,
+                params={}
+            ),
         )
 
     def execute(self, jobspec):
         if self.device is None:
-            self.device = devices.from_config(self.config.device) 
+            self.device = devices.from_config(self.config.device)
         self.device.execute(jobspec)
 
     def train(self):
@@ -174,17 +191,17 @@ class Trainer:
 #     trainer = TrainerConfig(**config_dict)
 #     return trainer
 
-    # if args.testrun:
-    #    pass
-    # rewire to use testing related functions if --test is on
-    # return Trainer(
-    #     name='test',
-    #     config=cfg,
-    #     model_fn=lambda *args: None,
-    #     input_fn=load_input_fn(cfg.infeed),
-    #     # pred_input_fn=test_pred_input,
-    #     handle_prediction_output_fn=test_handle_pred_output
-    # )
+# if args.testrun:
+#    pass
+# rewire to use testing related functions if --test is on
+# return Trainer(
+#     name='test',
+#     config=cfg,
+#     model_fn=lambda *args: None,
+#     input_fn=load_input_fn(cfg.infeed),
+#     # pred_input_fn=test_pred_input,
+#     handle_prediction_output_fn=test_handle_pred_output
+# )
 
 
 #     if args.model == '':
@@ -205,22 +222,28 @@ class Trainer:
 #         handle_prediction_output_fn=handle_pred_output,
 #     )
 
+
 def check_dataset(trainer, args):
     steps = trainer.config.schedule.steps
     infeed = trainer.load_infeed()
 
-    logging.info('running for %d steps', steps)
+    logging.info("running for %d steps", steps)
     with v1.Session(graph=tf.Graph()) as sess:
-        ds = infeed()
+        ds = infeed({"batch_size": infeed.config.batch_size})
 
         it = ds.make_one_shot_iterator()
         example = it.get_next()
         for i in range(steps):
             try:
                 result = sess.run(example)
-                logging.info('%d/%d: %r', i, steps, result)
+                logging.info("%d/%d: %r", i, steps, result)
             except tf.errors.OutOfRangeError:
-                logging.error('dataset ended prematurely after only %d of the %d expected steps', i, steps)
+                logging.error(
+                    "dataset ended prematurely after only %d of the %d expected steps",
+                    i,
+                    steps,
+                )
+
 
 def parse_args(args, parser=None):
     # Parse command line arguments
@@ -231,7 +254,8 @@ def parse_args(args, parser=None):
     )  # Name of TPU to train on, if any
     parser.add_argument("--testrun", action="store_true", default=False)
     parser.add_argument("--check-dataset", action="store_true", default=False)
-    parser.add_argument('--tpu', type=str,  help='Name of TPU to train on, (if any)')
+    parser.add_argument("--tpu", type=str, help="Name of TPU to train on, (if any)")
+
 
 def local_parse_args(args):
     parser = argparse_flags.ArgumentParser()
@@ -244,15 +268,15 @@ def main(args):
 
     tconfig = TrainerConfig.from_config(args.runspec)
 
-    # patch config 
+    # patch config
     if args.tpu:
-        tconfig.device['address'] = args.tpu
+        tconfig.device["address"] = args.tpu
 
     trainer = Trainer(tconfig)
 
     if args.check_dataset:
         check_dataset(trainer, args)
-         
+
     # saves config to logdir for experiment management
     # save_config(pprint.pformat(params), params["model_path"])
     # save_config(params, params["model_path"])
@@ -262,8 +286,8 @@ def main(args):
     j = trainer.create_jobspec()
     j.train = True
     trainer.execute(j)
-    
-    #estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
+
+    # estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
 
     # train
     logging.info("completed train process")

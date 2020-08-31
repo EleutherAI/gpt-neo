@@ -12,8 +12,7 @@ from optimizers import get_optimizer
 from sample import sample_autoregressive
 from utils import TpuSummaries, get_graph_info
 
-
-
+_BATCH_SIZE_KEY = 'batch_size'
 
 def biasmask_attn_weights(mesh, nd, ns, dtype):
     # the old mask_attn_weights applied directly to the QK;
@@ -29,6 +28,9 @@ def biasmask_attn_weights(mesh, nd, ns, dtype):
 
 
 def model_fn(gpt2, features, labels, mode, params):
+    # This function is called by a TPUEStimator
+    # https://github.com/tensorflow/tensorflow/blob/a6d8ffae097d0132989ae4688d224121ec6d8f35/tensorflow/contrib/tpu/python/tpu/tpu_estimator.py#L1528-L1531
+    # batch_size, use_tpu and context, are added to the params dictionary
     # grab global step no.
     params = defaultdict(lambda: None, params)
     global_step = tf.train.get_global_step()
@@ -44,6 +46,7 @@ def model_fn(gpt2, features, labels, mode, params):
     # Mesh stuff
     if params["use_tpu"]:
         # construct SimdMesh function - instructions on how to evenly split tensors across all cores
+        # context is given by the estimator
         num_hosts = params['context'].num_hosts
         host_placement_fn = params['context'].tpu_host_placement_function
         device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
@@ -53,6 +56,7 @@ def model_fn(gpt2, features, labels, mode, params):
         replica_cache_size = 300 * 1000000  # 300M per replica
 
         # Worker 0 caches all the TPU binaries.
+        # num_replicas is how many times you want to copy the entire graph for data parallelism
         worker0_mem = replica_cache_size * params['context'].num_replicas
         devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
         var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
@@ -77,15 +81,16 @@ def model_fn(gpt2, features, labels, mode, params):
     features_dict = {"inputs": features, "labels": labels}
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
 
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        batch_size = params["eval_batch_size"]
-        params["mode"] = "predict"
-    elif mode == tf.estimator.ModeKeys.EVAL:
-        batch_size = params["eval_batch_size"]
-        params["mode"] = "eval"
-    elif mode == tf.estimator.ModeKeys.TRAIN:
-        batch_size = params["train_batch_size"]
-        params["mode"] = "train"
+    # if mode == tf.estimator.ModeKeys.PREDICT:
+    #     batch_size = params["eval_batch_size"]
+    #     params["mode"] = "predict"
+    # elif mode == tf.estimator.ModeKeys.EVAL:
+    #     batch_size = params["eval_batch_size"]
+    #     params["mode"] = "eval"
+    # elif mode == tf.estimator.ModeKeys.TRAIN:
+    #     batch_size = params["train_batch_size"]
+    #     params["mode"] = "train"
+    batch_size = params[_BATCH_SIZE_KEY]
 
     batch_dim = mtf.Dimension('batch', batch_size)
     batch_dims = [batch_dim]
