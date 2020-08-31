@@ -47,9 +47,9 @@ local InFeed() = {
 };
 
 local Schedule() = {
-   steps: 100,                // total number of steps to run
-   steps_per_checkpoint: 100, // save a checkpoint after this num of steps
-   steps_per_iteration: 500,  // how many steps to loop on-device
+   steps: self.steps_per_iteration * 5,                // total number of steps to run
+   steps_per_iteration: 1000,  // how many steps to loop on-device
+   steps_per_checkpoint: self.steps_per_iteration, // save a checkpoint after this num of steps
 };
 
 local TPU() = {
@@ -64,7 +64,7 @@ local Trainer() = {
    device: CPU(),
    infeed: InFeed(),
    model: GPT2(),
-   model_path: "/tmp/checkpoints/{runid}",
+   model_path: "/tmp/checkpoints/",
    runspec: {
       optimizer: optimizers.Adam(),
       // model_path: std.extVar('MODEL_PATH'), // the location to save the checkpoints

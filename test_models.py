@@ -10,7 +10,7 @@ import mesh_tensorflow as mtf
 from mesh_tensorflow import placement_mesh_impl
 
 from models.gpt2 import gpt2
-from models.utils import biasmask_attn_weights
+from model_fns import biasmask_attn_weights
 
 # helper functions
 
