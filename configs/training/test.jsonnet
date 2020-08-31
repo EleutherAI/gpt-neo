@@ -1,18 +1,14 @@
 local optimizers = import 'optimizers.libsonnet';
 
-local lr = {
+local lr() = {
    lr: 0.0001,
    lr_decay: "cosine",
    warmup_steps: 0,
 };
 
-local trainer = {
-   model_path: std.extVar('MODEL_PATH'), // the location to save the checkpoints
-   learning_rate: lr,
-};
-
 local Dataset() = {
-   file_pattern: 'gs://experiments-us-central1/childrensbooks/',
+   kind: 'tfrecord',
+   sources: ['/tmp/uds-preprocess/*.tfrecord'],
 };
 
 local GPT2() = {
@@ -21,7 +17,6 @@ local GPT2() = {
    n_embd: 512,
    n_head: 8,
    n_vocab: 32,
-   
    n_layer: 1,
    scale_by_depth: false,
    scale_by_in: false,
@@ -45,15 +40,16 @@ local Other() = {
 };
 
 local InFeed() = {
-   batch_size: 1,
+   batch_size: 8,
    random: {
-      context_length: 25,
+      context_length: 8,
       vocab_size: 16000,
    },
+   dataset: Dataset(),
 };
 
 local Schedule() = {
-   steps: 0,
+   steps: 100,
    steps_per_checkpoint: 100,
 };
 
@@ -65,14 +61,16 @@ local Cluster() = {
    tpu: TPU()
 };
 
-{
+local Trainer() = {
    cluster: Cluster(),
    infeed: InFeed(),
    model: GPT2(),
-   trainer: std.mergePatch(trainer, {
+   runspec: {
       optimizer: optimizers.Adam(),
-      schedule: Schedule(),
-   }),
+      // model_path: std.extVar('MODEL_PATH'), // the location to save the checkpoints
+      learning_rate: lr(),
+   },
+   schedule: Schedule(),
    regularization: {
       embed_dropout: 0.1,
       weight_decay: 0.1,
@@ -81,4 +79,6 @@ local Cluster() = {
       gradient_clipping: 0.5,
    },
    other: Other()
-} 
+};
+
+Trainer() // main configuration

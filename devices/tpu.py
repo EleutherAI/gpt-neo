@@ -1,9 +1,14 @@
+import tensorflow as tf
 from typing import Callable, Any, Optional, Dict
 
 from pydantic import AnyUrl
 from pydantic.dataclasses import dataclass
 
 from absl import logging
+
+"""
+TPU Configuration Module
+"""
 
 class Device:
     pass
@@ -15,7 +20,7 @@ class TPUConfig:
     num_cores: int = 8
 
 @dataclass
-class JobSpec:
+class TPUJobSpec:
     iterations: int # after how many internal iterations should the control come back
     model_path: AnyUrl
     function: Callable[[Dict[str,Any]], Any]
@@ -35,7 +40,7 @@ class TPU:
     def check_connection(self):
         pass
 
-    def execute(self, job: JobSpec):
+    def execute(self, job: TPUJobSpec):
         
         run_config = tpu_config.RunConfig(
             cluster=tpu_cluster_resolver,

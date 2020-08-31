@@ -18,36 +18,48 @@ class RandomTokenGeneratorConfig:
 
 @dataclass
 class InfeedConfig:
-    batch_size: int
-    dataset: DatasetConfig
-    random: Optional[RandomTokenGeneratorConfig]
-
-    def __getitem__(self, value):
-        return 42
+    batch_size: int 
+    dataset: Optional[DatasetConfig] = None
+    random: Optional[RandomTokenGeneratorConfig] = None
 
 class RandomTokenGenerator:
     """Generates Random Tokens"""
-    def __init__(self, config: RandomTokenGeneratorConfig):
+    def __init__(self, config: InfeedConfig):
         super().__init__()
         self.config = config
+        assert self.config.random.context_length >= (4 + 1) # 4 for the tokens and at least one number is needed
 
     def __call__(self):
         batch_size = self.config.batch_size
-        vocab_size = self.config.vocab_size
-        context_length = self.config.context_length
+        vocab_size = self.config.random.vocab_size
+        context_length = self.config.random.context_length
 
         def _generate():
             while True:
-                length = context_length // 2 - 1
-                bos = np.full((batch_size, 1), 1)
-                eos = np.full((batch_size, 1), 2)
-                pad = np.full((batch_size, 1), 3)
-                src_seq = np.random.randint(4,  (vocab_size - 1), (batch_size, length))
-                tgt_seq = src_seq + 1
-                seq = np.concatenate([bos, src_seq, pad, tgt_seq, eos], axis=1)
+                # special tokens
+                shape = (batch_size, 1)
+                pad = np.full(shape, 0) # pad token
+                eos = np.full(shape, 1) # end of sentence token
+                bos = np.full(shape, 2) # begin of sentence token
+                sep = np.full(shape, 3) # sentence separator token
+                num_special_tokens = 4
 
-                for ind in range(batch_size):
-                    yield seq[ind]
+                # compute a good length 
+                length = (context_length 
+                          -1 # bos
+                          -1 # sep
+                          -1 # eos
+                        ) // 2
+
+                src_seq = np.random.randint(low=num_special_tokens + 1, high=vocab_size - 1, size=(batch_size, length))
+                tgt_seq = src_seq + 1 # add one to predict next
+
+                # pad to total sequence
+                padding = [pad] * ( context_length - (1 + length + 1 + length + 1))
+                seq = np.concatenate([bos, src_seq, sep, tgt_seq, eos, *padding], axis=1)
+                
+                for i in range(batch_size):
+                    yield seq[i]
 
         def _sample_text(x):
             vals1 = x[:context_length]
@@ -59,8 +71,10 @@ class RandomTokenGenerator:
             vals2 = tf.cast(vals2, dtype=tf.int32)
             return vals1, vals2
 
-        dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
-        dataset = dataset.map(_sample_text)
+        dataset = tf.data.Dataset.from_generator(_generate, 
+                                                output_types=tf.int64)
+                                                # output_shapes=[batch_size])
+        # dataset = dataset.map(_sample_text)
         dataset = dataset.batch(batch_size)
         return dataset
 
@@ -323,6 +337,10 @@ def test_handle_pred_output(predictions, logger, enc, **kwargs):
         logger.info("\n" + "=" * 80 + "\n")
 
 
-def load_infeed(config: Dict):
-    T = config['type']
-    return InfeedConfig(**config)
+def from_config(config: Dict):
+    # T = config['type']
+    infeed_config = InfeedConfig(**config)
+    if infeed_config.random:
+        return RandomTokenGenerator(infeed_config)
+    
+    raise ValueError('infeed configuration unknown')

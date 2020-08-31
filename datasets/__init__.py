@@ -1,9 +1,10 @@
-from typing import Dict
+from typing import Dict, List, Pattern
 from pydantic.dataclasses import dataclass
 
 @dataclass
 class DatasetConfig:
-    src: str
+    kind: str
+    sources: List[Pattern]
 
 def from_config(config: Dict):
-    pass
+    return config
