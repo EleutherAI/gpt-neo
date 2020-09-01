@@ -1,7 +1,7 @@
 {
     "dataset_ids": ["openwebtext-documents"],
-    "n_head": 24,
-    "n_vocab": 50257,
+    "n_head": 16,
+    "n_vocab": 50304,
     "embed_dropout": 0,
     "lr": 0.0002,
     "lr_decay": "cosine",
@@ -19,9 +19,9 @@
     "eval_steps": 0,
     "predict_steps": 1,
     "res_dropout": 0,
-    "eval_batch_size": 128,
-    "predict_batch_size": 128,
-    "iterations": 500,
+    "eval_batch_size": 64,
+    "predict_batch_size": 64,
+    "iterations": 2500,
     "n_embd": 2048,
     "datasets": [["openwebtext-documents", 11, "documents_random", 1.0]],
     "model": "GPT2",
@@ -31,10 +31,11 @@
     "scale_by_depth": true,
     "scale_by_in": false,
     "attention_types" :  [[["global"],24]],
-    "mesh_shape": "x:128,y:2",
-    "layout": "embd:y,batch:x",
+    "mesh_shape": "x:64,y:4",
+    "layout": "batch:x,vocab:y,heads:y",
     "activation_function": "gelu",
-    "recompute_grad": false,
-    "gradient_clipping": 1.0
+    "recompute_grad": true,
+    "gradient_clipping": 1.0,
+    "tokens_per_mb_per_replica": 2048
 }
 
