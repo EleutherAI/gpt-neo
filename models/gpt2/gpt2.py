@@ -418,13 +418,13 @@ def model(mtf_features, other_features, params, mesh, past=None, context=None):
 
     if no_weight_tie_emb:
         with tf.variable_scope('wte_final_linear'):
-            logits = linear(h, 'linear_out', vocab_dim, params=params, name='logits')
+            logits = linear(h, 'linear_out', vocab_dim, params=params)
     else:
         # layer normalize & affine transform
         h = layer_norm(h, 'ln_f', params=params)
         with tf.variable_scope('wte_final_einsum'):
             # equivalent to tf.matmul
-            logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim], name='logits')
+            logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
 
     vdim = logits.shape[2]  # get vocab dimension
     if params["mode"] is not "predict" and 'labels' in mtf_features:
