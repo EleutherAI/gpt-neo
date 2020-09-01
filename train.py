@@ -65,6 +65,12 @@ class Trainer:
         self.save(state, self.config.ckpt_path)
         logging.info("saved model checkpoint to %s", self.config.ckpt_path)
 
+    def load_device(self):
+        if not (self.device is None):
+            return self.device
+        self.device = devices.from_config(self.config.device)
+        return self.device
+
     def load_model(self):
         if not (self.model is None):
             return self.model
@@ -141,9 +147,7 @@ class Trainer:
             )
 
     def execute(self, jobspec):
-        if self.device is None:
-            self.device = devices.from_config(self.config.device)
-        return self.device.execute(jobspec)
+        return self.load_device().execute(jobspec)
 
     def train(self):
         model, config = self.model, self.config

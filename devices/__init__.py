@@ -1,4 +1,4 @@
-from typing import Dict, Union
+from typing import Dict, Union, Optional
 from . import tpu
 from pydantic.dataclasses import dataclass
 
@@ -10,8 +10,9 @@ class CPUDeviceSpec:
 
 @dataclass
 class TPUDeviceSpec:
-    model: str
     address: str
+    num_cores: int
+    model: Optional[str] = None
 
 class CPU(tpu.TPU):
     # HACK
@@ -24,8 +25,9 @@ class CPU(tpu.TPU):
 
 DeviceSpec = Union[CPUDeviceSpec, TPUDeviceSpec]
 
-def from_config(config: DeviceSpec):
+def from_config(config: Dict):
     # only tpu supported
-    if type(config) is TPUDeviceSpec:
-        return tpu.TPU(config)
+    if config['kind'] == 'tpu':
+        config.pop('kind')
+        return tpu.TPU(TPUDeviceSpec(**config))
     return CPU(config)

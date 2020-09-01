@@ -49,20 +49,22 @@ class TPU:
         self.config = config
         self._cluster = None 
 
-    def resolve(self):
+    def resolve_tpu(self):
+        logging.info('resolving')
         if not self.config.address: return
-
+        logging.info('address is %s', self.config.address)
         if not self._cluster:
             self._cluster = tf.distribute.cluster_resolver.TPUClusterResolver(
                 tpu=self.config.address
-            ) 
+            )
+        logging.info('cluster: %r', self._cluster)
         return self._cluster
 
     def check_connection(self):
         pass
 
     def execute(self, job: TPUJobSpec):
-        cluster = self.resolve()
+        cluster = self.resolve_tpu()
 
         run_config = tpu_config.RunConfig(
             cluster=self._cluster,
