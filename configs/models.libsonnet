@@ -1,11 +1,5 @@
-local Dataset() = {
-    kind: 'tfrecord',
-    sources: ['/tmp/uds-preprocess/*.tfrecord'],
-};
-local vocab_size = 128;
 {
-
-    GPT2() :: {
+    GPT2(vocab_size=128) :: {
         type: "GPT2",
         n_ctx: 8,
         n_embd: 8,
@@ -26,10 +20,7 @@ local vocab_size = 128;
 
     InFeed() :: {
         batch_size: 8,
-        random: {
-            context_length: 8,
-            vocab_size: vocab_size,
-        },
-        dataset: Dataset(),
+        file_pattern: '/tmp/output/*.tfrecord',
+        max_sequence_length: 8,
     }
 }

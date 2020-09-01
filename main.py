@@ -2,7 +2,7 @@
 import argparse
 import collections
 import json
-import logging
+#import logging
 import os
 import random
 import sys
@@ -14,20 +14,20 @@ from typing import Any, Dict, Optional
 import mesh_tensorflow as mtf
 import tensorflow as tf
 from absl.flags import argparse_flags
-from absl import app
+from absl import app, logging
 
-from tensorflow.compat import v1
-from tensorflow.python.platform import tf_logging as logging
+# from tensorflow.compat import v1
+# from tensorflow.python.platform import tf_logging as logging
 
-from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
-                        processors, trainers)
+# from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
+#                         processors, trainers)
 
-from encoders import fetch_encoder
-from inputs import (generic_text, handle_pred_output, pred_input,
-                    RandomTokenGenerator, RandomTokenGeneratorConfig, test_handle_pred_output,
-                    test_pred_input)
-from model_fns import model_fn
-from utils import (remove_gs_or_filepath, save_config, yes_or_no)
+# from encoders import fetch_encoder
+# from inputs import (generic_text, handle_pred_output, pred_input,
+#                     RandomTokenGenerator, RandomTokenGeneratorConfig, test_handle_pred_output,
+#                     test_pred_input)
+# from model_fns import model_fn
+# from utils import (remove_gs_or_filepath, save_config, yes_or_no)
 
 
 
@@ -177,5 +177,6 @@ if __name__ == '__main__':
     register_subcommand('train')
     register_subcommand('eval')
     register_subcommand('interactive')
+    register_subcommand('synth')
     # register_subcommand('predict')
     app.run(main, flags_parser=parse_args)

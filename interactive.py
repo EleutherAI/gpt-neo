@@ -153,10 +153,7 @@ class InteractiveTask(cmd.Cmd):
         oin = arg.split(' ')
         v = np.concatenate([ [bos], [int(v) + SHIFT for v in oin], [eos], [pad] * 8], axis=0)
         io = self.transform([v[:8]])
-        print(io['outputs'].shape) # batch size, sequence, vocabulary
         max_value = np.argmax(io['outputs'], axis=-1)
-        print(max_value.shape)
-        print(max_value)
         values = max_value - SHIFT #[:, 1:len(oin)] - SHIFT)
         print(' '.join(str(v) for v in values[values > 0]))
 

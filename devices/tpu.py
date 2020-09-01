@@ -86,6 +86,8 @@ class TPU:
             predict_batch_size=job.infeed.batch_size,
             params=job.params)
 
+        assert (job.train or job.eval)
+
         if job.train:
             if tf.io.gfile.exists(job.model_path):
                 logging.info('restoring checkpoint steps from %s', job.model_path)

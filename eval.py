@@ -1,4 +1,6 @@
+import os
 import json
+import copy
 from typing import Any, Dict, Optional, Union
 
 import mesh_tensorflow as mtf
@@ -28,11 +30,6 @@ class EvalConfig:
     model_path: str
     schedule: ScheduleSpec
     device: devices.DeviceSpec = devices.CPUDeviceSpec()
-
-    @classmethod
-    def from_config(cls, location):
-        config_dict = config.load(location)
-        return cls(**config_dict)
 
 class Evaluator:
     def __init__(self, config:EvalConfig):
@@ -64,6 +61,8 @@ class Evaluator:
                 'model_path': self.config.model_path,
                 'steps_per_iteration': self.config.schedule.steps,
                 'steps_per_checkpoint': self.config.schedule.steps,
+                'max_sequence_length': infeed.dataset.context_length,
+                'vocab_size': infeed.dataset.vocab_size
             },
             max_steps=self.config.schedule.steps,
             use_tpu=type(self.config.device) is devices.TPUDeviceSpec,
@@ -72,7 +71,7 @@ class Evaluator:
             # steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
             infeed=TPUInfeedSpec(
                 batch_size=infeed.config.batch_size, 
-                function=infeed,
+                function=infeed.eval,
                 params={}
             ),
         )
@@ -90,6 +89,7 @@ def parse_args(args, parser=None):
         help="the json file specifiing the configuration for this run",
     )  # Name of TPU to train on, if any
     parser.add_argument("--testrun", action="store_true", default=False)
+    parser.add_argument("--dataset", type=str, required=True, help="the location of the dataset to evaluate")
     parser.add_argument("--check-dataset", action="store_true", default=False)
     parser.add_argument("--output", type=str, help="save results to a file")
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, (if any)")
@@ -100,11 +100,30 @@ def local_parse_args(args):
     parse_args(args, parser)
     return parser.parse_args(args[1:])
 
+def convert_train_spec_to_eval_spec(settings):
+    s = copy.deepcopy(settings)
+    s.pop('other')
+    s.pop('regularization')
+    s.pop('runspec')
+    s['schedule'].pop('steps_per_checkpoint')
+    s['schedule'].pop('steps_per_iteration')
+    return s
 
 def main(args):
     logging.info("started evaluation process")
+    
+    settings = config.load(args.runspec)
 
-    econfig = EvalConfig.from_config(args.runspec)
+    if args.dataset:
+        dscfg = config.load(args.dataset)
+        ds_location = os.path.split(args.dataset)[0] + '/*.tfrecord'
+        settings['infeed']['dataset'] = dscfg
+        settings['infeed']['file_pattern'] = ds_location
+        settings['infeed']['max_sequence_length'] = dscfg['context_length']
+
+    settings = convert_train_spec_to_eval_spec(settings)
+
+    econfig = EvalConfig(**settings)
 
     # patch config
     if args.tpu:

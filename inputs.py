@@ -4,36 +4,42 @@ import numpy as np
 import tensorflow as tf
 from mesh_tensorflow import transformer
 from pydantic.dataclasses import dataclass
+from pydantic import BaseModel
 from tensorflow.python.platform import tf_logging as logging
 from tokenizers import Tokenizer
 
-from datasets import DatasetConfig
+import datasets
 from encoders import encode
 
-
-@dataclass
-class RandomTokenGeneratorConfig:
+class Seq2SeqGeneratorConfig(BaseModel):
     context_length: int
     vocab_size: int
+
+class RandomTokenGeneratorConfig(Seq2SeqGeneratorConfig):
+    seed: int = 1337
 
 @dataclass
 class InfeedConfig:
     batch_size: int 
-    dataset: Optional[DatasetConfig] = None
-    random: Optional[RandomTokenGeneratorConfig] = None
-    max_seq_len: int = 8
+    dataset: Dict
+    max_sequence_length: int
+    file_pattern: Optional[str]
 
-class RandomTokenGenerator:
-    """Generates Random Tokens"""
-    def __init__(self, config: InfeedConfig):
+class AddNSequenceGeneratorConfig(RandomTokenGeneratorConfig):
+    n: int = 1
+
+class AddNSequenceGenerator:
+    """Generates Seq2Seq that are added by N"""
+    def __init__(self, config: AddNSequenceGeneratorConfig):
         super().__init__()
         self.config = config
-        assert self.config.random.context_length >= (3 + 1) # 4 for the tokens and at least one number is needed
+        assert self.config.context_length >= (3 + 1) # 4 for the tokens and at least one number is needed
 
     def __call__(self, params):
         batch_size = params['batch_size']
-        vocab_size = self.config.random.vocab_size
-        context_length = self.config.random.context_length
+        vocab_size = self.config.vocab_size
+        context_length = self.config.context_length
+        np.random.seed(self.config.seed)
 
         def _generate():
             while True:
@@ -51,8 +57,8 @@ class RandomTokenGenerator:
                           -1 # eos
                         ) #// 2
 
-                src_seq = np.random.randint(low=num_special_tokens + 1, 
-                                            high=vocab_size - 1, 
+                src_seq = np.random.randint(low=num_special_tokens + 1,  # skip pad
+                                            high=vocab_size - num_special_tokens - 1, 
                                             size=(batch_size, length))
                 tgt_seq = src_seq + 1 # add one to predict next
 
@@ -75,7 +81,7 @@ class RandomTokenGenerator:
         #     vals2 = tf.cast(vals2, dtype=tf.int32)
         #     return vals1, vals2
         
-        context_length = self.config.random.context_length
+        context_length = self.config.context_length
         example_sequence_shape = tf.TensorShape((batch_size, context_length))
 
         dataset = tf.data.Dataset.from_generator(_generate, 
@@ -222,7 +228,7 @@ def text_dataset(files, params, stitch, datatype, batch=True):
 
     return dataset
 
-def read_example(example_proto, max_seq_len=1024) -> dict:
+def read_example(example_proto) -> dict:
     features = {
         "id": tf.io.VarLenFeature(tf.int64),
         "content": tf.io.FixedLenFeature([], tf.string),
@@ -360,11 +366,68 @@ def test_handle_pred_output(predictions, logger, enc, **kwargs):
         logger.info(p["outputs"])
         logger.info("\n" + "=" * 80 + "\n")
 
+class Infeed:
+    batch_size: int
+    max_sequence_length: int
+    dataset: object
+    
+class Seq2SeqTFRecordInfeed(Infeed):
+    """Wrapper class that acts as the input_fn to TPUEstimator."""
+
+    def __init__(self, config:InfeedConfig):
+        self.config = config
+        self.load_dataset(config.dataset)
+
+    def load_dataset(self, dataset):
+        self.dataset = datasets.from_config(dataset)
+        return self.dataset
+
+    def __call__(self, params):
+        """Input function which provides a single batch for train or eval."""
+        # Retrieves the batch size for the current shard. The # of shards is
+        # computed according to the input pipeline deployment. See
+        # `tf.estimator.tpu.RunConfig` for details.
+        batch_size = params['batch_size']
+        max_seq_length = params['max_sequence_length'] 
+
+        logging.info('call Seq2SeqTFRecordDataset() with batch size {} and sequence length', 
+                                                                batch_size, max_seq_length)
+        
+        filenames = tf.io.gfile.glob(self.config.file_pattern)
+        logging.info("Found %s files matching %s" % (len(filenames), self.config.file_pattern))
+        if not filenames:
+            raise ValueError("No matching files found")
+        ds = tf.data.TFRecordDataset(filenames, buffer_size=64 * 1024 * 1024)
+        keys = ["content", "target"]
+        # Examples are already pre-processed
+        PAD = 0
+        EOS = 1
+        def decode_example(serialized_example):
+            """Return a dict of Tensors from a serialized tensorflow.Example."""
+            decoded = tf.io.parse_example(
+                serialized=[serialized_example],
+                features={k: tf.VarLenFeature(tf.int64) for k in keys})
+            decoded = {k: v.values for k, v in decoded.items()}
+            return decoded['content'], decoded['target']
+
+        ds = ds.map(decode_example,
+                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+        return ds
+
+    def eval(self, params):
+        ds = self(params)
+        ds = ds.batch(params['batch_size'], drop_remainder=False)
+        return ds
+    
+    def train(self, params):
+        ds = self(params)
+        ds = ds.repeat()
+        ds = ds.shuffle(1000)
+        ds = ds.batch(params['batch_size'], drop_remainder=True)
+        return ds
 
 def from_config(config: Dict):
-    # T = config['type']
-    infeed_config = InfeedConfig(**config)
-    if infeed_config.random:
-        return RandomTokenGenerator(infeed_config)
-    
-    raise ValueError('infeed configuration unknown')
+    cfg = InfeedConfig(**config)
+    infeed = Seq2SeqTFRecordInfeed(cfg)
+    return infeed

@@ -13,6 +13,10 @@ utility module to deal with resolving the system configuration
 """
 
 def load(resource:str):
+    if tf.io.gfile.isdir(resource):
+        resource = os.path.join(resource, 'dataset.info.json')
+        if not tf.io.gfile.exists(resource):
+            raise ValueError('directory provided but directory does not contain a dataset.info.json file')
     path, ext = os.path.splitext(resource)
     if ext in ('.json', ):
         with tf.io.gfile.GFile(resource) as fd:
@@ -28,4 +32,6 @@ def load(resource:str):
         except RuntimeError as e:
             logging.error(e)
             sys.exit(-1)
+    else:
+        raise ValueError
     return params

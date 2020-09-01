@@ -1,5 +1,8 @@
+import os
 import collections
 import random
+import json
+import datetime
 from typing import Any, Dict, Optional, Union
 
 import mesh_tensorflow as mtf
@@ -47,11 +50,6 @@ class TrainerConfig:
     # checkpoints_location: str
     model_path: str
 
-    @classmethod
-    def from_config(cls, location):
-        config_dict = config.load(location)
-        return cls(**config_dict)
-
 
 class Trainer:
     def __init__(self, config: TrainerConfig):
@@ -76,7 +74,7 @@ class Trainer:
     def load_infeed(self):
         if not (self.infeed is None):
             return self.infeed
-        self.infeed = inputs.from_config(self.config.infeed)
+        self.infeed = infeed = inputs.from_config(self.config.infeed)
         return self.infeed
 
     def create_train_jobspec(self):
@@ -91,7 +89,8 @@ class Trainer:
                 'steps_per_checkpoint': self.config.schedule.steps_per_checkpoint,
                 'steps_per_iteration': self.config.schedule.steps_per_iteration,
                 'model_path': self.config.model_path,
-                'vocab_size': infeed.config.random.vocab_size,
+                'vocab_size': infeed.dataset.vocab_size,
+                'max_sequence_length': infeed.config.max_sequence_length,
                 **self.config.runspec.optimizer,
                 **self.config.runspec.learning_rate
             },
@@ -102,7 +101,7 @@ class Trainer:
             # steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
             infeed=TPUInfeedSpec(
                 batch_size=infeed.config.batch_size, 
-                function=infeed,
+                function=infeed.train,
                 params={}
             ),
             export="/tmp/export",
@@ -113,6 +112,7 @@ class Trainer:
             model = self.load_model()
             infeed = self.load_infeed()
             EOS = 1
+
             return TPUJobSpec(
                 function=self.model,
                 params={ 
@@ -133,7 +133,7 @@ class Trainer:
                 # steps_per_checkpoint=self.config.schedule.steps_per_checkpoint,
                 infeed=TPUInfeedSpec(
                     batch_size=infeed.config.batch_size, 
-                    function=infeed,
+                    function=infeed.train,
                     params={}
                 ),
                 export="/tmp/export",
@@ -294,6 +294,7 @@ def parse_args(args, parser=None):
     parser.add_argument("--check-dataset", action="store_true", default=False)
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, (if any)")
     parser.add_argument("--steps", type=int, help="max steps to run the train")
+    parser.add_argument("--dataset", type=str, help="location to a dataset jsonnet configuration file.")
 
 
 def local_parse_args(args):
@@ -304,25 +305,40 @@ def local_parse_args(args):
 
 def main(args):
     logging.info("started train process")
-
-    tconfig = TrainerConfig.from_config(args.runspec)
+    
+    settings = config.load(args.runspec)
+    
+    if args.dataset:
+        dscfg = config.load(args.dataset)
+        ds_location = os.path.split(args.dataset)[0] + '/*.tfrecord'
+        settings['infeed']['dataset'] = dscfg
+        settings['infeed']['file_pattern'] = ds_location
+        settings['infeed']['max_sequence_length'] = dscfg['context_length']
 
     # patch config
     if args.tpu:
-        tconfig.device["kind"] = 'tpu'
-        tconfig.device["address"] = args.tpu
-    if args.steps:
-        tconfig.schedule.steps = args.steps
+        settings["device"]["kind"] = 'tpu'
+        settings["device"]["address"] = args.tpu
 
-    logging.info('final config %r', tconfig)
+    if args.steps:
+        settings["schedule"]["steps"] = args.steps
+
+    logging.info('final config %r', settings)
+
+    dt = datetime.datetime.now().strftime('%Y%M%d_%H%M%S')
+    runspec = 'run-%s.json' % dt
+    
+    with tf.io.gfile.GFile(runspec, 'w') as fd:
+        json.dump(settings, fd, indent=2)
+
+    # reload the settings from the save configuration
+    settings = config.load(runspec)
+    
+    tconfig = TrainerConfig(**settings)
     trainer = Trainer(tconfig)
 
     if args.check_dataset:
         check_dataset(trainer, args)
-
-    # saves config to logdir for experiment management
-    # save_config(pprint.pformat(params), params["model_path"])
-    # save_config(params, params["model_path"])
 
     trainer.load_model()
 
