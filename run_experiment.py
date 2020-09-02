@@ -61,7 +61,7 @@ def train_thread(tpu, id):
         return
     print("Recreating {} in 60sec...".format(tpu))
     time.sleep(60)
-    os.system("pu recreate {} --yes".format(tpu))
+    os.system("pu recreate {} --yes --retry 3600 --retry-randomness 1.5".format(tpu))
     print('recreate done, exiting train_thread')
 
 
