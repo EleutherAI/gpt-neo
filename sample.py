@@ -18,7 +18,7 @@ def sample_autoregressive(partial_sequences,
                           encoder_layer_outputs=None,
                           never_end=False,
                           remove_partial_sequences=False,
-                          sampling_keep_top_k=-2,
+                          sampling_keep_top_k=-1,
                           bos_id=50256):
     """Sample randomly one token at a time.
 
@@ -99,14 +99,14 @@ def sample_autoregressive(partial_sequences,
 
     from models.gpt2 import gpt2
 
-    with tf.variable_scope('gpt2'):
-        logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context=context_first_part)
-    del logits
-    constant_states = context_first_part.constant_states
+    # with tf.variable_scope('gpt2'):
+    #     logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context=context_first_part)
+    # del logits
+    # constant_states = context_first_part.constant_states
 
     if not has_partial_sequences:
-        initial_states = [
-            mtf.zeros_like(t) for t in context_first_part.new_states]
+        # initial_states = [
+        #     mtf.zeros_like(t) for t in context_first_part.new_states]
         partial_sequences_eos_count = 0
     else:
         initial_states = context_first_part.new_states
@@ -143,33 +143,32 @@ def sample_autoregressive(partial_sequences,
         #     inputs_this_step += bos_id * mtf.ones_like(inputs_this_step) * mtf.cast(
         #         mtf.equal(position, 0), tf.int32)
 
-        initial_position = mtf.reduce_sum(mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)
+        # initial_position = mtf.reduce_sum(mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)
+        #
+        # context = mtf_transformer.transformer.Context(
+        #     model=None,
+        #     mesh=inputs.mesh,
+        #     batch_dims=batch_dims,
+        #     length_dim=length_dim,
+        #     variable_dtype=variable_dtype,
+        #     mode="first_part",
+        #     position=length_range,
+        #     position_is_default=True,
+        #     new_states=[],
+        #     initial_position=position,
+        #     sequence_id=None,
+        #     encoder_output=encoder_output,
+        #     encoder_sequence_id=encoder_sequence_id,
+        #     constant_states=[],
+        #     shared_params=shared_params,
+        #     encoder_layer_outputs=encoder_layer_outputs,
+        #     write_priority=write_priority,
+        #     read_priority=read_priority,
+        #     inputs=ids,
+        #     encoder_inputs=encoder_inputs)
 
-        context = mtf_transformer.transformer.Context(
-            model=None,
-            mesh=inputs.mesh,
-            batch_dims=batch_dims,
-            length_dim=length_dim,
-            variable_dtype=variable_dtype,
-            mode="first_part",
-            position=length_range,
-            position_is_default=True,
-            new_states=[],
-            initial_position=position,
-            sequence_id=None,
-            encoder_output=encoder_output,
-            encoder_sequence_id=encoder_sequence_id,
-            constant_states=[],
-            shared_params=shared_params,
-            encoder_layer_outputs=encoder_layer_outputs,
-            write_priority=write_priority,
-            read_priority=read_priority,
-            inputs=ids,
-            encoder_inputs=encoder_inputs)
-
-        # TODO: inputs here should be inputs_this_step but it seems to break things :<
-        with tf.variable_scope('gpt2', reuse=True):
-            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = context)
+        with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
+            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = None)
         # if never_end:
         #     logits += mtf.one_hot(
         #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),

@@ -6,11 +6,10 @@ import mesh_tensorflow.transformer as mtf_transformer
 from collections import defaultdict
 
 from optimizers import get_optimizer
-from utils import (TpuSummaries, get_graph_info)
+from utils import (TpuSummaries, get_graph_info, remove_batch_from_layout)
 from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
-
 from models.gpt2 import gpt2
 
 def model_fn(features, labels, mode, params):
@@ -21,6 +20,8 @@ def model_fn(features, labels, mode, params):
     # construct mtf graph + mesh from params
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        params["layout"] = remove_batch_from_layout(params["layout"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
 
     # init summary class
@@ -63,7 +64,7 @@ def model_fn(features, labels, mode, params):
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
 
     if mode == tf.estimator.ModeKeys.PREDICT:
-        batch_size = params["eval_batch_size"]
+        batch_size = params["predict_batch_size"]
         params["mode"] = "predict"
     elif mode == tf.estimator.ModeKeys.EVAL:
         batch_size = params["eval_batch_size"]

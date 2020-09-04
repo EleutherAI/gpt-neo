@@ -20,7 +20,7 @@
     "predict_steps": 1,
     "res_dropout": 0,
     "eval_batch_size": 128,
-    "predict_batch_size": 128,
+    "predict_batch_size": 1,
     "iterations": 500,
     "n_embd": 4096,
     "datasets": [["openwebtext-documents", 11, "documents_random", 1.0]],
