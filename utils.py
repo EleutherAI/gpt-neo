@@ -4,6 +4,25 @@ import re
 from urllib.parse import urlparse
 from shutil import rmtree
 
+
+def remove_batch_from_layout(layout):
+    """
+    the tf-mesh layout splits across batch size, remove it.
+    Useful for prediction steps, when you no longer want large batches.
+
+    :param layout: string describing tf-mesh layout
+    :return: layout minus batch dimension
+    """
+    layout = layout.split(',')
+    ret_layout = ""
+    for i in layout:
+        if "batch" in i:
+            pass
+        else:
+            ret_layout += "{}{}".format(i, ",")
+    return ret_layout[:-1]
+
+
 def yes_or_no(question):
     while True:
         reply = str(input(question+' (y/n): ')).lower().strip()
@@ -12,12 +31,14 @@ def yes_or_no(question):
         if reply[:1] == 'n':
             return False
 
+
 def remove_gs_or_filepath(path):
     parsed_url = urlparse(path)
     if parsed_url.scheme == 'gs':
         os.system('gsutil rm -rf {}'.format(path))
         return
     rmtree(path)
+
 
 def save_config(params_dict, logdir):
     print('saving config to {}'.format(logdir))
