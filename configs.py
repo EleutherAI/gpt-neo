@@ -12,18 +12,53 @@ def fetch_model_params(model):
     with open(model_path, 'r') as f:
         params = json.loads(f.read())
 
-    n_vocab = params['n_vocab']
-    datasets = {}
-    dataset_ids = params.get('dataset_ids', [])
-    no_datasets = params.get('no_dataset', False)
+    def parse_dataset(entry):
+      config = {
+          'n_vocab': 50257,
+          'stitch': 3,
+          'mode': 'documents_random',
+          'weight': 1.0,
+      }
+      if isinstance(entry, str):
+        if '::' in entry:
+          config['name'], config['weight'] = entry.split('::')
+        else:
+          config['name'] = entry
+      elif isinstance(entry, list):
+        if len(entry) <= 1:
+          config['name'], = entry
+        elif len(entry) <= 2:
+          config['name'], config['weight'] = entry
+        elif len(entry) <= 3:
+          config['name'], config['mode'], config['weight'] = entry
+        elif len(entry) <= 4:
+          config['name'], config['stitch'], config['mode'], config['weight'] = entry
+        elif len(entry) <= 5:
+          config['name'], config['eval_path'], config['stitch'], config['mode'], config['weight'] = entry
+        else:
+          assert len(entry) <= 5
+      config['stitch'] = int(config['stitch'])
+      config['weight'] = float(config['weight'])
+      # if the name contains a star, assume it's a glob path
+      if '*' in config['name']:
+        config['path'] = config['name']
+        config['eval_path'] = config['name']
+      else:
+        # otherwise the dataset must exist as a dataset config
+        assert config['name'] in DATASETS, f'dataset {config["name"]} was not found under dataset_configs/ folder. please follow the example.json in that folder'
+        dataset = DATASETS[config['name']]
+        assert config['n_vocab'] >= dataset['n_vocab'], f"the embedding table size {config['n_vocab']} must be greater or equal to the vocab size used to encode the dataset {dataset_id} ({dataset['n_vocab']})"
+        config.update(dataset)
+      return config
 
-    assert no_datasets or len(dataset_ids) > 0, 'You must specify at least one dataset id in the model config'
+    datasets = params.get('datasets')
+    if isinstance(datasets, str):
+      datasets = datasets.split(',')
 
-    for dataset_id in dataset_ids:
-        assert dataset_id in DATASETS, f'dataset {dataset_id} was not found under dataset_configs/ folder. please follow the example.json in that folder'
-        dataset = DATASETS[dataset_id]
-        assert params['n_vocab'] >= dataset['n_vocab'], f"the embedding table size {params['n_vocab']} must be greater or equal to the vocab size used to encode the dataset {dataset_id} ({dataset['n_vocab']})"
-        datasets[dataset_id] = dataset
+    if datasets is not None:
+      params["datasets"] = []
+      for entry in datasets:
+        dataset = parse_dataset(entry)
+        params["datasets"].append(dataset)
 
-    params["dataset_configs"] = datasets
     return params

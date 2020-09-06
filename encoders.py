@@ -1,16 +1,17 @@
 from tokenizers import Tokenizer
 from transformers import GPT2Tokenizer
 
-DEFAULT_TOKENIZER_PATH = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
-
 def fetch_encoder(params):
-    no_dataset = params.get('no_dataset', False)
-    if no_dataset:
-        return None
+    if params.get('datasets') is None:
+      return
 
-    dataset = next(iter(params['dataset_configs'].values()))
-    path = dataset['tokenizer_path']
-    is_pretrained = dataset.get('tokenizer_is_pretrained', False)
+    dataset = params['datasets'][0]
+    if 'tokenizer_path' not in dataset:
+      path = 'gpt2'
+      is_pretrained = True
+    else:
+      path = dataset['tokenizer_path']
+      is_pretrained = dataset.get('tokenizer_is_pretrained', False)
 
     if is_pretrained:
         return GPT2Tokenizer.from_pretrained(path)

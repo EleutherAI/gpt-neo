@@ -160,8 +160,7 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
 - `output_dir`: Where to save the tfrecords to
 - `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
-- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discareded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
-
+- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discareded.
 ## Chunk Mode
 
 In chunk mode, all documents are concatenated (with seperator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
@@ -204,7 +203,7 @@ Finally, when you are defining your model configuration, you add the filename th
 
 ```python
 "dataset_ids": [<dataset id>],
-"datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
+"datasets": [[<dataset id>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
 
 # Downloading Pretrained Models
@@ -234,11 +233,9 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
 - `train_steps`: Number of training steps (batches), set to roughly ~1 epoch for now (total number of tokens in your dataset / number of tokens per batch (= `train_batch_size` / `n_ctx`)).
 - `eval_steps`: Number of steps to run for each evaluation. Set to `0` for no eval. Each `steps_per_checkpoint`, the model is tested for `eval_steps` (`steps_per_checkpoint` is set with the CLI currently)
 - `iterations`: Number of steps queued to the TPU (also used for Tensorboard summaries), must be smaller than `steps_per_checkpoint`. (default: 500)
-- `datasets`: List of tfrecords datasets to use. Each dataset is a list with the following parameters: `[train glob , eval glob, stitch, sampling_mode, weight]`. So for example for a single dataset (note the double list): `[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]`
+- `datasets`: List of tfrecords datasets to use. Each dataset is a list with the following parameters: `[train glob , eval glob, sampling_mode, weight]`. So for example for a single dataset (note the double list): `[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]`
     + `train glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during training
     + `eval glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during evaluation
-    + `stitch`: If `sampling_mode` `random_sample` is used, the input pipeline samples this amount of texts into one to sample from. You must select stitch so that `stitch * minimum_document_length >= n_ctx`
-    + `sampling_mode`: `chunks` (tfrecords are preprocessed into the correct length and are read sequentially) or `documents_random` (`stitch` amount of documents are concatenated and then a `n_ctx` chunk is randomly subsampled)
     + `weights`: How much relative weight this dataset should have compared to others
 - `model`: Which model to train. Currently only `GPT2` is supported, WIP: 'GPT2MOE' GPT model with Mixture of Experts
 - `model_path`: Google storage location to save model checkpoints.

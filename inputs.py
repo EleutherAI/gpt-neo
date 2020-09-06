@@ -35,45 +35,78 @@ def test_generic_text(params, eval=False):
     return dataset
 
 def generic_text(params, eval=False):
-    # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
+    # params["datasets"] = [(train glob, eval_glob, ["random_sample", "sample", "chunk"] weight)]
     # , dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
     i = 0 if not eval else 1
+    current_host = get_current_host(params)
+    num_hosts = get_num_hosts(params)
     print('##############################')
     print(params["datasets"])
     print('##############################')
+    print(f"Host {current_host} of {num_hosts}")
 
     weights = []
     datasets = []
 
     for dataset in params["datasets"]:
-        dataset_id, stitch, datatype, weight = dataset
-
-        assert dataset_id in params['dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
-        dataset_config = params['dataset_configs'][dataset_id]
 
         path_key = 'path' if not eval else 'eval_path'
-        path = dataset_config[path_key]
+        path = dataset[path_key]
+
+        # fetch the filenames.
+        # should this be tf.data.Dataset.list_files(pattern, shuffle=False, seed=seed)?
+        filenames = tf.io.gfile.glob(path)
+        # sort the filename list, for sharding across TPU hosts.
+        filenames = list(sorted(filenames))
+        # convert filename list to tensor.
+        filenames = tf.data.Dataset.from_tensor_slices(filenames)
+        # shard across each TPU host.
+        filenames = filenames.shard(num_hosts, current_host)
+        # if using Dataset.list_files, be sure to cache it to avoid
+        # unnecessary class A operations against GCE buckets:
+        #filenames = filenames.cache()
+        # shuffle the filename list for each TPU host.
+        filenames = filenames.shuffle(10000)
 
         datasets.append(text_dataset(
-            tf.io.gfile.glob(path),
+            filenames,
             params,
-            stitch = stitch,
-            datatype = datatype,
-            batch = False)
+            datatype=dataset["mode"])
         )
 
-        weights.append(weight)
+        weights.append(dataset["weight"])
 
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
+    dataset = dataset.batch(params["train_batch_size"])
+    dataset = dataset.prefetch(tf.data.experimental.AUTOTUNE)
 
     return dataset
 
 
-def text_dataset(files, params, stitch, datatype, batch=True):
-    dataset = tf.data.Dataset.from_tensor_slices(files)
+def get_current_host(params):
+  # TODO(dehao): Replace the following with params['context'].current_host
+  if 'context' in params:
+    return params['context'].current_input_fn_deployment()[1]
+  elif 'dataset_index' in params:
+    return params['dataset_index']
+  else:
+    return 0
+
+
+def get_num_hosts(params):
+  if 'context' in params:
+   return params['context'].num_hosts
+  elif 'dataset_index' in params:
+    return params['dataset_num_shards']
+  else:
+    return 1
+
+
+def text_dataset(files, params, datatype):
+    dataset = files
     dataset = dataset.apply(
-        tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
+        tf.data.experimental.parallel_interleave(
+          tf.data.TFRecordDataset, cycle_length=8, sloppy=True))
 
     if "documents" in datatype:
         def _parse_function(example_proto):
@@ -91,68 +124,42 @@ def text_dataset(files, params, stitch, datatype, batch=True):
             parsed_features = tf.parse_single_example(example_proto, features)
             return parsed_features["text"]  # Assuming the text is not sparse
 
-    dataset = dataset.map(_parse_function, num_parallel_calls=1)
-
-    # Subsample method
-    if "documents" in datatype:
-        # Since samples can be less than the correct length, and TPUs don't like variable lengths, this function stitches together enough samples
-        # to have a text at least 1024 tokens long. For this to work the stitch parameter must be correctly tuned so that
-        # stitch * min(characters_in_text) >= amount
-        def _stitch_text(x, y):
-            x = tf.sparse.to_dense(x)
-
-            def _get_x(i):
-                return tf.gather(x[i], tf.range(y[i]))
-
-            out = _get_x(0)
-            eos_id = 50256 if params["n_vocab"] == 50257 else 0
-
-            for i in range(1, stitch):
-                out = tf.concat([out, [eos_id], _get_x(i)], axis=0)  # text1<|endoftext|>text2
-
-            return out
-
-        # Hack-y way to stitch together multiple texts
-        dataset = dataset.shuffle(1000 * stitch).batch(stitch, drop_remainder=True).map(_stitch_text,
-                                                                                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-        # Sample 1024(+1) tokens from the stitched together text
-        if datatype == "documents_random":
-            def _sample_text(x):
-                s = tf.size(x)
-                r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
-                r1 = tf.range(r, r + params["n_ctx"])
-                r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
-                r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
-                r2 = tf.reshape(r2, [
-                    params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
-                vals1 = tf.gather(x, r1)
-                vals2 = tf.gather(x, r2)
-
-                vals1 = tf.reshape(vals1, [params["n_ctx"]])
-                vals2 = tf.reshape(vals2, [params["n_ctx"]])
-                vals1 = tf.cast(vals1, dtype=tf.int32)
-                vals2 = tf.cast(vals2, dtype=tf.int32)
-                return vals1, vals2
-
-        else:
-            def _sample_text(x):
-                vals1 = x[:params["n_ctx"]]
-                vals2 = x[1:params["n_ctx"] + 1]
-
-                vals1 = tf.reshape(vals1, [params["n_ctx"]])
-                vals2 = tf.reshape(vals2, [params["n_ctx"]])
-                vals1 = tf.cast(vals1, dtype=tf.int32)
-                vals2 = tf.cast(vals2, dtype=tf.int32)
-                return vals1, vals2
-
-        dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
-    if batch:
-        dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
-
+    eos_id = 50256 if params["n_vocab"] == 50257 else 0
+    # parse each document, appending <|endoftext|>
+    def parse_documents(x):
+      doc, size = _parse_function(x)
+      return tf.concat([doc.values, [eos_id]], axis=0)
+    dataset = dataset.map(parse_documents)
+    # cache the documents so that we don't read the tfrecord files
+    # more than once.
+    dataset = dataset.cache()
+    # make an endless stream of documents.
     dataset = dataset.repeat()
-
+    # shuffle 1,000 documents.
+    dataset = dataset.shuffle(1000)
+    # flatten into tokens.
+    dataset = dataset.unbatch()
+    # take a chunk of 32k tokens for 1,024 context, or 64k tokens for 2,048 context.
+    num_tokens = 32 * params["n_ctx"]
+    dataset = dataset.batch(num_tokens)
+    # shuffle 1,000 chunks, which is about 30M tokens for 1,024 context,
+    # or 60M tokens for 2,048 context.
+    dataset = dataset.shuffle(1000)
+    # given a bin that holds `total` elements, return a random
+    # position such that you can take the next `subset` elements
+    # without going out of bounds. E.g. randpos(1,10) will return
+    # [0..9], randpos(2,10) will return [0..8], etc.
+    def randpos(subset, total, dtype=tf.int64):
+      assert subset <= total
+      return tf.random.uniform([], maxval=(total - subset) + 1, dtype=dtype)
+    # take a sample.
+    def sample(tokens):
+      pos = randpos(params["n_ctx"] + 1, num_tokens)
+      pos += tf.range(params["n_ctx"], dtype=tf.int64)
+      feature = tf.gather(tokens, pos)
+      label = tf.gather(tokens, pos + 1)
+      return feature, label
+    dataset = dataset.map(sample)
     return dataset
 
 
