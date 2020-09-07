@@ -2,6 +2,7 @@ import atexit
 import sacred
 import argparse
 import time
+import math
 import subprocess
 import shutil
 import os
@@ -65,24 +66,45 @@ def train_thread(tpu, id):
     print('recreate done, exiting train_thread')
 
 
+def get_json(uri, params=None, timeout=15):
+    resp = requests.get(uri, params, timeout)
+    resp.raise_for_status()
+    return resp.json()
+
+def get_tag_sets(base_uri):
+    j = get_json(f'{base_uri}/data/plugin/scalars/tags', {'experiment': ''})
+    assert isinstance(j, dict)
+    return {
+        run: j[run].keys()
+        for run in j.keys()
+    }
+
+def get_scalar_data(base_uri, run, tag):
+    j = get_json(f'{base_uri}/data/plugin/scalars/scalars', {'experiment': '', 'run': run, 'tag': tag})
+    assert isinstance(j, list)
+    return j
+
 def get_run_data(port):
-    url_stem = 'http://localhost:{}'.format(port)
-    run_stem = ''
-    request_timeout = 15
-    url = '{}/data/plugin/scalars/scalars'.format(url_stem)
+    base_uri = f'http://localhost:{port}/'
+    r = {}
     try:
-        resp = requests.get(url, params={
-            'tag': 'loss',
-            'run': '{}.'.format(run_stem),
-            'experiment': '',
-        }, timeout=request_timeout)
-        resp.raise_for_status()
-        return json.loads(resp.text)
+        tag_sets = get_tag_sets(base_uri)
+        runs = tag_sets.keys()
+        if '.' in runs:
+            if 'loss' in tag_sets['.']:
+                r['loss'] = get_scalar_data(base_uri, '.', 'loss')
+        if 'eval_lambada' in runs:
+            if 'lambada_acc' in tag_sets['eval_lambada']:
+                r['lambada_acc'] = get_scalar_data(base_uri, 'eval_lambada', 'lambada_acc')
+            if 'lambada_log_ppl' in tag_sets['eval_lambada']:
+                r['lambada_ppl'] = [
+                    [t, s, math.exp(lp)]
+                    for [t, s, lp] in get_scalar_data(base_uri, 'eval_lambada', 'lambada_log_ppl')
+                ]
     except:
         import traceback
         traceback.print_exc()
-        print(url_stem, run_stem)
-        return None
+    return r
 
 
 @ex.main
@@ -99,7 +121,7 @@ def main(_run):
     os.system("screen -S tensorboard_{} -d -m bash -c 'tensorboard --logdir {} --port {} --bind_all --reload_multifile=true || tensorboard --logdir {} --port {} --reload_multifile=true'".format(_run._id, params["model_path"], tensorboard_port,params["model_path"], tensorboard_port,))
     atexit.register(goodbye, _run._id)
 
-    curr_step = 0
+    curr_step = {}
 
     while True:
         trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id))
@@ -108,16 +130,15 @@ def main(_run):
             time.sleep(60)
             print('Polling tensorboard for metrics...')
             data = get_run_data(tensorboard_port)
-            if data is None:
-                continue
-            for ts, step, val in data:
-                if step <= curr_step:
-                    continue
-
-                _run.log_scalar('tb_ts', ts, step)
-                _run.log_scalar('loss', val, step)
-                print('Logged to sacred: step={},loss={},tb_ts={}'.format(step, val, ts))
-                curr_step = step
+            for k in data.keys():
+                for ts, step, val in data[k]:
+                    if step <= curr_step.get(k, -1):
+                        continue
+                    _run.log_scalar(k, val, step)
+                    if k == 'loss':
+                        _run.log_scalar('tb_ts', ts, step)
+                        print('Logged to sacred: step={},loss={},tb_ts={}'.format(step, val, ts))
+                    curr_step[k] = step
 
         if args.no_delete_tpu:
             break
