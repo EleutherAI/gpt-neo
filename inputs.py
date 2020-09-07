@@ -64,8 +64,10 @@ def generic_text(params, eval=False):
 
         weights.append(weight)
 
+    batch_size = params['eval_batch_size' if eval else 'train_batch_size']
+
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
+    dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
 
     return dataset
 

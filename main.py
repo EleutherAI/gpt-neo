@@ -18,6 +18,7 @@ from encoders import fetch_encoder
 from configs import fetch_model_params
 from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
+from tasks import task_descriptors
 
 def main():
     # Parse command line arguments
@@ -115,6 +116,13 @@ def main():
     params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
 
+    eval_tasks = params['eval_tasks']
+    has_predict_or_eval_steps_or_eval_tasks = params['predict_steps'] > 0 or params['eval_steps'] > 0 or len(eval_tasks) > 0
+
+    for t in eval_tasks:
+        assert t in task_descriptors, f'Eval task {t} is not known'
+        task_descriptors[t]['init_fn'](params)
+
     # Set up TPUs and Estimator
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
 
@@ -140,54 +148,60 @@ def main():
         predict_batch_size=params["predict_batch_size"],
         params=params)
 
+    def _make_task_estimator(task):
+        task_params = params.copy()
+        task_params['eval_task'] = task
+        return tpu_estimator.TPUEstimator(
+            use_tpu=params["use_tpu"],
+            model_fn=model_fn,
+            config=config,
+            train_batch_size=params["train_batch_size"],
+            eval_batch_size=params["train_batch_size"],
+            predict_batch_size=params["predict_batch_size"],
+            params=task_params)
+
+    eval_task_estimators = {
+        task: _make_task_estimator(task)
+        for task in eval_tasks
+    }
+
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info('Current step {}'.format(current_step))
 
     if args.predict:
         predictions = estimator.predict(input_fn=pred_input_fn)
+        logger.info('Predictions generated')
         enc = fetch_encoder(params)
         handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
         return
-    elif params["predict_steps"] > 0:
-        # If both predict & eval are on - stop and eval / predict every ckpt
+    elif has_predict_or_eval_steps_or_eval_tasks:
+        # If predict and/or eval is on - stop and predict and/or eval every ckpt
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
                                   params["train_steps"])
             estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
             current_step = next_checkpoint
-            logger.info('Starting to run predictions.')
-            predictions = estimator.predict(input_fn=pred_input_fn)
-            enc = fetch_encoder(params)
-            handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
-    elif params["predict_steps"] > 0 and params["eval_steps"] > 0:
-        # If predict is on - stop and predict every ckpt
-        while current_step < params["train_steps"]:
-            next_checkpoint = min(current_step + args.steps_per_checkpoint,
-                                  params["train_steps"])
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
-            current_step = next_checkpoint
-            logger.info('Starting to run predictions.')
-            predictions = estimator.predict(input_fn=pred_input_fn)
-            enc = fetch_encoder(params)
-            handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
-            logger.info('Starting to evaluate.')
-            eval_results = estimator.evaluate(
-                input_fn=partial(input_fn, eval=True),
-                steps=params["eval_steps"])
-            logger.info('Eval results: %s', eval_results)
-        return
-    elif params["eval_steps"] > 0:
-        # If eval is on - stop and eval every ckpt
-        while current_step < params["train_steps"]:
-            next_checkpoint = min(current_step + args.steps_per_checkpoint,
-                                  params["train_steps"])
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
-            current_step = next_checkpoint
-            logger.info('Starting to evaluate.')
-            eval_results = estimator.evaluate(
-                input_fn=partial(input_fn, eval=True),
-                steps=params["eval_steps"])
-            logger.info('Eval results: %s', eval_results)
+            if params['predict_steps'] > 0:
+                logger.info('Starting to run predictions.')
+                predictions = estimator.predict(input_fn=pred_input_fn)
+                enc = fetch_encoder(params)
+                handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
+            if params['eval_steps'] > 0:
+                logger.info('Starting to evaluate.')
+                eval_results = estimator.evaluate(
+                    input_fn=partial(input_fn, eval=True),
+                    steps=params["eval_steps"])
+                logger.info('Eval results: %s', eval_results)
+            for task in params['eval_tasks']:
+                logger.info(f'Starting evaluation task {task}.')
+                task_info = task_descriptors[task]['get_task_info_fn'](params)
+                task_estimator = eval_task_estimators[task]
+                task_input_fn = task_descriptors[task]['input_fn']
+                eval_results = task_estimator.evaluate(
+                    input_fn=task_input_fn,
+                    steps=task_info['n_steps'],
+                    name=task)
+                logger.info(f'Eval task {task} results: {eval_results}')
         return
     else:
         while current_step < params["train_steps"]:
