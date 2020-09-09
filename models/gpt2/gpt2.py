@@ -302,9 +302,9 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
 
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
+                mtf.transformer.moe.set_default_moe_hparams(moe_params)
                 for k, v in params["moe_params"].items():
                     moe_params.add_hparam(k, v)
-                mtf.transformer.moe.set_default_moe_hparams(moe_params)
 
                 output_dim = mtf.Dimension("moe_out", params["n_embd"])
                 if params["mode"] == "train":
