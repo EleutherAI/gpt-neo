@@ -160,7 +160,7 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
 - `output_dir`: Where to save the tfrecords to
 - `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
-- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discareded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
+- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
 
 ## Chunk Mode
 
