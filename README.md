@@ -240,7 +240,7 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
     + `stitch`: If `sampling_mode` `random_sample` is used, the input pipeline samples this amount of texts into one to sample from. You must select stitch so that `stitch * minimum_document_length >= n_ctx`
     + `sampling_mode`: `chunks` (tfrecords are preprocessed into the correct length and are read sequentially) or `documents_random` (`stitch` amount of documents are concatenated and then a `n_ctx` chunk is randomly subsampled)
     + `weights`: How much relative weight this dataset should have compared to others
-- `model`: Which model to train. Currently only `GPT2` is supported, WIP: 'GPT2MOE' GPT model with Mixture of Experts
+- `model`: Which model to train. Currently `GPT2` and `GPT2MOE` GPT-2 model with Mixture of Experts are supported.
 - `model_path`: Google storage location to save model checkpoints.
 - `n_ctx`: Size of context window. In smaller models, this is set to 1024. For larger models, this is 2048.
 - `n_layer`: Number of layers (blocks) in the model.
