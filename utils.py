@@ -137,7 +137,7 @@ def loss_denominator(targets, num_microbatches):
     """Denominator applied to losses.
 
     This is usually the size of the targets tensor (omitting ensemble
-    dimensions).  Alternitively, it is an override value passed to the
+    dimensions).  Alternatively, it is an override value passed to the
     class constructor.
 
     Args:
@@ -156,7 +156,7 @@ def loss_denominator(targets, num_microbatches):
 TPUEstimator does not support writing TF summaries out of the box and TPUs can't
 perform operations that write files to disk. To monitor tensor values during
 training you can copy the tensors back to the CPU of the host machine via
-a host call function. This small library provides a convienent API to do this.
+a host call function. This small library provides a convenient API to do this.
 
 Example:
 from compare_gan.tpu import tpu_summaries
