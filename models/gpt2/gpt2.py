@@ -305,18 +305,14 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, context=None)
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
                 for k, v in params["moe_params"].items():
                     moe_params.add_hparam(k, v)
+                mtf.transformer.moe.set_default_moe_hparams(moe_params)
+                moe_train = params["mode"] == "train"
 
-                output_dim = mtf.Dimension("moe_out", params["n_embd"])
-                if params["mode"] == "train":
-                    moe_train = True
-                else:
-                    moe_train = False
-                m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, output_dim, moe_params,
+                m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, x.shape[-1], moe_params,
                                                                            train=moe_train,
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
                                                                            variable_dtype=tf.float32)
-                m = mtf.replace_dimensions(m, m.shape[-1], x.shape[-1])
             else:
 
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
