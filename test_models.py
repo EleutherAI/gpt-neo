@@ -77,15 +77,16 @@ def test_model():
     vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
 
     other_features = {}
+    variable_dtype = mtf.VariableDType(tf.float32, tf.float32, tf.float32)
 
-    other_features["attn_bias"] = biasmask_attn_weights(mesh, length_dim, memory_length_dim, tf.float32)
+    other_features["attn_bias"] = biasmask_attn_weights(mesh, length_dim, memory_length_dim, variable_dtype)
     other_features["embd_dim"] = embd_dim
     other_features["vocab_dim"] = vocab_dim
     other_features["embed_sequence_dim"] = embed_sequence_dim
     other_features["memory_length_dim"] = memory_length_dim
 
     with not_raises(Exception):
-        logits, _, _ = gpt2.model(features, other_features, params, mesh)
+        logits, _, _ = gpt2.model(features, other_features, params, mesh, variable_dtype=variable_dtype)
 
         mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
         lowering = mtf.Lowering(graph, {mesh: mesh_impl})
