@@ -319,7 +319,6 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, variable_dtyp
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
                                                                            variable_dtype=variable_dtype)
-                m = mtf.replace_dimensions(m, m.shape[-1], x.shape[-1])
             else:
 
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
