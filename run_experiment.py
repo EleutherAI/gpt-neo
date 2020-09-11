@@ -67,7 +67,7 @@ def train_thread(tpu, id):
 
 
 def get_json(uri, params=None, timeout=15):
-    resp = requests.get(uri, params, timeout)
+    resp = requests.get(uri, params=params, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
