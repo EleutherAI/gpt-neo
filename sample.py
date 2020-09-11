@@ -19,7 +19,8 @@ def sample_autoregressive(partial_sequences,
                           never_end=False,
                           remove_partial_sequences=False,
                           sampling_keep_top_k=-1,
-                          bos_id=50256):
+                          bos_id=50256,
+                          ):
     """Sample randomly one token at a time.
 
     The partial_sequences represent partial sequences to be continued.  The
@@ -109,7 +110,7 @@ def sample_autoregressive(partial_sequences,
         #     mtf.zeros_like(t) for t in context_first_part.new_states]
         partial_sequences_eos_count = 0
     else:
-        initial_states = context_first_part.new_states
+       initial_states = context_first_part.new_states
 
     if stop_at_token is not None:
         partial_sequences_eos_count = mtf.reduce_sum(
@@ -168,7 +169,7 @@ def sample_autoregressive(partial_sequences,
         #     encoder_inputs=encoder_inputs)
 
         with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
-            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = None)
+            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = None)
         # if never_end:
         #     logits += mtf.one_hot(
         #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),
