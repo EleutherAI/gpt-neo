@@ -219,7 +219,10 @@ def model_fn(features, labels, mode, params):
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
-        fully_replicated_logits = mtf.anonymize(logits)
+        mean_logits = mtf.reduce_mean(logits, reduced_dim=vocab_dim)
+        max_logits = mtf.argmax(logits, vocab_dim)
+        fully_replicated_mean_logits = mtf.anonymize(mean_logits)
+        fully_replicated_max_logits = mtf.anonymize(max_logits)
         fully_replicated_loss_batch = mtf.anonymize(loss_batch)
 
     # Gets info about no. trainable vars in the model & dimension names
@@ -237,7 +240,8 @@ def model_fn(features, labels, mode, params):
         tf.logging.info('tf_update_ops: {}'.format(tf_update_ops))
         train_op = tf.group(tf_update_ops)
     else:
-        tf_logits = lowering.export_to_tf_tensor(fully_replicated_logits)
+        tf_mean_logits = lowering.export_to_tf_tensor(fully_replicated_mean_logits)
+        tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
         tf_loss_batch = tf.to_float(lowering.export_to_tf_tensor(fully_replicated_loss_batch))
 
     with mtf.utils.outside_all_rewrites():
@@ -275,12 +279,30 @@ def model_fn(features, labels, mode, params):
                 perplexity = tf.exp(loss)
                 return tf.metrics.mean(perplexity)
 
-            def _metric_fn(tf_logits, tf_loss_batch):
-                mean_logits = tf.metrics.mean(tf_logits)
+            def _metric_fn(tf_mean_logits, tf_loss_batch):
+                mean_logits = tf.metrics.mean(tf_mean_logits)
                 perp = _perplexity(tf_loss_batch)
                 return {'mean_logits': mean_logits, 'perplexity': perp}
 
-            eval_metrics = (_metric_fn, [tf_logits, tf_loss_batch])
+            def _lambada_metric_fn(labels, tf_max_logits, tf_loss_batch):
+                eos_token = 50256 if params['n_vocab'] >= 50257 else 0
+                answer_positions = tf.where(tf.math.not_equal(labels, eos_token))
+
+                correct_answers = tf.gather_nd(tf.math.equal(tf_max_logits, labels), answer_positions)
+                accuracy = tf.metrics.mean(tf.cast(correct_answers, tf.float32))
+
+                # I guess tf_loss_batch has z_loss and maybe other stuff added to it
+                # so maybe this should be calculated separately in the future
+                answer_loss = tf.gather_nd(tf_loss_batch, answer_positions)
+                log_perplexity = tf.metrics.mean(answer_loss)
+
+                return {'lambada_acc': accuracy, 'lambada_log_ppl': log_perplexity}
+
+            eval_task = params['eval_task']
+            if eval_task == 'lambada':
+                eval_metrics = (_lambada_metric_fn, [labels, tf_max_logits, tf_loss_batch])
+            else:
+                eval_metrics = (_metric_fn, [tf_mean_logits, tf_loss_batch])
 
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.EVAL,
