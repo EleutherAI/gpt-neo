@@ -35,7 +35,7 @@ def lambada_read_or_create_tokens_data(params, path):
         return json.load(f)
 
 def lambada_bin_pack(params, tokens_data):
-    eos_token = 50256 if params['n_vocab'] == 50257 else 0
+    eos_token = 50256 if params['n_vocab'] >= 50257 else 0
     n_ctx = params['n_ctx']
     dummy_token = 1
     pad_batch_size = params['eval_batch_size']
@@ -75,7 +75,7 @@ def lambada_get_task_info(params):
 
 # The LAMBADA evaluation code looks at the logits of each position just before an eos_token
 def lambada_input(params):
-    eos_token = 50256 if params['n_vocab'] == 50257 else 0
+    eos_token = 50256 if params['n_vocab'] >= 50257 else 0
     n_ctx = params['n_ctx']
     lt_path = params['lambada_tokens_path']
     tokens_data = lambada_read_or_create_tokens_data(params, lt_path)
