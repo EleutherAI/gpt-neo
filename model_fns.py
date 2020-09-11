@@ -234,6 +234,15 @@ def model_fn(features, labels, mode, params):
     tf_loss = tf.cast(tf_loss, tf.float32)
     
     if mode == tf.estimator.ModeKeys.TRAIN:
+
+        mtf.scalar_summary("loss", loss)
+        # mtf.scalar_summary("lr", learning_rate)
+        for g in var_grads:
+            grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
+            mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
+        host_call = mtf.utils.create_host_call(params['model_path'])
+        mtf.utils.remove_summaries()
+    if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
         tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
@@ -266,7 +275,7 @@ def model_fn(features, labels, mode, params):
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
-                host_call=summary.get_host_call(),
+                host_call=host_call,
                 train_op=train_op,
                 training_hooks=[restore_hook, saver_hook])
 
