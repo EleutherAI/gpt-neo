@@ -26,7 +26,7 @@ def model_fn(features, labels, mode, params):
 
     # init summary class
     summary = TpuSummaries(params["model_path"])
-
+    
     # Mesh stuff
     if params["use_tpu"]:
         # construct SimdMesh function - instructions on how to evenly split tensors across all cores
@@ -55,6 +55,13 @@ def model_fn(features, labels, mode, params):
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
             mesh_shape, layout_rules, mesh_devices)
 
+    # trainable variable precision
+    # store to check points in master type, train in slice type, compute in activation type
+    if params['precision'] == 'bfloat16':
+        variable_dtype = mtf.VariableDType(master_dtype=tf.bfloat16, slice_dtype=tf.float32, activation_dtype=tf.bfloat16)
+    else:
+        variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
+
     # Build the actual model
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
@@ -72,6 +79,8 @@ def model_fn(features, labels, mode, params):
     elif mode == tf.estimator.ModeKeys.TRAIN:
         batch_size = params["train_batch_size"]
         params["mode"] = "train"
+    else:
+        raise ValueError('invalid mode %s' % mode)
 
     batch_dim = mtf.Dimension('batch', batch_size)
     batch_dims = [batch_dim]
@@ -91,7 +100,7 @@ def model_fn(features, labels, mode, params):
     other_features = {}
     # Calculate attn mask (attn_bias) once here
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
-    attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, tf.float32)
+    attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, variable_dtype)
 
     # add attn_bias into mtf_features
     other_features["attn_bias"] = attn_bias
@@ -109,13 +118,14 @@ def model_fn(features, labels, mode, params):
     other_features["embed_sequence_dim"] = embed_sequence_dim
     other_features["memory_length_dim"] = memory_length_dim
 
+
     if mode == tf.estimator.ModeKeys.PREDICT:
         inputs = mtf_features["inputs"]
         if params["remove_partial_sequences"] is None:
             params["remove_partial_sequences"] = False
-        mtf_samples = sample_autoregressive(
-            inputs, other_features=other_features, params=params, variable_dtype=tf.float32,
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+            mtf_samples = sample_autoregressive(
+                inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
+                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
@@ -124,7 +134,7 @@ def model_fn(features, labels, mode, params):
         predictions = {
             "inputs": inputs,
             "outputs": outputs}
-
+        
         def scaffold_fn():
             return tf.train.Scaffold(
                 local_init_op=tf.group(
@@ -153,13 +163,13 @@ def model_fn(features, labels, mode, params):
                                                                         layout_rules=layout_rules,
                                                                         tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
     params["num_microbatches"] = num_microbatches  # add num microbatches to params
-
+    
     if num_microbatches > 1:
         def serialized_fn(mtf_features):
             # for serialize_training_step we need to modify the model to output results in a dict
             if params["model"] == "GPT2":
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
 
         # serialize the training step - Gradients are accumulated locally and reduced once.
@@ -173,7 +183,7 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT2":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh)
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, past=None, context=None)
         else:
             raise Exception("{} is not a valid model - please select from GPT2".format(params['model']))
 
@@ -202,10 +212,10 @@ def model_fn(features, labels, mode, params):
         if params["num_microbatches"] > 1:
             # if we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
             # so we pass them in here
-            _, update_ops = get_optimizer(loss, params, summary, inp_var_grads=var_grads)
+            _, update_ops, var_grads = get_optimizer(loss, params, summary, variable_dtype=variable_dtype, inp_var_grads=var_grads)
         else:
             # otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-            _, update_ops = get_optimizer(loss, params, summary)
+            _, update_ops, var_grads = get_optimizer(loss, params, summary, variable_dtype=variable_dtype)
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
@@ -217,8 +227,9 @@ def model_fn(features, labels, mode, params):
 
     # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
-    tf_loss = tf.to_float(lowering.export_to_tf_tensor(loss))
-
+    tf_loss = lowering.export_to_tf_tensor(loss)
+    tf_loss = tf.cast(tf_loss, tf.float32)
+    
     if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
