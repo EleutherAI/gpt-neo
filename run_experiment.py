@@ -11,6 +11,8 @@ import threading
 import requests
 import glob
 from configs import fetch_model_params
+import socket
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--tpu', type=str, required=True) # Name of TPU to train on, if any
@@ -31,7 +33,7 @@ params = fetch_model_params(args.model)
 ex = sacred.Experiment(args.experiment_name)
 ex.observers.append(sacred.observers.QueuedMongoObserver(url='127.0.0.1:27017', db_name='db', username='user', password='password'))
 
-import socket
+
 def get_open_port(lo=8000, hi=8100):
     for i in range(lo, hi):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -71,6 +73,7 @@ def get_json(uri, params=None, timeout=15):
     resp.raise_for_status()
     return resp.json()
 
+
 def get_tag_sets(base_uri):
     j = get_json(f'{base_uri}/data/plugin/scalars/tags', {'experiment': ''})
     assert isinstance(j, dict)
@@ -79,10 +82,12 @@ def get_tag_sets(base_uri):
         for run in j.keys()
     }
 
+
 def get_scalar_data(base_uri, run, tag):
     j = get_json(f'{base_uri}/data/plugin/scalars/scalars', {'experiment': '', 'run': run, 'tag': tag})
     assert isinstance(j, list)
     return j
+
 
 def get_run_data(port):
     base_uri = f'http://localhost:{port}/'

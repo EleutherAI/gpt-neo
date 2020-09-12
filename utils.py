@@ -3,6 +3,60 @@ from tensorflow.contrib import summary
 import re
 from urllib.parse import urlparse
 from shutil import rmtree
+import collections
+from absl import logging
+import os
+import mesh_tensorflow as mtf
+from pathlib import Path
+import sys
+
+def setup_logging(args):
+    Path("logs").mkdir(exist_ok=True)
+    tf.logging.set_verbosity(logging.INFO)
+    handlers = [
+        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
+        logging.StreamHandler(sys.stdout)
+    ]
+    logger = logging.getLogger('tensorflow')
+    logger.handlers = handlers
+    return logger
+
+def get_batch_size(params):
+    return params["{}_batch_size".format(params["mode"])]
+
+
+def add_mode_to_params(params, mode):
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        params["mode"] = "predict"
+    elif mode == tf.estimator.ModeKeys.EVAL:
+        params["mode"] = "eval"
+    elif mode == tf.estimator.ModeKeys.TRAIN:
+        params["mode"] = "train"
+    else:
+        raise ValueError('invalid mode %s' % mode)
+    return params
+
+
+def simd_mesh_setup(params, mesh_shape, layout_rules):
+    """constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
+
+    num_hosts = params['context'].num_hosts
+    host_placement_fn = params['context'].tpu_host_placement_function
+    device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
+    tf.logging.info('device_list = {}'.format(device_list))
+
+    # TODO: Better estimation of replica cache size?
+    replica_cache_size = 300 * 1000000  # 300M per replica
+
+    # Worker 0 caches all the TPU binaries.
+    worker0_mem = replica_cache_size * params['context'].num_replicas
+    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+    var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
+    mesh_devices = [''] * mesh_shape.size
+    mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
+        mesh_shape, layout_rules, mesh_devices, params['context'].device_assignment)
+
+    return var_placer, mesh_impl
 
 
 def remove_batch_from_layout(layout):
@@ -114,10 +168,8 @@ def print_dim_names(graph):
     all_dim_names = [item for sublist in all_dim_names for item in sublist] # flatten all dims
     unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
-    with open('all_dim_names.txt', 'w') as f:
-        for dim_name in unique_dims:
-            f.write("%s\n" % dim_name)
-            print(dim_name)
+    for dim_name in unique_dims:
+        print(dim_name)
     print('\n')
 
 
@@ -175,11 +227,6 @@ summaries can slow down your training. High ranking outfeed operations in your
 XProf profile can be an indication for this.
 """
 
-import collections
-
-from absl import logging
-import os
-
 TpuSummaryEntry = collections.namedtuple(
     "TpuSummaryEntry", "summary_fn name tensor reduce_fn")
 
@@ -193,7 +240,7 @@ class TpuSummaries(object):
   all the TPU cores.
   """
 
-  def __init__(self, log_dir, save_summary_steps=10):
+  def __init__(self, log_dir, save_summary_steps=500):
     self._log_dir = log_dir
     self._scalar_entries = []
     # While False no summary entries will be added. On TPU we unroll the graph

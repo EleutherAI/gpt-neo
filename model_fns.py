@@ -4,13 +4,13 @@ from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
 from collections import defaultdict
-
 from optimizers import get_optimizer
-from utils import (TpuSummaries, get_graph_info, remove_batch_from_layout)
+from utils import (TpuSummaries, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size)
 from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
 from models.gpt2 import gpt2
+
 
 def model_fn(features, labels, mode, params):
     # grab global step no.
@@ -27,27 +27,12 @@ def model_fn(features, labels, mode, params):
     # init summary class
     summary = TpuSummaries(params["model_path"])
     
-    # Mesh stuff
+    # Mesh setup
     if params["use_tpu"]:
-        # construct SimdMesh function - instructions on how to evenly split tensors across all cores
-        num_hosts = params['context'].num_hosts
-        host_placement_fn = params['context'].tpu_host_placement_function
-        device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
-        tf.logging.info('device_list = {}'.format(device_list))
-
-        # TODO: Better estimation of replica cache size?
-        replica_cache_size = 300 * 1000000  # 300M per replica
-
-        # Worker 0 caches all the TPU binaries.
-        worker0_mem = replica_cache_size * params['context'].num_replicas
-        devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
-        var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
-        mesh_devices = [''] * mesh_shape.size
-        mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-            mesh_shape, layout_rules, mesh_devices, params['context'].device_assignment)
+        var_placer, mesh_impl = simd_mesh_setup(params, mesh_shape, layout_rules)
     else:
+        # TODO: get working for multiple GPUs
         var_placer = None
-
         mesh_devices = ['/device:GPU:0']
         mesh_shape = [("all_processors", 1)]
         layout_rules = [("batch", "all_processors")]
@@ -56,13 +41,13 @@ def model_fn(features, labels, mode, params):
             mesh_shape, layout_rules, mesh_devices)
 
     # trainable variable precision
-    # store to check points in master type, train in slice type, compute in activation type
+    # store to checkpoints in master type, train in slice type, compute in activation type
     if params['precision'] == 'bfloat16':
         variable_dtype = mtf.VariableDType(master_dtype=tf.bfloat16, slice_dtype=tf.float32, activation_dtype=tf.bfloat16)
     else:
         variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
-    # Build the actual model
+    # build mtf mesh object
     mesh = mtf.Mesh(graph, 'my_mesh', var_placer)
 
     # build mtf_features & seq length dict for getting number of microbatches
@@ -70,17 +55,8 @@ def model_fn(features, labels, mode, params):
     features_dict = {"inputs": features, "labels": labels}
     sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
 
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        batch_size = params["predict_batch_size"]
-        params["mode"] = "predict"
-    elif mode == tf.estimator.ModeKeys.EVAL:
-        batch_size = params["eval_batch_size"]
-        params["mode"] = "eval"
-    elif mode == tf.estimator.ModeKeys.TRAIN:
-        batch_size = params["train_batch_size"]
-        params["mode"] = "train"
-    else:
-        raise ValueError('invalid mode %s' % mode)
+    params = add_mode_to_params(params, mode)
+    batch_size = get_batch_size(params)
 
     batch_dim = mtf.Dimension('batch', batch_size)
     batch_dims = [batch_dim]
@@ -98,8 +74,8 @@ def model_fn(features, labels, mode, params):
 
     # instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
     other_features = {}
-    # Calculate attn mask (attn_bias) once here
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
+    # Calculate attn mask (attn_bias) once here
     attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, variable_dtype)
 
     # add attn_bias into mtf_features
@@ -111,13 +87,12 @@ def model_fn(features, labels, mode, params):
     # we need this because gathering when both the args have the same dimension in them breaks things
     # this dim is specifically for the weights
     # this prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error.
-    embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"]) # TODO: this could be memory_length?
+    embed_sequence_dim = mtf.Dimension('embed_sequence', params["n_ctx"])
 
     other_features["embd_dim"] = embd_dim
     other_features["vocab_dim"] = vocab_dim
     other_features["embed_sequence_dim"] = embed_sequence_dim
     other_features["memory_length_dim"] = memory_length_dim
-
 
     if mode == tf.estimator.ModeKeys.PREDICT:
         inputs = mtf_features["inputs"]
@@ -227,13 +202,15 @@ def model_fn(features, labels, mode, params):
         fully_replicated_max_logits = mtf.anonymize(max_logits)
         fully_replicated_loss_batch = mtf.anonymize(loss_batch)
 
-    # Gets info about no. trainable vars in the model & dimension names
+    # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
 
     # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
+
+    # log loss to tensorboard
     summary.scalar("loss", tf_loss)
 
     if mode == tf.estimator.ModeKeys.TRAIN:

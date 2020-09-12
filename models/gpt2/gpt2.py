@@ -224,7 +224,7 @@ def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_d
                 k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
                 v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
 
-                attn_dropout_rate = params["attn_dropout"] if params["mode"] == tf.estimator.ModeKeys.TRAIN else 0
+                attn_dropout_rate = params["attn_dropout"] if params["mode"] == "train" else 0
 
                 a = mtf_transformer.attention.attention(
                     q, k, v,
