@@ -460,8 +460,10 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         with tf.variable_scope('xentropy_final'):
             loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim, z_loss=z_loss)
 
+        # for non-autoregressive models (masked language modeling training)
         # make sure labels with padding tokens are not counted in the loss
-        loss_batch = mtf.where(mtf.not_equal(labels, 0), loss_batch, mtf.zeros_like(loss_batch))
+        if not params["causal"]:
+            loss_batch = mtf.where(mtf.not_equal(labels, 0), loss_batch, mtf.zeros_like(loss_batch))
 
         with tf.variable_scope('reduce_mean_final'):
             loss = mtf.reduce_mean(loss_batch)
