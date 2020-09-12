@@ -7,6 +7,7 @@ for path in Path('./dataset_configs').glob('*.json'):
     dataset_id = path.stem
     DATASETS[dataset_id] = json.loads(path.read_text())
 
+
 def fetch_model_params(model):
     model_path = model if model.endswith('.json') else 'configs/{}.json'.format(model)
     with open(model_path, 'r') as f:

@@ -3,6 +3,7 @@ import tensorflow.compat.v1 as tf
 from tokenizers import Tokenizer
 from encoders import encode
 
+
 def test_generic_text(params, eval=False):
     batch_size = params['train_batch_size']
 
@@ -34,9 +35,8 @@ def test_generic_text(params, eval=False):
     dataset = dataset.batch(batch_size)
     return dataset
 
+
 def generic_text(params, eval=False):
-    # params["datasets"] = [(train glob, eval_glob, stitch, ["random_sample", "sample", "chunk"] weight)]
-    # , dsets=[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]
     i = 0 if not eval else 1
     print('##############################')
     print(params["datasets"])
@@ -175,6 +175,7 @@ def pred_input(params, enc = None, text="In a shocking finding, scientist discov
     dataset = dataset.map(_dummy_labels)
     return dataset
 
+
 def test_pred_input(params, enc = None):
     def _dummy_labels(x):
         return x, x
@@ -190,6 +191,7 @@ def test_pred_input(params, enc = None):
     dataset = dataset.map(_dummy_labels)
     return dataset
 
+
 def handle_pred_output(predictions, logger, enc, out_name="test"):
     with tf.gfile.Open(f"{out_name}.txt", "a") as f:
         for i, p in enumerate(predictions):
@@ -202,6 +204,7 @@ def handle_pred_output(predictions, logger, enc, out_name="test"):
             logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
             logger.info(text)
             logger.info("\n" + "=" * 80 + "\n")
+
 
 def test_handle_pred_output(predictions, logger, enc, **kwargs):
     for i, p in enumerate(predictions):
