@@ -1,5 +1,4 @@
 {
-    "dataset_ids": ["example"],
     "n_vocab": 32768,
     "n_head": 8,
     "embed_dropout": 0,
