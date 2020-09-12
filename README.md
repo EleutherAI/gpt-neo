@@ -64,7 +64,7 @@ $ python main.py --test
 To see the tensorboard
 
 ```bash
-$ sh start_test_tb.sh 8081
+$ sh scripts/start_test_tb.sh 8081
 ```
 
 To run a prediction
