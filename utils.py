@@ -3,6 +3,62 @@ from tensorflow.contrib import summary
 import re
 from urllib.parse import urlparse
 from shutil import rmtree
+import collections
+import logging
+import os
+import mesh_tensorflow as mtf
+from pathlib import Path
+import sys
+
+
+def setup_logging(args):
+    Path("logs").mkdir(exist_ok=True)
+    tf.logging.set_verbosity(logging.INFO)
+    handlers = [
+        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
+        logging.StreamHandler(sys.stdout)
+    ]
+    logger = logging.getLogger('tensorflow')
+    logger.handlers = handlers
+    return logger
+
+
+def get_batch_size(params):
+    return params["{}_batch_size".format(params["mode"])]
+
+
+def add_mode_to_params(params, mode):
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        params["mode"] = "predict"
+    elif mode == tf.estimator.ModeKeys.EVAL:
+        params["mode"] = "eval"
+    elif mode == tf.estimator.ModeKeys.TRAIN:
+        params["mode"] = "train"
+    else:
+        raise ValueError('invalid mode %s' % mode)
+    return params
+
+
+def simd_mesh_setup(params, mesh_shape, layout_rules):
+    """constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
+
+    num_hosts = params['context'].num_hosts
+    host_placement_fn = params['context'].tpu_host_placement_function
+    device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
+    tf.logging.info('device_list = {}'.format(device_list))
+
+    # TODO: Better estimation of replica cache size?
+    replica_cache_size = 300 * 1000000  # 300M per replica
+
+    # Worker 0 caches all the TPU binaries.
+    worker0_mem = replica_cache_size * params['context'].num_replicas
+    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+    var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
+    mesh_devices = [''] * mesh_shape.size
+    mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
+        mesh_shape, layout_rules, mesh_devices, params['context'].device_assignment)
+
+    return var_placer, mesh_impl
 
 
 def remove_batch_from_layout(layout):
@@ -33,6 +89,8 @@ def yes_or_no(question):
 
 
 def remove_gs_or_filepath(path):
+    """removes all files from a directory
+    (either gs:// gcloud directories or normal)"""
     parsed_url = urlparse(path)
     if parsed_url.scheme == 'gs':
         os.system('gsutil rm -rf {}'.format(path))
@@ -41,6 +99,7 @@ def remove_gs_or_filepath(path):
 
 
 def save_config(params_dict, logdir):
+    """saves model params as a text tensor to tensorboard"""
     print('saving config to {}'.format(logdir))
     text = '{\n\n'
     total_params = len(params_dict)
@@ -101,7 +160,7 @@ def get_n_trainable_vars(graph):
 
 def print_dim_names(graph):
     """
-
+    prints all dimension names in a Mesh-Tensorflow graph
     :param graph: Mesh-Tensorflow graph
     :return: None
     """
@@ -114,18 +173,14 @@ def print_dim_names(graph):
     all_dim_names = [item for sublist in all_dim_names for item in sublist] # flatten all dims
     unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
-    with open('all_dim_names.txt', 'w') as f:
-        for dim_name in unique_dims:
-            f.write("%s\n" % dim_name)
-            print(dim_name)
+    for dim_name in unique_dims:
+        print(dim_name)
     print('\n')
 
 
 def get_graph_info(graph):
     """
     wrapper fn that calculates number of trainable vars in an MTF graph & prints all dim_names to file
-    TODO: how to get un-trainable dim-names too, batch etc.
-
     :param graph: Mesh-Tensorflow graph
     :return: None
     """
@@ -175,11 +230,6 @@ summaries can slow down your training. High ranking outfeed operations in your
 XProf profile can be an indication for this.
 """
 
-import collections
-
-from absl import logging
-import os
-
 TpuSummaryEntry = collections.namedtuple(
     "TpuSummaryEntry", "summary_fn name tensor reduce_fn")
 
@@ -193,7 +243,8 @@ class TpuSummaries(object):
   all the TPU cores.
   """
 
-  def __init__(self, log_dir, save_summary_steps=10):
+  def __init__(self, log_dir, save_summary_steps=500):
+    self.logger = tf.logging
     self._log_dir = log_dir
     self._scalar_entries = []
     # While False no summary entries will be added. On TPU we unroll the graph
@@ -214,7 +265,7 @@ class TpuSummaries(object):
     if not self.record:
       return
     if self.has(name):
-      logging.info("TpuSummaries.scalar: skipping duplicate %s", name)
+      self.logger.info("TpuSummaries.scalar: skipping duplicate %s", name)
     else:
       tensor = tf.convert_to_tensor(tensor)
       if tensor.shape.ndims == 0:
@@ -229,7 +280,7 @@ class TpuSummaries(object):
     global_step = tf.train.get_or_create_global_step()
     host_call_args = [tf.expand_dims(global_step, 0)]
     host_call_args.extend([e.tensor for e in self._scalar_entries])
-    logging.info("host_call_args: %s", host_call_args)
+    self.logger.info("host_call_args: %s", host_call_args)
     return (self._host_call_fn, host_call_args)
 
   def _host_call_fn(self, step, *args):
@@ -237,7 +288,7 @@ class TpuSummaries(object):
     # Host call receives values from all tensor cores (concatenate on the
     # batch dimension). Step is the same for all cores.
     step = step[0]
-    logging.info("host_call_fn: args=%s", args)
+    self.logger.info("host_call_fn: args=%s", args)
     ops = []
 
     # log scalars
