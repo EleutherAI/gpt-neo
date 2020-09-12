@@ -200,10 +200,11 @@ If you have a dataset that encoded using a publicly available tokenizer from Hug
 }
 ```
 
-Finally, when you are defining your model configuration, you add the filename that you created above to the `dataset_ids` array.
+Finally, when you are defining your model configuration, you add the filename that you created above to the `datasets` array.
+
+The `<dataset id>` will be the filename, excluding the `.json`, that you created above
 
 ```python
-"dataset_ids": [<dataset id>],
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
 
