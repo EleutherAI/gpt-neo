@@ -137,8 +137,6 @@ def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_d
             one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
             inv_one_hot = 1.0 - one_hot
             old_k, old_v = context.get_states(2)
-            k = mtf.reshape(k, [k.shape[0], *k.shape[2:]])
-            v = mtf.reshape(v, [v.shape[0], *v.shape[2:]])
             k = old_k * inv_one_hot + k * one_hot
             v = old_v * inv_one_hot + v * one_hot
             bias = None
@@ -156,7 +154,7 @@ def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_d
                 radius = params.get("local_attention_radius", 256)
 
                 if is_incremental_inference(context):
-                    q = mtf.reshape(q, [q.shape[0], *q.shape[2:]]) * one_hot
+                    q *= one_hot
 
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
@@ -362,7 +360,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
     if is_incremental_inference(context):
         x = mtf.gather(x, context.position - 1, sequence_dim)
-        x = mtf.reshape(x, [batch_dim, mtf.Dimension('sequence', 1)])
+        x = mtf.reshape(x, [batch_dim])
 
     if not use_axial_pos_emb:
         wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
@@ -447,12 +445,13 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
     else:
         # layer normalize & affine transform
         h = layer_norm(h, 'ln_f', variable_dtype=variable_dtype, params=params)
+        seq_dim = sequence_dim if not is_incremental_inference(context) else mtf.Dimension('sequence', 1)
         with tf.variable_scope('wte_final_einsum'):
             # equivalent to tf.matmul
-            logits = mtf.einsum([h, wte], output_shape=[batch_dim, h.shape[1], vocab_dim])
+            logits = mtf.einsum([h, wte], output_shape=[batch_dim, seq_dim, vocab_dim])
 
-    vdim = logits.shape[2]  # get vocab dimension
     if params["mode"] is not "predict":
+        vdim = logits.shape[-1]  # get vocab dimension
         labels = mtf_features["labels"]
         z_loss = params.get('z_loss', 1e-4)
         # go to full precision for the logits 
