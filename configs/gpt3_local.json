@@ -1,5 +1,10 @@
 {
     "dataset_ids": ["example"],
+    "mlm_training": true,
+    "mlm_mask_prob": 0.15,
+    "mlm_same_token_prob": 0.10,
+    "mlm_mask_id": 3,
+    "mlm_mask_ignore_ids": [1, 2],
     "n_vocab": 32768,
     "n_head": 8,
     "embed_dropout": 0,
