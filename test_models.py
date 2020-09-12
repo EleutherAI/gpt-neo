@@ -12,6 +12,8 @@ from mesh_tensorflow import placement_mesh_impl
 from models.gpt2 import gpt2
 from models.utils import biasmask_attn_weights
 
+from sample import sample_autoregressive
+
 # helper functions
 
 @contextmanager
@@ -56,7 +58,6 @@ def test_model():
     graph = mtf.Graph()
     mesh = mtf.Mesh(graph, "my_mesh")
 
-
     seq_len = params["n_ctx"]
 
     batch_dim = mtf.Dimension("batch", 1)
@@ -91,3 +92,43 @@ def test_model():
         mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
         lowering = mtf.Lowering(graph, {mesh: mesh_impl})
         logits = lowering.export_to_tf_tensor(logits)
+
+
+def test_sampling():
+    graph = mtf.Graph()
+    mesh = mtf.Mesh(graph, "my_mesh")
+
+    batch_dim = mtf.Dimension("batch", 1)
+    sequence_dim = mtf.Dimension("sequence", 1)
+
+    inputs = mtf.ones(mesh, mtf.Shape((batch_dim, sequence_dim)), tf.int32)
+    inputs = mtf.pad(inputs, [0, 3], sequence_dim.name)
+
+    # create mask
+
+    seq_len = params["n_ctx"]
+    num_mem_kv = params.get('num_mem_kv', 0)
+    length_dim = mtf.Dimension('sequence', seq_len)
+    memory_length_dim = mtf.Dimension('memory_length', seq_len + num_mem_kv)
+    embed_sequence_dim = mtf.Dimension('embed_sequence', seq_len)
+    embd_dim = mtf.Dimension("embd", params["n_embd"])
+    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+
+    other_features = {}
+
+    other_features["attn_bias"] = biasmask_attn_weights(mesh, length_dim, memory_length_dim, mtf.VariableDType(tf.float32))
+    other_features["embd_dim"] = embd_dim
+    other_features["vocab_dim"] = vocab_dim
+    other_features["embed_sequence_dim"] = embed_sequence_dim
+    other_features["memory_length_dim"] = memory_length_dim
+
+    params["mode"] = "predict"
+
+    with not_raises(Exception):
+        samples = sample_autoregressive(
+            inputs, other_features=other_features, params=params, variable_dtype=mtf.VariableDType(),
+            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+
+        mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
+        lowering = mtf.Lowering(graph, {mesh: mesh_impl})
+        samples = lowering.export_to_tf_tensor(samples)

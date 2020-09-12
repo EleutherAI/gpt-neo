@@ -123,9 +123,11 @@ def model_fn(features, labels, mode, params):
         inputs = mtf_features["inputs"]
         if params["remove_partial_sequences"] is None:
             params["remove_partial_sequences"] = False
-            mtf_samples = sample_autoregressive(
-                inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+
+        mtf_samples = sample_autoregressive(
+            inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
+            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
@@ -183,7 +185,7 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT2":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, past=None, context=None)
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
         else:
             raise Exception("{} is not a valid model - please select from GPT2".format(params['model']))
 

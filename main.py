@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--new', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
+    parser.add_argument('--slow_sampling', action='store_true')
     parser.add_argument('--check_dataset', action='store_true')
     args = parser.parse_args()
 
@@ -115,6 +116,7 @@ def main():
     # can we change the mesh layout so batch will not be split at prediction time?
     params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
+    params["slow_sampling"] = args.slow_sampling
 
     eval_tasks = params.get('eval_tasks', [])
     has_predict_or_eval_steps_or_eval_tasks = params['predict_steps'] > 0 or params['eval_steps'] > 0 or len(eval_tasks) > 0
