@@ -61,6 +61,7 @@ def sample_autoregressive(partial_sequences,
     inputs = partial_sequences  # partial sequences to fill in
     batch_dims = inputs.shape.dims[:-1]  # √
     length_dim = inputs.shape.dims[-1]  # √
+    slow_sampling = params.get('slow_sampling', False)
 
     initial_position = mtf.reduce_sum(
         mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)  # gets position where zero padding starts
@@ -77,37 +78,42 @@ def sample_autoregressive(partial_sequences,
 
     # builds context to pass around internally
     # the 'first part' context records initial states of k / v / x
-    context_first_part = mtf_transformer.transformer.Context(
-        model=None,
-        mesh=inputs.mesh,
-        batch_dims=batch_dims,
-        length_dim=length_dim,
-        variable_dtype=variable_dtype,
-        mode="first_part",
-        position=length_range,
-        position_is_default=True,
-        new_states=[],
-        initial_position=initial_position,
-        sequence_id=None,
-        encoder_output=encoder_output,
-        encoder_sequence_id=encoder_sequence_id,
-        constant_states=[],
-        shared_params=shared_params,
-        encoder_layer_outputs=encoder_layer_outputs,
-        write_priority=write_priority,
-        read_priority=read_priority,
-        inputs=inputs,
-        encoder_inputs=encoder_inputs)
 
-    with tf.variable_scope('gpt2'):
-        logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context = context_first_part)
+    if not slow_sampling:
+        context_first_part = mtf_transformer.transformer.Context(
+            model=None,
+            mesh=inputs.mesh,
+            batch_dims=batch_dims,
+            length_dim=length_dim,
+            variable_dtype=variable_dtype,
+            mode="first_part",
+            position=length_range,
+            position_is_default=True,
+            new_states=[],
+            initial_position=initial_position,
+            sequence_id=None,
+            encoder_output=encoder_output,
+            encoder_sequence_id=encoder_sequence_id,
+            constant_states=[],
+            shared_params=shared_params,
+            encoder_layer_outputs=encoder_layer_outputs,
+            write_priority=write_priority,
+            read_priority=read_priority,
+            inputs=inputs,
+            encoder_inputs=encoder_inputs)
+
+        with tf.variable_scope('gpt2'):
+            logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context = context_first_part)
+
+        if not has_partial_sequences:
+            initial_states = [mtf.zeros_like(t) for t in context_first_part.new_states]
+        else:
+            initial_states = context_first_part.new_states
+    else:
+        initial_states = []
 
     if not has_partial_sequences:
-        initial_states = [
-            mtf.zeros_like(t) for t in context_first_part.new_states]
         partial_sequences_eos_count = 0
-    else:
-       initial_states = context_first_part.new_states
 
     if stop_at_token is not None:
         partial_sequences_eos_count = mtf.reduce_sum(
@@ -155,9 +161,10 @@ def sample_autoregressive(partial_sequences,
             write_priority=write_priority,
             read_priority=read_priority,
             inputs=ids,
-            encoder_inputs=encoder_inputs)
+            encoder_inputs=encoder_inputs) if not slow_sampling else None
 
         with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
+<<<<<<< HEAD
             logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
 
         # if never_end:
@@ -170,6 +177,9 @@ def sample_autoregressive(partial_sequences,
         # option to apply temperature is done before the top-k truncation. This
         # implementation does this in the opposite order. For top-k this doesn't
         # matter, but for top_p it will.
+=======
+            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = context)
+>>>>>>> allow user to toggle slow sampling, in case fast sampling contains a bug
 
         # by default, do topk sampling of 0.9
         if sampling_keep_top_k == -2:
@@ -186,12 +196,20 @@ def sample_autoregressive(partial_sequences,
 
         ids_this_step = mtf.sample_with_temperature(
             logits, other_features["vocab_dim"], temperature)
-        ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
-        # ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
+
+        if slow_sampling:
+            ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
+        else:
+            ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
+
         one_new_id = ids_this_step * mtf.one_hot(position, length_dim, dtype=tf.int32)
         new_ids = ids + one_new_id
         new_position = position + 1
-        return [new_position, new_ids] + context.new_states
+
+        ret = [new_position, new_ids]
+        if context is not None:
+            ret += context.new_states
+        return ret
 
     while_loop_inputs = [initial_position, inputs] + initial_states
     final_position, outputs = mtf.while_loop(
