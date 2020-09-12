@@ -17,6 +17,9 @@ def exists(x):
 def identity(x, *args, **kwargs):
     return x
 
+def is_incremental_inference(context):
+    return exists(context) and context.mode == 'incremental'
+
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
     return expand_tile(past_length + mtf.range(tokens.mesh, nsteps, dtype=tf.int32), batch_dim)
@@ -134,7 +137,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, dim_seq, memory_le
         k = mtfparams.compute_k(x)
         v = mtfparams.compute_v(x)
 
-        if exists(context) and context.mode == "incremental":
+        if is_incremental_inference(context):
             one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
             inv_one_hot = 1.0 - one_hot
             old_k, old_v = context.get_states(2)
@@ -144,11 +147,8 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, dim_seq, memory_le
             v = old_v * inv_one_hot + v * one_hot
             bias = None
 
-            # will probably need this later (related to masking) - not sure how it works exactly for now
-            # memory_position = mtf.range(context.mesh, memory_length, tf.int32)
         if exists(context):
-            if context.mode == "incremental" or context.mode == "first_part":
-                context.record_new_states([k, v])
+            context.record_new_states([k, v])
 
         present = None
 
@@ -158,6 +158,9 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, dim_seq, memory_le
             if attention_type == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 radius = params.get("local_attention_radius", 256)
+
+                if is_incremental_inference(context):
+                    q = mtf.reshape(q, [q.shape[0], *q.shape[2:]]) * one_hot
 
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
@@ -171,6 +174,9 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, dim_seq, memory_le
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to
                     #  wire this up as a param
                 )
+
+                if is_incremental_inference(context):
+                    a = mtf.gather(a, context.position - 1, dim_seq)
 
             elif attention_type == "global":
 
@@ -359,7 +365,13 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
     vocab_dim = other_features["vocab_dim"]
     embed_sequence_dim = other_features["embed_sequence_dim"]
 
+<<<<<<< HEAD
     if exists(context) and context.mode == 'incremental':
+=======
+    encoding_dt = tf.float32  # TODO: bfloat should apply here?
+
+    if is_incremental_inference(context):
+>>>>>>> make fast sampling compatible with local attention by expanding and reducing queries before and after the local attention op
         x = mtf.gather(x, context.position - 1, sequence_dim)
         x = mtf.reshape(x, [batch_dim, mtf.Dimension('sequence', 1)])
 
@@ -409,7 +421,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
 
     with tf.variable_scope('pos_embd'):
         # positional embedding
-        if exists(context) and context.mode == 'incremental':
+        if is_incremental_inference(context):
             h += mtf.gather(wpe, context.position - 1, wpe.shape[0])
         else:
             h += mtf.gather(wpe, mtf.range(mesh, sequence_dim, tf.int64), wpe.shape[0])

@@ -35,7 +35,7 @@ params = defaultdict(lambda: None, {
     "n_layer": 2,
     "num_microbatches": 1,
     "train_batch_size": 1,
-    "attention_types": ['global', 'global'],
+    "attention_types": ['global', 'local'],
     "res_dropout": 0.1,
     "axial_pos_emb": (32, 32),
     "activation_function": "gelu",
