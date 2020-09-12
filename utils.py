@@ -4,11 +4,12 @@ import re
 from urllib.parse import urlparse
 from shutil import rmtree
 import collections
-from absl import logging
+import logging
 import os
 import mesh_tensorflow as mtf
 from pathlib import Path
 import sys
+
 
 def setup_logging(args):
     Path("logs").mkdir(exist_ok=True)
@@ -20,6 +21,7 @@ def setup_logging(args):
     logger = logging.getLogger('tensorflow')
     logger.handlers = handlers
     return logger
+
 
 def get_batch_size(params):
     return params["{}_batch_size".format(params["mode"])]
@@ -242,6 +244,7 @@ class TpuSummaries(object):
   """
 
   def __init__(self, log_dir, save_summary_steps=500):
+    self.logger = tf.logging
     self._log_dir = log_dir
     self._scalar_entries = []
     # While False no summary entries will be added. On TPU we unroll the graph
@@ -262,7 +265,7 @@ class TpuSummaries(object):
     if not self.record:
       return
     if self.has(name):
-      logging.info("TpuSummaries.scalar: skipping duplicate %s", name)
+      self.logger.info("TpuSummaries.scalar: skipping duplicate %s", name)
     else:
       tensor = tf.convert_to_tensor(tensor)
       if tensor.shape.ndims == 0:
@@ -277,7 +280,7 @@ class TpuSummaries(object):
     global_step = tf.train.get_or_create_global_step()
     host_call_args = [tf.expand_dims(global_step, 0)]
     host_call_args.extend([e.tensor for e in self._scalar_entries])
-    logging.info("host_call_args: %s", host_call_args)
+    self.logger.info("host_call_args: %s", host_call_args)
     return (self._host_call_fn, host_call_args)
 
   def _host_call_fn(self, step, *args):
@@ -285,7 +288,7 @@ class TpuSummaries(object):
     # Host call receives values from all tensor cores (concatenate on the
     # batch dimension). Step is the same for all cores.
     step = step[0]
-    logging.info("host_call_fn: args=%s", args)
+    self.logger.info("host_call_fn: args=%s", args)
     ops = []
 
     # log scalars
