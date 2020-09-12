@@ -191,9 +191,12 @@ def test_pred_input(params, enc = None):
     return dataset
 
 def handle_pred_output(predictions, logger, enc, out_name="test"):
+    vocab = enc.get_vocab()
+    max_token_idx = np.max(list(vocab.values()))
     with tf.gfile.Open(f"{out_name}.txt", "a") as f:
         for i, p in enumerate(predictions):
             p = p["outputs"]
+            p[p > max_token_idx] = max_token_idx
             text = enc.decode(p)
             f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
             f.write(text)

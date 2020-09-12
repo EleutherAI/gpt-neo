@@ -12,7 +12,6 @@ def fetch_model_params(model):
     with open(model_path, 'r') as f:
         params = json.loads(f.read())
 
-    n_vocab = params['n_vocab']
     datasets = {}
     dataset_ids = params.get('dataset_ids', [])
     no_datasets = params.get('no_dataset', False)
@@ -22,7 +21,8 @@ def fetch_model_params(model):
     for dataset_id in dataset_ids:
         assert dataset_id in DATASETS, f'dataset {dataset_id} was not found under dataset_configs/ folder. please follow the example.json in that folder'
         dataset = DATASETS[dataset_id]
-        assert params['n_vocab'] >= dataset['n_vocab'], f"the embedding table size {params['n_vocab']} must be greater or equal to the vocab size used to encode the dataset {dataset_id} ({dataset['n_vocab']})"
+        if dataset.get('n_vocab', None): # if the dataset has n_vocab then it must be compatible with the model n_vocab
+            assert params['n_vocab'] >= dataset['n_vocab'], f"the embedding table size {params['n_vocab']} must be greater or equal to the vocab size used to encode the dataset {dataset_id} ({dataset['n_vocab']})"
         datasets[dataset_id] = dataset
 
     params["dataset_configs"] = datasets

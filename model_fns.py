@@ -6,7 +6,7 @@ import mesh_tensorflow.transformer as mtf_transformer
 from collections import defaultdict
 
 from optimizers import get_optimizer
-from utils import (TpuSummaries, get_graph_info, remove_batch_from_layout)
+from utils import (create_host_call, get_graph_info, remove_batch_from_layout)
 from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
@@ -23,9 +23,6 @@ def model_fn(features, labels, mode, params):
     if mode == tf.estimator.ModeKeys.PREDICT:
         params["layout"] = remove_batch_from_layout(params["layout"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
-
-    # init summary class
-    summary = TpuSummaries(params["model_path"])
     
     # Mesh stuff
     if params["use_tpu"]:
@@ -212,10 +209,10 @@ def model_fn(features, labels, mode, params):
         if params["num_microbatches"] > 1:
             # if we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
             # so we pass them in here
-            _, update_ops, var_grads = get_optimizer(loss, params, summary, variable_dtype=variable_dtype, inp_var_grads=var_grads)
+            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=var_grads)
         else:
             # otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-            _, update_ops, var_grads = get_optimizer(loss, params, summary, variable_dtype=variable_dtype)
+            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
@@ -236,11 +233,11 @@ def model_fn(features, labels, mode, params):
     if mode == tf.estimator.ModeKeys.TRAIN:
 
         mtf.scalar_summary("loss", loss)
-        # mtf.scalar_summary("lr", learning_rate)
         for g in var_grads:
             grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
             mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
-        host_call = mtf.utils.create_host_call(params['model_path'])
+        # use our patched version until mtf does not update theirs
+        host_call = create_host_call(params['model_path'])
         mtf.utils.remove_summaries()
     if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer

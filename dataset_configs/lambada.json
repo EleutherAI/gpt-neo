@@ -1,0 +1,3 @@
+{
+	"lambada_tokens_path": "gs://neo-models/data/lambada_test.jsonl"
+}

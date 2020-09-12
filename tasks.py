@@ -5,6 +5,7 @@ import numpy as np
 import ftfy
 import encoders
 import tensorflow as tf
+import configs
 
 lambada_src_uri = 'https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl'
 normalization = 'NFKC'
@@ -17,7 +18,7 @@ normalization = 'NFKC'
 #   https://github.com/openai/gpt-2/issues/131
 
 def lambada_create_tokens_data(params, path):
-    with open(path, 'w') as f:
+    with tf.io.gfile.GFile(path, 'w') as f:
         req = requests.get(lambada_src_uri)
         req.raise_for_status()
         jsons = [json.loads(l) for l in req.iter_lines()]
@@ -29,9 +30,9 @@ def lambada_create_tokens_data(params, path):
 
 def lambada_read_or_create_tokens_data(params, path):
     # if you tell me where the file should go, i will helpfully create it for you
-    if not os.path.exists(path):
+    if not tf.io.gfile.exists(path):
         return lambada_create_tokens_data(params, path)
-    with open(path) as f:
+    with tf.io.gfile.GFile(path) as f:
         return json.load(f)
 
 def lambada_bin_pack(params, tokens_data):
@@ -53,15 +54,12 @@ def lambada_bin_pack(params, tokens_data):
     return bins_array
 
 def lambada_init(params):
-    ds_configs = params['dataset_configs']
-    l = [
-        ds_configs[ds_id]['lambada_tokens_path']
-        for ds_id, _, _, _ in params['datasets']
-        if 'lambada_tokens_path' in ds_configs[ds_id]
-    ]
-    assert len(l) > 0, 'lambada_tokens_path not found in the dataset config'
-    lt_path = l[0]
-    assert lt_path.endswith('.json'), 'lambada_tokens_path must have extension json'
+    if configs.DATASETS.get('lambada', None) is None:
+        raise ValueError('lambada dataset not found')
+    
+    lt_path = configs.DATASETS['lambada'].get('lambada_tokens_path', [])
+    assert len(lt_path) > 0, 'lambada_tokens_path not found in the dataset config'
+    assert lt_path.endswith('.jsonl'), 'lambada_tokens_path must have extension jsonl'
 
     tokens_data = lambada_read_or_create_tokens_data(params, lt_path)
     bins_array = lambada_bin_pack(params, tokens_data)
