@@ -6,6 +6,8 @@ import os
 import sys
 from functools import partial
 from pathlib import Path
+from absl.flags import argparse_flags
+from absl import app
 
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
@@ -20,9 +22,10 @@ from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
                         processors, trainers)
 from tasks import task_descriptors
 
-def main():
+
+def parse_args(argv):
     # Parse command line arguments
-    parser = argparse.ArgumentParser()
+    parser = argparse_flags.ArgumentParser()
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
     parser.add_argument('--model', type=str, default=None) # JSON file that contains model parameters
     parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
@@ -33,8 +36,10 @@ def main():
     parser.add_argument('--predict', action='store_true')
     parser.add_argument('--slow_sampling', action='store_true')
     parser.add_argument('--check_dataset', action='store_true')
-    args = parser.parse_args()
+    args = parser.parse_args(argv[1:])
+    return args
 
+def main(args):
     # rewire to use testing related functions if --test is on
     if args.test:
         args.model = 'test'
@@ -47,6 +52,7 @@ def main():
     # Setup logging
     Path("logs").mkdir(exist_ok=True)
     tf.logging.set_verbosity(logging.INFO)
+    tf.get_logger().propagate = False # remove double log on console
     handlers = [
         logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
         logging.StreamHandler(sys.stdout)
@@ -213,5 +219,4 @@ def main():
 
 if __name__ == '__main__':
     tf.disable_v2_behavior()
-    main()
-
+    app.run(main, flags_parser=parse_args)
