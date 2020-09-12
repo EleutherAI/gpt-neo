@@ -107,16 +107,12 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
                         )
         return c
 
-
-def attn(x, scope, n_state, *, layer_num, past, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
+def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
     assert n_state.size % params["n_head"] == 0
-    if exists(past):
-        assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
-    assert past is None
 
     dim_heads = mtf.Dimension("heads", params['n_head'])
 
@@ -286,7 +282,7 @@ def mlp_glu(x, scope, n_state, *, variable_dtype, params):
             h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
         return h2
 
-def block(params, scope, past, layer_num, bias, sequence_dim, memory_length_dim, variable_dtype, context=None):
+def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, variable_dtype, context=None):
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
     use_moe = exists(params["moe_layers"]) and (layer_num in params["moe_layers"])
@@ -305,7 +301,7 @@ def block(params, scope, past, layer_num, bias, sequence_dim, memory_length_dim,
 
             pre_residual_fn = rezero if use_rezero else identity
 
-            a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
+            a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num,
                               params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
                               variable_dtype=variable_dtype, context=context)
 
@@ -346,8 +342,7 @@ def block(params, scope, past, layer_num, bias, sequence_dim, memory_length_dim,
 # --------------------------------------------------------------------------------
 # MODEL:
 
-
-def model(mtf_features, other_features, params, mesh, variable_dtype, past=None, context=None):
+def model(mtf_features, other_features, params, mesh, variable_dtype, context=None):
     """A GPT style model implemented in mesh tensorflow."""
     results = {}
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
@@ -365,13 +360,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
     vocab_dim = other_features["vocab_dim"]
     embed_sequence_dim = other_features["embed_sequence_dim"]
 
-<<<<<<< HEAD
-    if exists(context) and context.mode == 'incremental':
-=======
-    encoding_dt = tf.float32  # TODO: bfloat should apply here?
-
     if is_incremental_inference(context):
->>>>>>> make fast sampling compatible with local attention by expanding and reducing queries before and after the local attention op
         x = mtf.gather(x, context.position - 1, sequence_dim)
         x = mtf.reshape(x, [batch_dim, mtf.Dimension('sequence', 1)])
 
@@ -427,7 +416,6 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
             h += mtf.gather(wpe, mtf.range(mesh, sequence_dim, tf.int64), wpe.shape[0])
 
     # Transformer
-    pasts = [None] * params["n_layer"]
 
     # gradient checkpointing 
     aux_losses = mtf.get_variable(mesh, 
@@ -437,11 +425,11 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
                             trainable=False,  
                             dtype=variable_dtype.slice_dtype)
 
-    for layer, past in enumerate(pasts):
+    for layer in range(params["n_layer"]):
         # attn blocks
         block_scope = 'h%s' % (str(layer) if not share_parameters else '')
 
-        block_fn = block(params=params, scope=block_scope, past=past, layer_num=layer,
+        block_fn = block(params=params, scope=block_scope, layer_num=layer,
                          bias=other_features["attn_bias"],
                          sequence_dim = sequence_dim,
                          memory_length_dim=other_features["memory_length_dim"],

@@ -164,22 +164,7 @@ def sample_autoregressive(partial_sequences,
             encoder_inputs=encoder_inputs) if not slow_sampling else None
 
         with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
-<<<<<<< HEAD
             logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
-
-        # if never_end:
-        #     logits += mtf.one_hot(
-        #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),
-        #         self.output_vocab_dim, on_value=-1e9, off_value=0.0,
-        #         dtype=logits.dtype)
-        # TBD whether this should be before or after never_end:
-        # Note for adding top_p sampling in the future, in other code bases, the
-        # option to apply temperature is done before the top-k truncation. This
-        # implementation does this in the opposite order. For top-k this doesn't
-        # matter, but for top_p it will.
-=======
-            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, context = context)
->>>>>>> allow user to toggle slow sampling, in case fast sampling contains a bug
 
         # by default, do topk sampling of 0.9
         if sampling_keep_top_k == -2:
