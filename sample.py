@@ -4,6 +4,7 @@ import mesh_tensorflow.transformer as mtf_transformer
 
 from models.gpt2 import gpt2
 
+
 def sample_autoregressive(partial_sequences,
                           other_features,
                           params,
@@ -11,13 +12,7 @@ def sample_autoregressive(partial_sequences,
                           max_steps=None,
                           temperature=0.9,
                           variable_dtype=mtf.VariableDType(tf.float32),
-                          encoder_output=None,
-                          encoder_sequence_id=None,
-                          encoder_inputs=None,
-                          shared_params=None,
                           has_partial_sequences=True,
-                          encoder_layer_outputs=None,
-                          never_end=False,
                           remove_partial_sequences=False,
                           sampling_keep_top_k=-1,
                           bos_id=50256,
@@ -40,14 +35,7 @@ def sample_autoregressive(partial_sequences,
         temperature: an optional floating point value between 0.0 and 1.0 0.0
         means argmax, 1.0 means sample according to predicted distribution.
         variable_dtype: a mtf.VariableDType
-        encoder_output: an optional Tensor
-        encoder_sequence_id: an optional Tensor
-        encoder_inputs: an optional Tensor
-        shared_params: an optional dictionary
         has_partial_sequences: a boolean
-        encoder_layer_outputs: optional - readonly list of tensor activations when
-        decoding, one per each input layer + the embedding layer
-        never_end: a boolean - if set, then avoid generating stop_at_token
         remove_partial_sequences: a boolean - whether to remove the partial
         sequences from the output
         sampling_keep_top_k: an integer - if not -1, only sample from the top k
@@ -59,27 +47,19 @@ def sample_autoregressive(partial_sequences,
     """
 
     inputs = partial_sequences  # partial sequences to fill in
-    batch_dims = inputs.shape.dims[:-1]  # √
-    length_dim = inputs.shape.dims[-1]  # √
+    batch_dims = inputs.shape.dims[:-1]
+    length_dim = inputs.shape.dims[-1]
     slow_sampling = params.get('slow_sampling', False)
 
     initial_position = mtf.reduce_sum(
         mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)  # gets position where zero padding starts
 
     length_range = mtf.range(inputs.mesh, length_dim, tf.int32)
-    input_full_attention = True  # for now hardcode this to true bc lazy
-    if input_full_attention:
-        # Vanilla autoregressive model - each position can see previous positions.
-        # think this feeds in to the loop fn and tells each position where it can attend to?
-        read_priority = write_priority = length_range * mtf.to_int32(
-            mtf.greater(length_range, initial_position))
-    else:
-        read_priority = write_priority = length_range
-
-    # builds context to pass around internally
-    # the 'first part' context records initial states of k / v / x
 
     if not slow_sampling:
+        # builds context object to pass around internally
+        # the 'first part' context records initial states of k / v / x
+
         context_first_part = mtf_transformer.transformer.Context(
             model=None,
             mesh=inputs.mesh,
@@ -91,20 +71,12 @@ def sample_autoregressive(partial_sequences,
             position_is_default=True,
             new_states=[],
             initial_position=initial_position,
-            sequence_id=None,
-            encoder_output=encoder_output,
-            encoder_sequence_id=encoder_sequence_id,
             constant_states=[],
-            shared_params=shared_params,
-            encoder_layer_outputs=encoder_layer_outputs,
-            write_priority=write_priority,
-            read_priority=read_priority,
-            inputs=inputs,
-            encoder_inputs=encoder_inputs)
+            inputs=inputs)
 
         with tf.variable_scope('gpt2'):
             logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, variable_dtype = variable_dtype, context = context_first_part)
-
+        del logits
         if not has_partial_sequences:
             initial_states = [mtf.zeros_like(t) for t in context_first_part.new_states]
         else:
@@ -153,15 +125,7 @@ def sample_autoregressive(partial_sequences,
             states=states,
             new_states=[],
             initial_position=position,
-            sequence_id=None,
-            encoder_output=encoder_output,
-            encoder_sequence_id=encoder_sequence_id,
-            shared_params=shared_params,
-            encoder_layer_outputs=encoder_layer_outputs,
-            write_priority=write_priority,
-            read_priority=read_priority,
-            inputs=ids,
-            encoder_inputs=encoder_inputs) if not slow_sampling else None
+            inputs=ids) if not slow_sampling else None
 
         with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
             logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
