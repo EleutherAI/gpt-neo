@@ -43,7 +43,7 @@ def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
         g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(1), 
                     master_dtype=variable_dtype.master_dtype, 
                     slice_dtype=variable_dtype.slice_dtype,
-                    activation_dtype=x.dtype.activation_dtype) 
+                    activation_dtype=variable_dtype.activation_dtype)
 
         x = norm(x, axis, epsilon)
         x = x * g
@@ -301,7 +301,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             pre_residual_fn = rezero if use_rezero else identity
 
-            a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num,
+            a, present = attn(prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params), 'attn', nx, layer_num=layer_num,
                               params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
                               variable_dtype=variable_dtype, context=context)
 

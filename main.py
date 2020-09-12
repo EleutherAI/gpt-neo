@@ -118,7 +118,7 @@ def main():
     params["predict"] = args.predict
     params["slow_sampling"] = args.slow_sampling
 
-    eval_tasks = params['eval_tasks']
+    eval_tasks = params.get('eval_tasks', [])
     has_predict_or_eval_steps_or_eval_tasks = params['predict_steps'] > 0 or params['eval_steps'] > 0 or len(eval_tasks) > 0
 
     for t in eval_tasks:

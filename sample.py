@@ -103,7 +103,7 @@ def sample_autoregressive(partial_sequences,
             encoder_inputs=encoder_inputs)
 
         with tf.variable_scope('gpt2'):
-            logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context = context_first_part)
+            logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, variable_dtype = variable_dtype, context = context_first_part)
 
         if not has_partial_sequences:
             initial_states = [mtf.zeros_like(t) for t in context_first_part.new_states]

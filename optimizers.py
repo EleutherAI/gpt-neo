@@ -15,14 +15,12 @@ def clip_by_global_norm(grads, clip_norm):
 
 def get_optimizer(loss, params, summary, variable_dtype, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
+    mesh = loss.mesh  # get mesh info from loss
+    graph = mesh.graph  # get graph info from mesh
+    global_step = tf.train.get_or_create_global_step() # get global step
 
     learning_rate = tf.constant(value=params["lr"], shape=[], dtype=variable_dtype.slice_dtype) # grab lr param
     clip_value = mtf.constant(mesh, params["gradient_clipping"], dtype=variable_dtype.slice_dtype)
-
-
-    global_step = tf.train.get_or_create_global_step() # get global step
-    mesh = loss.mesh  # get mesh info from loss
-    graph = mesh.graph  # get graph info from mesh
 
     if inp_var_grads is None:
         var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])

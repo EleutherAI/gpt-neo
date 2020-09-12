@@ -116,7 +116,7 @@ def test_sampling():
 
     other_features = {}
 
-    other_features["attn_bias"] = biasmask_attn_weights(mesh, length_dim, memory_length_dim, tf.float32)
+    other_features["attn_bias"] = biasmask_attn_weights(mesh, length_dim, memory_length_dim, mtf.VariableDType(tf.float32))
     other_features["embd_dim"] = embd_dim
     other_features["vocab_dim"] = vocab_dim
     other_features["embed_sequence_dim"] = embed_sequence_dim
@@ -126,7 +126,7 @@ def test_sampling():
 
     with not_raises(Exception):
         samples = sample_autoregressive(
-            inputs, other_features=other_features, params=params, variable_dtype=tf.float32,
+            inputs, other_features=other_features, params=params, variable_dtype=mtf.VariableDType(),
             remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
 
         mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
