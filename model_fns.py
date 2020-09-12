@@ -234,7 +234,8 @@ def model_fn(features, labels, mode, params):
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
-    
+    summary.scalar("loss", tf_loss)
+
     if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
