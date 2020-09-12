@@ -310,9 +310,11 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
+
+                # override defaults
                 for k, v in params["moe_params"].items():
                     moe_params.add_hparam(k, v)
-                mtf.transformer.moe.set_default_moe_hparams(moe_params)
+
                 moe_train = params["mode"] == "train"
 
                 m, aux_loss = mtf.transformer.moe.transformer_moe_layer_v1(res_x, x.shape[-1], moe_params,
