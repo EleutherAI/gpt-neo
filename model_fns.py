@@ -123,9 +123,11 @@ def model_fn(features, labels, mode, params):
         inputs = mtf_features["inputs"]
         if params["remove_partial_sequences"] is None:
             params["remove_partial_sequences"] = False
-            mtf_samples = sample_autoregressive(
-                inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+
+        mtf_samples = sample_autoregressive(
+            inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
+            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
+
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
         lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)

@@ -2,6 +2,7 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import mesh_tensorflow.transformer as mtf_transformer
 
+from models.gpt2 import gpt2
 
 def sample_autoregressive(partial_sequences,
                           other_features,
@@ -98,16 +99,12 @@ def sample_autoregressive(partial_sequences,
         inputs=inputs,
         encoder_inputs=encoder_inputs)
 
-    from models.gpt2 import gpt2
-
-    # with tf.variable_scope('gpt2'):
-    #     logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context=context_first_part)
-    # del logits
-    # constant_states = context_first_part.constant_states
+    with tf.variable_scope('gpt2'):
+        logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, context = context_first_part)
 
     if not has_partial_sequences:
-        # initial_states = [
-        #     mtf.zeros_like(t) for t in context_first_part.new_states]
+        initial_states = [
+            mtf.zeros_like(t) for t in context_first_part.new_states]
         partial_sequences_eos_count = 0
     else:
        initial_states = context_first_part.new_states
@@ -136,40 +133,33 @@ def sample_autoregressive(partial_sequences,
 
     def body_fn(position, ids, *states):
         nonlocal sampling_keep_top_k
-        nonlocal context_first_part
         """One step in the decode loop."""
-        # inputs_this_step = mtf.gather(ids, position - 1, length_dim)
-        # # Setting proper bos_id for position == 0. No-op otherwise.
-        # if bos_id:
-        #     inputs_this_step += bos_id * mtf.ones_like(inputs_this_step) * mtf.cast(
-        #         mtf.equal(position, 0), tf.int32)
 
-        # initial_position = mtf.reduce_sum(mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)
-        #
-        # context = mtf_transformer.transformer.Context(
-        #     model=None,
-        #     mesh=inputs.mesh,
-        #     batch_dims=batch_dims,
-        #     length_dim=length_dim,
-        #     variable_dtype=variable_dtype,
-        #     mode="first_part",
-        #     position=length_range,
-        #     position_is_default=True,
-        #     new_states=[],
-        #     initial_position=position,
-        #     sequence_id=None,
-        #     encoder_output=encoder_output,
-        #     encoder_sequence_id=encoder_sequence_id,
-        #     constant_states=[],
-        #     shared_params=shared_params,
-        #     encoder_layer_outputs=encoder_layer_outputs,
-        #     write_priority=write_priority,
-        #     read_priority=read_priority,
-        #     inputs=ids,
-        #     encoder_inputs=encoder_inputs)
+        context = mtf_transformer.transformer.Context(
+            model=None,
+            mesh=inputs.mesh,
+            batch_dims=batch_dims,
+            length_dim=length_dim,
+            variable_dtype=variable_dtype,
+            mode="incremental",
+            position=position,
+            position_is_default=True,
+            states=states,
+            new_states=[],
+            initial_position=position,
+            sequence_id=None,
+            encoder_output=encoder_output,
+            encoder_sequence_id=encoder_sequence_id,
+            shared_params=shared_params,
+            encoder_layer_outputs=encoder_layer_outputs,
+            write_priority=write_priority,
+            read_priority=read_priority,
+            inputs=ids,
+            encoder_inputs=encoder_inputs)
 
         with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
-            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = None)
+            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
+
         # if never_end:
         #     logits += mtf.one_hot(
         #         mtf.constant(logits.mesh, stop_at_token, dtype=tf.int32),
@@ -196,13 +186,14 @@ def sample_autoregressive(partial_sequences,
 
         ids_this_step = mtf.sample_with_temperature(
             logits, other_features["vocab_dim"], temperature)
-        ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
+        ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
+        # ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
         one_new_id = ids_this_step * mtf.one_hot(position, length_dim, dtype=tf.int32)
         new_ids = ids + one_new_id
         new_position = position + 1
-        return [new_position, new_ids]
+        return [new_position, new_ids] + context.new_states
 
-    while_loop_inputs = [initial_position, inputs]
+    while_loop_inputs = [initial_position, inputs] + initial_states
     final_position, outputs = mtf.while_loop(
         cond_fn, body_fn, while_loop_inputs)[:2]
     del final_position

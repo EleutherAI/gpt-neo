@@ -11,10 +11,11 @@ from models.utils import expand_tile
 
 sentinel = object()
 
+def exists(x):
+    return x is not None
 
 def identity(x, *args, **kwargs):
     return x
-
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
@@ -104,14 +105,13 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
         return c
 
 
-def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim, variable_dtype, context=None):
+def attn(x, scope, n_state, *, layer_num, past, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
     # x :: [batch, seq, n_embd]
-    x_shape, dim_batch, dim_seq, dim_embd, mesh = x.shape, *x.shape, x.mesh
+    x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
     # n_state is the same as config['n_embd'], which is also the same as dim_embd.
-    assert x.shape.ndims == 3  # Should be [batch, sequence, features]
     assert n_state.size % params["n_head"] == 0
-    if past is not None:
+    if exists(past):
         assert past.shape.ndims == 5  # Should be [batch, 2, heads, sequence, features], where 2 is [k, v]
     assert past is None
 
@@ -134,18 +134,19 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
         k = mtfparams.compute_k(x)
         v = mtfparams.compute_v(x)
 
-        if context is not None:
-            if context.mode == "incremental":
-                one_hot = mtf.one_hot(
-                    context.position, dim_seq, dtype=variable_dtype.master_dtype)
-                inv_one_hot = 1.0 - one_hot
-                old_k, old_v = context.get_states(2)
-                k = old_k * inv_one_hot + k * one_hot
-                v = old_v * inv_one_hot + v * one_hot
+        if exists(context) and context.mode == "incremental":
+            one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
+            inv_one_hot = 1.0 - one_hot
+            old_k, old_v = context.get_states(2)
+            k = mtf.reshape(k, [k.shape[0], *k.shape[2:]])
+            v = mtf.reshape(v, [v.shape[0], *v.shape[2:]])
+            k = old_k * inv_one_hot + k * one_hot
+            v = old_v * inv_one_hot + v * one_hot
+            bias = None
 
             # will probably need this later (related to masking) - not sure how it works exactly for now
             # memory_position = mtf.range(context.mesh, memory_length, tf.int32)
-        if context is not None:
+        if exists(context):
             if context.mode == "incremental" or context.mode == "first_part":
                 context.record_new_states([k, v])
 
@@ -160,7 +161,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
 
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
-                    length_dim=dim_seq,  # TODO: should this be memory length?
+                    length_dim=k.shape[1],  # TODO: should this be memory length?
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     radius=radius,
@@ -170,6 +171,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to
                     #  wire this up as a param
                 )
+
             elif attention_type == "global":
 
                 # TODO: the only use of context within attention is in _maybe_reshape...
@@ -179,7 +181,7 @@ def attn(x, scope, n_state, *, layer_num, past, params, bias, memory_length_dim,
                 #   we should create a fake context, and pass to attention for the efficiency
 
                 # broadcast mask bias across batch and heads
-                broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
+                broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]]) if exists(bias) else None
 
                 # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence
                 # dims.
@@ -278,11 +280,10 @@ def mlp_glu(x, scope, n_state, *, variable_dtype, params):
             h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
         return h2
 
-
-def block(params, scope, past, layer_num, bias, memory_length_dim, variable_dtype, context=None):
+def block(params, scope, past, layer_num, bias, sequence_dim, memory_length_dim, variable_dtype, context=None):
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
-    use_moe = (params["moe_layers"] is not None) and (layer_num in params["moe_layers"])
+    use_moe = exists(params["moe_layers"]) and (layer_num in params["moe_layers"])
     use_rezero = params["rezero"] == True
 
     def fn(x):
@@ -298,8 +299,8 @@ def block(params, scope, past, layer_num, bias, memory_length_dim, variable_dtyp
 
             pre_residual_fn = rezero if use_rezero else identity
 
-            a, present = attn(prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params), 'attn', nx, layer_num=layer_num, past=past,
-                              params=params, bias=bias, memory_length_dim=memory_length_dim,
+            a, present = attn(prenorm(x, 'norm_1', params=params), 'attn', nx, layer_num=layer_num, past=past,
+                              params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
                               variable_dtype=variable_dtype, context=context)
 
             x = x + pre_residual_fn(a, 'norm_rezero_1', dtype=variable_dtype)
@@ -346,7 +347,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
     recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
     use_axial_pos_emb = params["axial_pos_emb"] != None
     no_weight_tie_emb = params["no_weight_tie"] == True
-    share_parameters = params["share_parameters"] is not None and params["share_parameters"] == True
+    share_parameters = exists(params["share_parameters"]) and params["share_parameters"] == True
 
     # parse inputs and labels from the mtf_features / other_features input dicts
     # all dimensions are defined inside model_fn for efficiency
@@ -357,6 +358,10 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
     embd_dim = other_features["embd_dim"]
     vocab_dim = other_features["vocab_dim"]
     embed_sequence_dim = other_features["embed_sequence_dim"]
+
+    if exists(context) and context.mode == 'incremental':
+        x = mtf.gather(x, context.position - 1, sequence_dim)
+        x = mtf.reshape(x, [batch_dim, mtf.Dimension('sequence', 1)])
 
     if not use_axial_pos_emb:
         wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
@@ -401,9 +406,13 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
     with tf.variable_scope('token_embd'):
         # text embedding
         h = mtf.gather(wte, x, vocab_dim)
+
     with tf.variable_scope('pos_embd'):
         # positional embedding
-        h += mtf.gather(wpe, mtf.range(mesh, sequence_dim, tf.int64), wpe.shape[0])
+        if exists(context) and context.mode == 'incremental':
+            h += mtf.gather(wpe, context.position - 1, wpe.shape[0])
+        else:
+            h += mtf.gather(wpe, mtf.range(mesh, sequence_dim, tf.int64), wpe.shape[0])
 
     # Transformer
     pasts = [None] * params["n_layer"]
@@ -421,10 +430,11 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
         block_scope = 'h%s' % (str(layer) if not share_parameters else '')
 
         block_fn = block(params=params, scope=block_scope, past=past, layer_num=layer,
-                        bias=other_features["attn_bias"],
-                        memory_length_dim=other_features["memory_length_dim"],
-                        variable_dtype=variable_dtype,
-                        context=context)
+                         bias=other_features["attn_bias"],
+                         sequence_dim = sequence_dim,
+                         memory_length_dim=other_features["memory_length_dim"],
+                         variable_dtype=variable_dtype,
+                         context=context)
 
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
@@ -439,7 +449,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
         h = layer_norm(h, 'ln_f', variable_dtype=variable_dtype, params=params)
         with tf.variable_scope('wte_final_einsum'):
             # equivalent to tf.matmul
-            logits = mtf.einsum([h, wte], output_shape=[batch_dim, sequence_dim, vocab_dim])
+            logits = mtf.einsum([h, wte], output_shape=[batch_dim, h.shape[1], vocab_dim])
 
     vdim = logits.shape[2]  # get vocab dimension
     if params["mode"] is not "predict":
@@ -456,11 +466,11 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, past=None,
     else:
         loss = None
         loss_batch = None
+
     if loss:
         # convert to train dimension 
         loss = mtf.cast(loss, variable_dtype.slice_dtype)
 
     # cast back to checkpoint dtype
     logits = mtf.cast(logits, variable_dtype.master_dtype)
-
     return logits, loss, loss_batch
