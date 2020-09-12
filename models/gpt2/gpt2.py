@@ -408,10 +408,8 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
     with tf.variable_scope('pos_embd'):
         # positional embedding
-        if is_incremental_inference(context):
-            h += mtf.gather(wpe, context.position - 1, wpe.shape[0])
-        else:
-            h += mtf.gather(wpe, mtf.range(mesh, sequence_dim, tf.int64), wpe.shape[0])
+        position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (context.position - 1)
+        h += mtf.gather(wpe, position_indices, wpe.shape[0])
 
     # Transformer
 
