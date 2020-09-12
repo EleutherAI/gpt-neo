@@ -152,7 +152,7 @@ def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, me
     return k, v
 
 
-def attn(x, scope, *, layer_num, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
+def attn(x, scope, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
 
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
@@ -186,8 +186,6 @@ def attn(x, scope, *, layer_num, params, bias, dim_seq, memory_length_dim, varia
 
         if exists(context):
             context.record_new_states([k, v])
-
-        attention_type = params["attention_types"][layer_num]
 
         with tf.variable_scope('attention'):
             if attention_type == "local":
@@ -309,10 +307,15 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             x = prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params)
 
-            a = attn(x, 'attn', layer_num=layer_num,
-                              params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
-                              variable_dtype=variable_dtype, context=context)
+            attention_type = params["attention_types"][layer_num]
 
+            if attention_type is not "none":
+                a = attn(x, 'attn', attention_type=attention_type,
+                                  params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
+                                  variable_dtype=variable_dtype, context=context)
+            else:
+                a = x
+                
             x = x + pre_residual_fn(a, 'norm_rezero_1', dtype=variable_dtype)
 
             res_x = prenorm(x, 'norm_2', variable_dtype=variable_dtype, params=params)
