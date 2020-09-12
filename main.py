@@ -1,26 +1,20 @@
 """GPT-like model in Mesh-Tensorflow"""
 import argparse
-import json
-import logging
-import os
-import sys
 from functools import partial
 from pathlib import Path
 from absl.flags import argparse_flags
 from absl import app
-
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath
+from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging
 from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output
 from model_fns import model_fn
 from encoders import fetch_encoder
 from configs import fetch_model_params
-from tokenizers import (Tokenizer, decoders, models, pre_tokenizers,
-                        processors, trainers)
 from tasks import task_descriptors
+
 
 
 def parse_args(argv):
@@ -50,21 +44,12 @@ def main(args):
     assert args.model is not None, 'Model must be set'
 
     # Setup logging
-    Path("logs").mkdir(exist_ok=True)
-    tf.logging.set_verbosity(logging.INFO)
-    tf.get_logger().propagate = False # remove double log on console
-    handlers = [
-        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
-        logging.StreamHandler(sys.stdout)
-    ]
-    logger = logging.getLogger('tensorflow')
-    logger.handlers = handlers
+    logger = setup_logging(args)
 
     # Read params of model
     params = fetch_model_params(args.model)
 
     # Fetch encoder per params
-
     encoder = fetch_encoder(params)
     pred_input_fn = partial(pred_input_fn, enc = encoder)
 
@@ -115,15 +100,12 @@ def main(args):
     # expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
-    logger.info('params = {}'.format(params))
-
-    #TODO: we would like this to be as small as possible,
-    # but if we're splitting by batch, a value < the dimensions batch is divided over will error.
-    # can we change the mesh layout so batch will not be split at prediction time?
     params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
     params["slow_sampling"] = args.slow_sampling
+    logger.info('params = {}'.format(params))
 
+    # get eval tasks from params
     eval_tasks = params.get('eval_tasks', [])
     has_predict_or_eval_steps_or_eval_tasks = params['predict_steps'] > 0 or params['eval_steps'] > 0 or len(eval_tasks) > 0
 
@@ -183,7 +165,7 @@ def main(args):
         handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
         return
     elif has_predict_or_eval_steps_or_eval_tasks:
-        # If predict and/or eval is on - stop and predict and/or eval every ckpt
+        # If predict and/or eval steps/tasks are on - stop and predict and/or eval every ckpt
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
                                   params["train_steps"])

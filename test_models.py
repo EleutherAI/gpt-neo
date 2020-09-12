@@ -3,16 +3,14 @@ import traceback
 import logging
 from collections import defaultdict
 from contextlib import contextmanager
-
 import tensorflow as tf
-tf.compat.v1.enable_eager_execution()
 import mesh_tensorflow as mtf
 from mesh_tensorflow import placement_mesh_impl
-
 from models.gpt2 import gpt2
 from models.utils import biasmask_attn_weights
-
 from sample import sample_autoregressive
+
+tf.compat.v1.enable_eager_execution()
 
 # helper functions
 
