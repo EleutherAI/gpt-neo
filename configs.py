@@ -9,6 +9,7 @@ for path in Path('./dataset_configs').glob('*.json'):
     dataset_id = path.stem
     DATASETS[dataset_id] = json.loads(path.read_text())
 
+
 def fetch_model_params(model):
     model_path = model if model.endswith('.json') else 'configs/{}.json'.format(model)
     with open(model_path, 'r') as f:
@@ -16,7 +17,7 @@ def fetch_model_params(model):
 
     n_vocab = params['n_vocab']
     datasets = {}
-    dataset_ids = list(map(itemgetter(0), params['datasets']))
+    dataset_ids = list(map(itemgetter(0), params.get('datasets', [])))
     no_datasets = params.get('no_dataset', False)
 
     assert no_datasets or len(dataset_ids) > 0, 'You must specify at least one dataset id in the model config'

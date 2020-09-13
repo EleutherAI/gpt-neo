@@ -107,7 +107,35 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
                         )
         return c
 
-def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
+def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, mesh):
+    """memory / key values from all attention paper"""
+
+    dim_mem_kv = mtf.Dimension('mem_kv_sequence', num_mem_kv)
+    emb_dim = k.shape[-1]
+    mem_std = 1 / math.sqrt(emb_dim.size)
+
+    mem_k = mtf.get_variable(mesh, 'mem_k', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+                             initializer=tf.random_normal_initializer(stddev=mem_std),
+                             master_dtype=variable_dtype.master_dtype,
+                             slice_dtype=variable_dtype.slice_dtype,
+                             activation_dtype=variable_dtype.activation_dtype,
+                             )
+    mem_v = mtf.get_variable(mesh, 'mem_v', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+                             initializer=tf.random_normal_initializer(stddev=mem_std),
+                             master_dtype=variable_dtype.master_dtype,
+                             slice_dtype=variable_dtype.slice_dtype,
+                             activation_dtype=variable_dtype.activation_dtype)
+
+    mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]),
+                       (mem_k, mem_v))
+    mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'sequence'),
+                       (mem_k, mem_v))
+
+    k = mtf.concat([mem_k, k], 'sequence')
+    v = mtf.concat([mem_v, v], 'sequence')
+    return k, v
+
+def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
@@ -224,7 +252,7 @@ def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_d
                 k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
                 v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
 
-                attn_dropout_rate = params["attn_dropout"] if params["mode"] == tf.estimator.ModeKeys.TRAIN else 0
+                attn_dropout_rate = params["attn_dropout"] if params["mode"] == "train" else 0
 
                 a = mtf_transformer.attention.attention(
                     q, k, v,
@@ -254,7 +282,7 @@ def attn(x, scope, n_state, *, layer_num, params, bias, dim_seq, memory_length_d
         # TODO: do we need this dropout?
         # if params["mode"] == "train" and params["res_dropout"] > 0:
         #     a = mtf.dropout(a, rate = params["res_dropout"], name="res_dropout")
-        return a, present
+        return a
 
 
 def mlp(x, scope, n_state, *, variable_dtype, params):
@@ -299,10 +327,16 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             pre_residual_fn = rezero if use_rezero else identity
 
-            a, present = attn(prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params), 'attn', nx, layer_num=layer_num,
-                              params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
-                              variable_dtype=variable_dtype, context=context)
+            attention_type = params["attention_types"][layer_num]
 
+            if attention_type is not "none":
+                res_x = prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params)
+                a = attn(res_x, 'attn', nx, attention_type=attention_type, layer_num=layer_num,
+                                  params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
+                                  variable_dtype=variable_dtype, context=context)
+            else:
+                a = x
+                
             x = x + pre_residual_fn(a, 'norm_rezero_1', dtype=variable_dtype)
 
             res_x = prenorm(x, 'norm_2', variable_dtype=variable_dtype, params=params)
