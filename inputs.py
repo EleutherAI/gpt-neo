@@ -118,16 +118,12 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
                                                                                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         # Sample 1024(+1) tokens from the stitched together text
+        is_random_documents = datatype == "documents_random"
         if sample_text_fn is not None:
-            if datatype == "documents_random":
-                _sample_text = partial(sample_text_fn, random_documents = True)
-            else:
-                _sample_text = sample_text_fn
+            _sample_text = partial(sample_text_fn, random_documents = is_random_documents)
         else:
-            if datatype == "documents_random":
-                _sample_text = autoregressive_sample_text_random_documents
-            else:
-                _sample_text = autoregressive_sample_text
+            _sample_text = autoregressive_sample_text_random_documents if is_random_documents else autoregressive_sample_text
+            _sample_text = partial(_sample_text, params)
 
         dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
@@ -138,7 +134,7 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
 
     return dataset
 
-def autoregressive_sample_text(x):
+def autoregressive_sample_text(params, x):
     vals1 = x[:params["n_ctx"]]
     vals2 = x[1:params["n_ctx"] + 1]
 
@@ -148,7 +144,7 @@ def autoregressive_sample_text(x):
     vals2 = tf.cast(vals2, dtype=tf.int32)
     return vals1, vals2
 
-def autoregressive_sample_text_random_documents(x):
+def autoregressive_sample_text_random_documents(params, x):
     s = tf.size(x)
     r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
     r1 = tf.range(r, r + params["n_ctx"])

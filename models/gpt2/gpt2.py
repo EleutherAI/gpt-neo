@@ -191,7 +191,8 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                     value_dim=dim_kv,
                     radius=radius,
                     length_dim_num_splits=1,
-                    attention_kwargs={}
+                    fully_autoregressive=params["causal"],
+                    attention_kwargs={},
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to
                     #  wire this up as a param
