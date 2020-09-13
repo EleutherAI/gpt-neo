@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from collections import defaultdict
 from operator import itemgetter
 
 DATASETS = {}
@@ -34,4 +35,10 @@ def fetch_model_params(model):
         params["eos_id"] = last_dataset.get('eos_id', 1)
 
     params["dataset_configs"] = datasets
+
+    # set some other parameter defaults
+    params["causal"] = not params.get("mlm_training")
+
+    # set all other parameter values to default to None
+    params = defaultdict(lambda: None, params)
     return params

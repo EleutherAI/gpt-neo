@@ -208,6 +208,27 @@ The `<dataset id>` will be the filename, excluding the `.json`, that you created
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
 
+# Masked Language Modeling
+
+In addition to being able to train large GPT's, this repository also allows you to easily do masked language modeling (BERT, RoBERTa). In order to do so, you must follow two additional steps.
+
+1. When tokenizing your dataset, you must reserve a special id for the `[mask]` token.
+
+2. In the configs, you will have to define two additional fields
+
+```python
+"mlm_training": true,                           # must be set to true
+"mlm_mask_id": <mask id>                        # the mask id that you reserved from above
+```
+
+That's all you need to train a model with the MLM objective, good for any type of data that you have encoded properly. If you would like to tweak the other related hyperparameters, please continue reading.
+
+```python
+"mlm_mask_prob": 0.15,                             # the probability of masking a token, defaults to 15%
+"mlm_same_token_prob": 0.10,                       # probability of keeping the token the same, defaults to 10%
+"mlm_mask_ignore_ids": [<cls token>, <sep token>]  # ignore masking other special tokens, if any
+```
+
 # Downloading Pretrained Models
 
 TODO

@@ -9,7 +9,7 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging
-from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output
+from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output, mlm_sample_text
 from model_fns import model_fn
 from encoders import fetch_encoder
 from configs import fetch_model_params
@@ -38,9 +38,6 @@ def main(args):
     if args.test:
         args.model = 'test'
 
-    input_fn = generic_text if not args.test else test_generic_text
-    pred_input_fn = pred_input if not args.test else test_pred_input
-    handle_pred_output_fn = handle_pred_output if not args.test else test_handle_pred_output
     assert args.model is not None, 'Model must be set'
 
     # Setup logging
@@ -48,6 +45,15 @@ def main(args):
 
     # Read params of model
     params = fetch_model_params(args.model)
+
+    # Fetch appropriate input functions
+    input_fn = generic_text if not args.test else test_generic_text
+    pred_input_fn = pred_input if not args.test else test_pred_input
+    handle_pred_output_fn = handle_pred_output if not args.test else test_handle_pred_output
+
+    if params["mlm_training"]:
+        mlm_sample_text_fn = partial(mlm_sample_text, params)
+        input_fn = partial(generic_text, sample_text_fn=mlm_sample_text_fn)
 
     # Fetch encoder per params
     encoder = fetch_encoder(params)

@@ -3,7 +3,7 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
-from collections import defaultdict
+
 from optimizers import get_optimizer
 from utils import (TpuSummaries, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size)
 from models.utils import biasmask_attn_weights
@@ -14,7 +14,6 @@ from models.gpt2 import gpt2
 
 def model_fn(features, labels, mode, params):
     # grab global step no.
-    params = defaultdict(lambda: None, params)
     global_step = tf.train.get_global_step()
 
     # construct mtf graph + mesh from params
@@ -75,8 +74,8 @@ def model_fn(features, labels, mode, params):
     # instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
     other_features = {}
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
-    # Calculate attn mask (attn_bias) once here
-    attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, variable_dtype)
+
+    attn_bias = biasmask_attn_weights(mesh, length_dim, memory_length_dim, variable_dtype) if params["causal"] else None
 
     # add attn_bias into mtf_features
     other_features["attn_bias"] = attn_bias
