@@ -484,16 +484,24 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
             # equivalent to tf.matmul
             logits = mtf.einsum([h, wte], output_shape=[batch_dim, seq_dim, vocab_dim])
 
-    if params["mode"] is not "predict":
-        vdim = logits.shape[-1]  # get vocab dimension
+    if params["mode"] == "train":
         labels = mtf_features["labels"]
         z_loss = params.get('z_loss', 1e-4)
         # go to full precision for the logits 
         logits = mtf.cast(logits, tf.float32)
+
         with tf.variable_scope('xentropy_final'):
-            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim, z_loss=z_loss)
+            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=logits.shape[-1], z_loss=z_loss)
+
+        # for non-autoregressive models (masked language modeling training)
+        # make sure labels with padding tokens are not counted in the loss
+        if not params["causal"]:
+            padding_id = params.get('padding_id', 0)
+            loss_batch = mtf.where(mtf.not_equal(labels, padding_id), loss_batch, mtf.zeros_like(loss_batch))
+
         with tf.variable_scope('reduce_mean_final'):
             loss = mtf.reduce_mean(loss_batch)
+
         loss += aux_losses  # add on auxiliary losses (currently only used for moe)
         loss /= params["num_microbatches"]
     else:
