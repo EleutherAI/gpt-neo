@@ -1,6 +1,13 @@
 import tensorflow as tf
 import mesh_tensorflow as mtf
 
+def expand_tile(value, newdim, axis=0):
+    """Add a new axis of given size."""
+    if axis == 0:
+        return mtf.broadcast(value,
+                             [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
+    if axis == 1:
+        return mtf.broadcast(value, value.shape.dims + [newdim])
 
 def biasmask_attn_weights(mesh, nd, ns, variable_dtype):
     # the old mask_attn_weights applied directly to the QK;
@@ -14,15 +21,3 @@ def biasmask_attn_weights(mesh, nd, ns, variable_dtype):
     i, j = map(lambda t: mtf.broadcast(t, [nd, ns]), (i, j))
     dtype = variable_dtype.activation_dtype
     return mtf.cast(mtf.less(i, j), dtype) * -1e10
-
-
-def exists(x):
-    return x is not None
-
-
-def identity(x, *args, **kwargs):
-    return x
-
-
-def is_incremental_inference(context):
-    return exists(context) and context.mode == 'incremental'
