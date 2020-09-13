@@ -182,7 +182,7 @@ def main(args):
                     input_fn=partial(input_fn, eval=True),
                     steps=params["eval_steps"])
                 logger.info('Eval results: %s', eval_results)
-            for task in params['eval_tasks']:
+            for task in eval_tasks:
                 logger.info(f'Starting evaluation task {task}.')
                 task_info = task_descriptors[task]['get_task_info_fn'](params)
                 task_estimator = eval_task_estimators[task]
