@@ -1,10 +1,10 @@
 import numpy as np
 import tensorflow.compat.v1 as tf
+from functools import partial
 from tokenizers import Tokenizer
 from encoders import encode
 
-
-def test_generic_text(params, eval=False):
+def test_generic_text(params, eval=False, **kwargs):
     batch_size = params['train_batch_size']
 
     def _generate():
@@ -35,8 +35,7 @@ def test_generic_text(params, eval=False):
     dataset = dataset.batch(batch_size)
     return dataset
 
-
-def generic_text(params, eval=False):
+def generic_text(params, eval=False, sample_text_fn=None):
     i = 0 if not eval else 1
     print('##############################')
     print(params["datasets"])
@@ -59,8 +58,9 @@ def generic_text(params, eval=False):
             params,
             stitch = stitch,
             datatype = datatype,
-            batch = False)
-        )
+            batch = False,
+            sample_text_fn = sample_text_fn
+        ))
 
         weights.append(weight)
 
@@ -71,8 +71,7 @@ def generic_text(params, eval=False):
 
     return dataset
 
-
-def text_dataset(files, params, stitch, datatype, batch=True):
+def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
     dataset = tf.data.Dataset.from_tensor_slices(files)
     dataset = dataset.apply(
         tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
@@ -119,34 +118,12 @@ def text_dataset(files, params, stitch, datatype, batch=True):
                                                                                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         # Sample 1024(+1) tokens from the stitched together text
-        if datatype == "documents_random":
-            def _sample_text(x):
-                s = tf.size(x)
-                r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
-                r1 = tf.range(r, r + params["n_ctx"])
-                r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
-                r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
-                r2 = tf.reshape(r2, [
-                    params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
-                vals1 = tf.gather(x, r1)
-                vals2 = tf.gather(x, r2)
-
-                vals1 = tf.reshape(vals1, [params["n_ctx"]])
-                vals2 = tf.reshape(vals2, [params["n_ctx"]])
-                vals1 = tf.cast(vals1, dtype=tf.int32)
-                vals2 = tf.cast(vals2, dtype=tf.int32)
-                return vals1, vals2
-
+        is_random_documents = datatype == "documents_random"
+        if sample_text_fn is not None:
+            _sample_text = partial(sample_text_fn, random_documents = is_random_documents)
         else:
-            def _sample_text(x):
-                vals1 = x[:params["n_ctx"]]
-                vals2 = x[1:params["n_ctx"] + 1]
-
-                vals1 = tf.reshape(vals1, [params["n_ctx"]])
-                vals2 = tf.reshape(vals2, [params["n_ctx"]])
-                vals1 = tf.cast(vals1, dtype=tf.int32)
-                vals2 = tf.cast(vals2, dtype=tf.int32)
-                return vals1, vals2
+            _sample_text = autoregressive_sample_text_random_documents if is_random_documents else autoregressive_sample_text
+            _sample_text = partial(_sample_text, params)
 
         dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
@@ -157,6 +134,75 @@ def text_dataset(files, params, stitch, datatype, batch=True):
 
     return dataset
 
+def autoregressive_sample_text(params, x):
+    vals1 = x[:params["n_ctx"]]
+    vals2 = x[1:params["n_ctx"] + 1]
+
+    vals1 = tf.reshape(vals1, [params["n_ctx"]])
+    vals2 = tf.reshape(vals2, [params["n_ctx"]])
+    vals1 = tf.cast(vals1, dtype=tf.int32)
+    vals2 = tf.cast(vals2, dtype=tf.int32)
+    return vals1, vals2
+
+def autoregressive_sample_text_random_documents(params, x):
+    s = tf.size(x)
+    r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32)
+    r1 = tf.range(r, r + params["n_ctx"])
+    r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
+    r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
+    r2 = tf.reshape(r2, [params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
+    vals1 = tf.gather(x, r1)
+    vals2 = tf.gather(x, r2)
+
+    vals1 = tf.reshape(vals1, [params["n_ctx"]])
+    vals2 = tf.reshape(vals2, [params["n_ctx"]])
+    vals1 = tf.cast(vals1, dtype=tf.int32)
+    vals2 = tf.cast(vals2, dtype=tf.int32)
+    return vals1, vals2
+
+def mlm_sample_text(params, x, random_documents = False):
+    ctx_len = params["n_ctx"]
+    assert 'mlm_mask_id' in params, 'the key `mlm_mask_id` must be set on your config to do masked language model training, specifying the id of the reserved mask token'
+
+    mask_id = params['mlm_mask_id']
+    mask_prob = params.get('mlm_mask_prob', 0.15)
+    same_token_prob = params.get('mlm_same_token_prob', 0.10)
+
+    mask_ignore_ids = params.get('mlm_mask_ignore_ids', [])
+
+    if random_documents:
+        s = tf.size(x)
+        r = tf.random.uniform([], maxval=s - ctx_len, dtype=tf.dtypes.int32)
+        r1 = tf.range(r, r + ctx_len)
+        r1 = tf.reshape(r1, [ctx_len])
+        features = tf.gather(x, r1)
+    else:
+        features = x[:ctx_len]
+
+    features = tf.cast(features, dtype=tf.int32)
+    shape = features.shape
+
+    # determine which tokens are mask-able
+    can_mask = tf.not_equal(features, 0)
+    for ignore_id in mask_ignore_ids:
+        can_mask &= tf.not_equal(features, ignore_id)
+
+    # generate boolean mask for masking ids
+    mask_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32), mask_prob)
+    mask_mask &= can_mask
+
+    # generate mask for actually replacing the tokens, for allowing a small number of tokens to stay the same
+    replace_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32), 1 - same_token_prob)
+
+    # mask the tokens
+    mask_tokens = tf.ones(shape, dtype=tf.int32) * mask_id
+    masked_features = tf.where(mask_mask & replace_mask, features, mask_tokens)
+
+    # labels will be set to 0 for all non-masked tokens
+    labels = tf.where(not mask_mask, features, tf.zeros(shape, dtype=tf.int32))
+
+    masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
+    return masked_features, labels
 
 def pred_input(params, enc = None, text="In a shocking finding, scientist discovered a herd of unicorns living in a remote, "
                                         "previously unexplored valley, in the Andes Mountains. Even more surprising to the "

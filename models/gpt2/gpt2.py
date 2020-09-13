@@ -80,6 +80,21 @@ def linear_attention(q, k, v, epsilon=1e-6):
     dim_in = k.shape[-1]
 
     q = mtf.softmax(q, dim_in)
+    k = mtf.softmax(k, seq_dim)
+
+    context = mtf.einsum([k, v], output_shape=[batch_dim, head_dim, dim_in, dim_out])
+    attn = mtf.einsum([q, context], output_shape=[batch_dim, seq_dim, head_dim, dim_out])
+    return attn
+
+
+def causal_linear_attention(q, k, v, epsilon=1e-6):
+    batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
+    q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
+    k = mtf.rename_dimension(k, 'features_per_head', 'features_per_head_in')
+
+    dim_in = k.shape[-1]
+
+    q = mtf.softmax(q, dim_in)
     k = mtf.elu(k) + 1
 
     cumulative_k = mtf.cumsum(k, seq_dim)
@@ -191,7 +206,8 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                     value_dim=dim_kv,
                     radius=radius,
                     length_dim_num_splits=1,
-                    attention_kwargs={}
+                    fully_autoregressive=params["causal"],
+                    attention_kwargs={},
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to
                     #  wire this up as a param
@@ -264,7 +280,8 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                 )
 
             elif attention_type == 'linear':
-                a = linear_attention(q, k, v)
+                linear_attn_fn = causal_linear_attention if params["causal"] else linear_attention
+                a = linear_attn_fn(q, k, v)
 
             else:
                 raise NotImplementedError("Unknown attention type {}!".format(params["attention_types"][layer_num]))
