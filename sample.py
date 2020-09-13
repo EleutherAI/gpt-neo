@@ -59,14 +59,12 @@ def sample_autoregressive(partial_sequences,
     """
 
     inputs = partial_sequences  # partial sequences to fill in
-    batch_dims = inputs.shape.dims[:-1]
-    length_dim = inputs.shape.dims[-1]
-    padding_id = params.get('padding_id', 0)
+    batch_dims = inputs.shape.dims[:-1]  # √
+    length_dim = inputs.shape.dims[-1]  # √
     slow_sampling = params.get('slow_sampling', False)
 
-
     initial_position = mtf.reduce_sum(
-        mtf.to_int32(mtf.not_equal(inputs, padding_id)), reduced_dim=length_dim)  # gets position where zero padding starts
+        mtf.to_int32(mtf.not_equal(inputs, 0)), reduced_dim=length_dim)  # gets position where zero padding starts
 
     length_range = mtf.range(inputs.mesh, length_dim, tf.int32)
     input_full_attention = True  # for now hardcode this to true bc lazy
@@ -205,7 +203,7 @@ def sample_autoregressive(partial_sequences,
     if has_partial_sequences and remove_partial_sequences:
         # remove partial sequences from outputs
         partial_length = mtf.reduce_sum(
-            mtf.to_int32(mtf.not_equal(partial_sequences, padding_id)),
+            mtf.to_int32(mtf.not_equal(partial_sequences, 0)),
             reduced_dim=length_dim)
         outputs = mtf.dynamic_shift(
             outputs, -partial_length, length_dim, wrap=False)

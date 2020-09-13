@@ -100,7 +100,7 @@ def model_fn(features, labels, mode, params):
 
         mtf_samples = sample_autoregressive(
             inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
+            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["stop_at_token"])
 
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
@@ -264,7 +264,7 @@ def model_fn(features, labels, mode, params):
                 return {'mean_logits': mean_logits, 'perplexity': perp}
 
             def _lambada_metric_fn(labels, tf_max_logits, tf_loss_batch):
-                eos_token = params['eos_id']
+                eos_token = 50256 if params['n_vocab'] >= 50257 else 0
                 answer_positions = tf.where(tf.math.not_equal(labels, eos_token))
 
                 correct_answers = tf.gather_nd(tf.math.equal(tf_max_logits, labels), answer_positions)
