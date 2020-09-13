@@ -35,7 +35,7 @@ def lambada_read_or_create_tokens_data(params, path):
         return json.load(f)
 
 def lambada_bin_pack(params, tokens_data):
-    eos_token = params['eos_id']
+    eos_token = 50256 if params['n_vocab'] >= 50257 else 0
     n_ctx = params['n_ctx']
     dummy_token = 1
     pad_batch_size = params['eval_batch_size']

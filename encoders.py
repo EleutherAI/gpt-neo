@@ -14,11 +14,8 @@ def fetch_encoder(params):
     is_pretrained = dataset.get('tokenizer_is_pretrained', False)
 
     if is_pretrained:
-        tok = GPT2Tokenizer.from_pretrained(path)
 
-        # will add a padding token id of 50257 at run-time
-        tok.add_special_tokens({'pad_token': '<|padding|>'})
-        return tok
+        return GPT2Tokenizer.from_pretrained(path)
 
     return Tokenizer.from_file(path)
 
