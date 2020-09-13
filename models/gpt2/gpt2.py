@@ -496,7 +496,8 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         # for non-autoregressive models (masked language modeling training)
         # make sure labels with padding tokens are not counted in the loss
         if not params["causal"]:
-            loss_batch = mtf.where(mtf.not_equal(labels, 0), loss_batch, mtf.zeros_like(loss_batch))
+            padding_id = params.get('padding_id', 0)
+            loss_batch = mtf.where(mtf.not_equal(labels, padding_id), loss_batch, mtf.zeros_like(loss_batch))
 
         with tf.variable_scope('reduce_mean_final'):
             loss = mtf.reduce_mean(loss_batch)
