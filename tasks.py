@@ -6,8 +6,6 @@ import ftfy
 import encoders
 import tensorflow as tf
 
-"""evaluation tasks for gpt models"""
-
 lambada_src_uri = 'https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl'
 normalization = 'NFKC'
 

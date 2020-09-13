@@ -89,8 +89,6 @@ def yes_or_no(question):
 
 
 def remove_gs_or_filepath(path):
-    """removes all files from a directory
-    (either gs:// gcloud directories or normal)"""
     parsed_url = urlparse(path)
     if parsed_url.scheme == 'gs':
         os.system('gsutil rm -rf {}'.format(path))
@@ -99,7 +97,6 @@ def remove_gs_or_filepath(path):
 
 
 def save_config(params_dict, logdir):
-    """saves model params as a text tensor to tensorboard"""
     print('saving config to {}'.format(logdir))
     text = '{\n\n'
     total_params = len(params_dict)
@@ -160,7 +157,7 @@ def get_n_trainable_vars(graph):
 
 def print_dim_names(graph):
     """
-    prints all dimension names in a Mesh-Tensorflow graph
+
     :param graph: Mesh-Tensorflow graph
     :return: None
     """
@@ -181,6 +178,8 @@ def print_dim_names(graph):
 def get_graph_info(graph):
     """
     wrapper fn that calculates number of trainable vars in an MTF graph & prints all dim_names to file
+    TODO: how to get un-trainable dim-names too, batch etc.
+
     :param graph: Mesh-Tensorflow graph
     :return: None
     """
