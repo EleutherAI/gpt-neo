@@ -182,7 +182,6 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
             old_k, old_v = context.get_states(2)
             k = old_k * inv_one_hot + k * one_hot
             v = old_v * inv_one_hot + v * one_hot
-            bias = None
 
         if exists(context):
             context.record_new_states([k, v])
@@ -225,7 +224,16 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                 #   we should create a fake context, and pass to attention for the efficiency
 
                 # broadcast mask bias across batch and heads
-                broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]]) if exists(bias) else None
+                if not is_incremental_inference(context):
+                    broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
+                else:
+                    # in the incremental case, a custom mask needs to be built that masks out all key/values that are greater than the current position
+                    memory_length_dim = bias.shape[-1]
+                    i = context.position - 1
+                    j = mtf.range(mesh, memory_length_dim, tf.int32)
+                    i, j = map(lambda t: mtf.broadcast(t, [dim_batch, memory_length_dim]), (i, j))
+                    incremental_bias = mtf.cast(mtf.greater(j, i), tf.float32) * -1e10
+                    broadcasted_bias = mtf.broadcast(incremental_bias, [dim_batch, dim_heads, bias.shape[-1]])
 
                 # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence
                 # dims.
