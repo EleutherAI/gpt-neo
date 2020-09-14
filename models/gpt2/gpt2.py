@@ -347,7 +347,8 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             attention_type = params["attention_types"][layer_num]
 
-            if attention_type is not "none":
+            if attention_type != "none":
+
                 res_x = prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params)
                 a = attn(res_x, 'attn', nx, attention_type=attention_type,
                                   params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
