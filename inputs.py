@@ -106,7 +106,7 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
                 return tf.gather(x[i], tf.range(y[i]))
 
             out = _get_x(0)
-            eos_id = 50256 if params["n_vocab"] == 50257 else 0
+            eos_id = params['eos_id']
 
             for i in range(1, stitch):
                 out = tf.concat([out, [eos_id], _get_x(i)], axis=0)  # text1<|endoftext|>text2
@@ -212,7 +212,7 @@ def pred_input(params, enc = None, text="In a shocking finding, scientist discov
     if len(tokens) > params["n_ctx"]:
         tokens = tokens[:params["n_ctx"]]
     if len(tokens) < params["n_ctx"]:
-        tokens = tf.pad(tokens, [[0,params["n_ctx"]-len(tokens)]])
+        tokens = tf.pad(tokens, [[0,params["n_ctx"]-len(tokens)]], constant_values=params["padding_id"])
     t = tf.broadcast_to(tokens, [params["batch_size"], params["n_ctx"]])
     dataset = tf.data.Dataset.from_tensors(t)
     def _dummy_labels(x):
@@ -231,7 +231,7 @@ def test_pred_input(params, enc = None):
     bos = tf.constant(1, shape=[1, 1], dtype=tf.int64)
     src_seq = tf.random.uniform(shape=[1, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
     seq = tf.concat([bos, src_seq], axis=1)
-    seq = tf.pad(seq, [[0, 0], [0, remaining]])
+    seq = tf.pad(seq, [[0, 0], [0, remaining]], constant_values=params['padding_id'])
     dataset = tf.data.Dataset.from_tensors(seq)
 
     dataset = dataset.map(_dummy_labels)

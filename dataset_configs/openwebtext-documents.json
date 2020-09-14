@@ -3,5 +3,7 @@
 	"path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
 	"eval_path": "",
 	"tokenizer_is_pretrained": true,
-	"tokenizer_path": "gpt2"
+	"tokenizer_path": "gpt2",
+	"eos_id": 50256,
+	"padding_id": 50257
 }
