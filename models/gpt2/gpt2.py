@@ -80,6 +80,21 @@ def linear_attention(q, k, v, epsilon=1e-6):
     dim_in = k.shape[-1]
 
     q = mtf.softmax(q, dim_in)
+    k = mtf.softmax(k, seq_dim)
+
+    context = mtf.einsum([k, v], output_shape=[batch_dim, head_dim, dim_in, dim_out])
+    attn = mtf.einsum([q, context], output_shape=[batch_dim, seq_dim, head_dim, dim_out])
+    return attn
+
+
+def causal_linear_attention(q, k, v, epsilon=1e-6):
+    batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
+    q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
+    k = mtf.rename_dimension(k, 'features_per_head', 'features_per_head_in')
+
+    dim_in = k.shape[-1]
+
+    q = mtf.softmax(q, dim_in)
     k = mtf.elu(k) + 1
 
     cumulative_k = mtf.cumsum(k, seq_dim)
@@ -167,7 +182,6 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
             old_k, old_v = context.get_states(2)
             k = old_k * inv_one_hot + k * one_hot
             v = old_v * inv_one_hot + v * one_hot
-            bias = None
 
         if exists(context):
             context.record_new_states([k, v])
@@ -191,7 +205,8 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                     value_dim=dim_kv,
                     radius=radius,
                     length_dim_num_splits=1,
-                    attention_kwargs={}
+                    fully_autoregressive=params["causal"],
+                    attention_kwargs={},
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
                     # TODO: we might need to split along length dimension at some point, when we do we'll need to
                     #  wire this up as a param
@@ -209,7 +224,13 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                 #   we should create a fake context, and pass to attention for the efficiency
 
                 # broadcast mask bias across batch and heads
-                broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]]) if exists(bias) else None
+                if exists(bias):
+                    if not is_incremental_inference(context):
+                        broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
+                    else:
+                        # in the incremental case, a custom mask needs to be built that masks out all key/values that are greater than the current position
+                        bias = mtf.gather(bias, context.position - 1, dim_seq)
+                        broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-1]])
 
                 # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence
                 # dims.
@@ -264,7 +285,8 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                 )
 
             elif attention_type == 'linear':
-                a = linear_attention(q, k, v)
+                linear_attn_fn = causal_linear_attention if params["causal"] else linear_attention
+                a = linear_attn_fn(q, k, v)
 
             else:
                 raise NotImplementedError("Unknown attention type {}!".format(params["attention_types"][layer_num]))
@@ -484,16 +506,24 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
             # equivalent to tf.matmul
             logits = mtf.einsum([h, wte], output_shape=[batch_dim, seq_dim, vocab_dim])
 
-    if params["mode"] is not "predict":
-        vdim = logits.shape[-1]  # get vocab dimension
+    if params["mode"] == "train":
         labels = mtf_features["labels"]
         z_loss = params.get('z_loss', 1e-4)
         # go to full precision for the logits 
         logits = mtf.cast(logits, tf.float32)
+
         with tf.variable_scope('xentropy_final'):
-            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=vdim, z_loss=z_loss)
+            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=logits.shape[-1], z_loss=z_loss)
+
+        # for non-autoregressive models (masked language modeling training)
+        # make sure labels with padding tokens are not counted in the loss
+        if not params["causal"]:
+            padding_id = params.get('padding_id', 0)
+            loss_batch = mtf.where(mtf.not_equal(labels, padding_id), loss_batch, mtf.zeros_like(loss_batch))
+
         with tf.variable_scope('reduce_mean_final'):
             loss = mtf.reduce_mean(loss_batch)
+
         loss += aux_losses  # add on auxiliary losses (currently only used for moe)
         loss /= params["num_microbatches"]
     else:
