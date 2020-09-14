@@ -28,7 +28,7 @@ def parse_args(argv):
     parser.add_argument('--new', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
-    parser.add_argument('--slow_sampling', action='store_true')
+    parser.add_argument('--slow_sampling', action='store_false')
     parser.add_argument('--check_dataset', action='store_true')
     args = parser.parse_args(argv[1:])
     return args
