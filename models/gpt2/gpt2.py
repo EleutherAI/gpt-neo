@@ -472,12 +472,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
     # Transformer
 
     # gradient checkpointing 
-    aux_losses = mtf.get_variable(mesh, 
-                            name="aux_losses", 
-                            shape=mtf.Shape([]), # loss must be a scalar
-                            initializer=tf.constant_initializer(0), 
-                            trainable=False,  
-                            dtype=variable_dtype.slice_dtype)
+    aux_losses = 0
 
     for layer in range(params["n_layer"]):
         # attn blocks
