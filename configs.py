@@ -37,7 +37,8 @@ def fetch_model_params(model):
     params["dataset_configs"] = datasets
 
     # set some other parameter defaults
-    params["causal"] = not params.get("mlm_training")
+    params["mlm_training"] = params.get("mlm_training") == True
+    params["causal"] = not params["mlm_training"]
 
     # set all other parameter values to default to None
     params = defaultdict(lambda: None, params)
