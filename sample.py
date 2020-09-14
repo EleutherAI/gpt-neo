@@ -189,8 +189,9 @@ def sample_autoregressive(partial_sequences,
         else:
             ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
 
-        one_new_id = ids_this_step * mtf.one_hot(position, length_dim, dtype=tf.int32)
-        new_ids = ids + one_new_id
+        one_hot = mtf.one_hot(position, length_dim, dtype=tf.int32)
+        one_new_id = ids_this_step * one_hot
+        new_ids = (1 - one_hot) * ids + one_new_id
         new_position = position + 1
 
         ret = [new_position, new_ids]
