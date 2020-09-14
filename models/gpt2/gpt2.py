@@ -150,7 +150,7 @@ def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, me
     v = mtf.concat([mem_v, v], 'sequence')
     return k, v
 
-def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
+def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
@@ -185,10 +185,6 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
 
         if exists(context):
             context.record_new_states([k, v])
-
-        present = None
-
-        attention_type = params["attention_types"][layer_num]
 
         with tf.variable_scope('attention'):
             if attention_type == "local":
@@ -289,7 +285,7 @@ def attn(x, scope, n_state, *, attention_type, layer_num, params, bias, dim_seq,
                 a = linear_attn_fn(q, k, v)
 
             else:
-                raise NotImplementedError("Unknown attention type {}!".format(params["attention_types"][layer_num]))
+                raise NotImplementedError("Unknown attention type {}!".format(attention_type))
 
         with tf.variable_scope('compute_output'):
             a = mtfparams.compute_output(a, x_shape)
@@ -353,7 +349,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             if attention_type is not "none":
                 res_x = prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params)
-                a = attn(res_x, 'attn', nx, attention_type=attention_type, layer_num=layer_num,
+                a = attn(res_x, 'attn', nx, attention_type=attention_type,
                                   params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
                                   variable_dtype=variable_dtype, context=context)
             else:
