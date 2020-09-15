@@ -209,9 +209,6 @@ def model_fn(features, labels, mode, params):
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
 
-    # log loss to tensorboard
-    summary.scalar("loss", tf_loss)
-
     if mode == tf.estimator.ModeKeys.TRAIN:
         # creates update ops to pass into optimizer
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
