@@ -455,23 +455,23 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
                             slice_dtype=variable_dtype.slice_dtype,
                             activation_dtype=variable_dtype.activation_dtype)
 
-    # if params["embed_dropout"] > 0 and params["mode"] == "train":
-    #     wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
-    #     wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
+    if params["embed_dropout"] > 0 and params["mode"] == "train":
+        wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
+        wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
 
     with tf.variable_scope('token_embd'):
         # text embedding
         h = mtf.gather(wte, x, vocab_dim)
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            h = mtf.dropout(h, rate=params["embed_dropout"], name="wte_dropout")
+        # if params["embed_dropout"] > 0 and params["mode"] == "train":
+        #     h = mtf.dropout(h, rate=params["embed_dropout"], name="wte_dropout")
 
 
     with tf.variable_scope('pos_embd'):
         # positional embedding
         position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (context.position - 1)
         pos_emb = mtf.gather(wpe, position_indices, wpe.shape[0])
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"], name="wte_dropout")
+        # if params["embed_dropout"] > 0 and params["mode"] == "train":
+        #     pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"], name="wte_dropout")
         h += pos_emb
 
     # Transformer
