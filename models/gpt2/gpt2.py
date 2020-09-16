@@ -122,6 +122,7 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
                         )
         return c
 
+
 def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, mesh):
     """memory / key values from all attention paper"""
 
@@ -149,6 +150,7 @@ def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, me
     k = mtf.concat([mem_k, k], 'sequence')
     v = mtf.concat([mem_v, v], 'sequence')
     return k, v
+
 
 def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
     # x :: [batch, seq, n_embd]
@@ -453,18 +455,24 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
                             slice_dtype=variable_dtype.slice_dtype,
                             activation_dtype=variable_dtype.activation_dtype)
 
-    if params["embed_dropout"] > 0 and params["mode"] == "train":
-        wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
-        wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
+    # if params["embed_dropout"] > 0 and params["mode"] == "train":
+    #     wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
+    #     wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
 
     with tf.variable_scope('token_embd'):
         # text embedding
         h = mtf.gather(wte, x, vocab_dim)
+        if params["embed_dropout"] > 0 and params["mode"] == "train":
+            h = mtf.dropout(h, rate=params["embed_dropout"], name="wte_dropout")
+
 
     with tf.variable_scope('pos_embd'):
         # positional embedding
         position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (context.position - 1)
-        h += mtf.gather(wpe, position_indices, wpe.shape[0])
+        pos_emb = mtf.gather(wpe, position_indices, wpe.shape[0])
+        if params["embed_dropout"] > 0 and params["mode"] == "train":
+            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"], name="wte_dropout")
+        h += pos_emb
 
     # Transformer
 
