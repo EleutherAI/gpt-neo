@@ -5,7 +5,7 @@ from operator import itemgetter
 
 DATASETS = {}
 
-for path in Path('./dataset_configs').glob('*.json'):
+for path in Path('./configs/dataset_configs').glob('*.json'):
     dataset_id = path.stem
     DATASETS[dataset_id] = json.loads(path.read_text())
 
