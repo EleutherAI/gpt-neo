@@ -192,7 +192,7 @@ def model_fn(features, labels, mode, params):
         # log summaries to tensorboard
         mtf.scalar_summary("loss", loss)
         # log gradients if in params
-        if params["log_grads"] is not None:
+        if params["log_grads"] not in [None, False]:
             for g in var_grads:
                 grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
                 mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
