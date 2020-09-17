@@ -7,7 +7,7 @@ from models.gpt2 import gpt2
 def sample_autoregressive(partial_sequences,
                           other_features,
                           params,
-                          stop_at_token=1,
+                          stop_at_token=50256,
                           max_steps=None,
                           temperature=0.9,
                           variable_dtype=mtf.VariableDType(tf.float32),

@@ -15,7 +15,6 @@ def fetch_model_params(model):
     with open(model_path, 'r') as f:
         params = json.loads(f.read())
 
-    n_vocab = params['n_vocab']
     datasets = {}
     dataset_ids = list(map(itemgetter(0), params.get('datasets', [])))
     no_datasets = params.get('no_dataset', False)
