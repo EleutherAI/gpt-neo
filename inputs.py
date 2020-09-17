@@ -238,10 +238,15 @@ def test_pred_input(params, enc = None):
     return dataset
 
 
-def handle_pred_output(predictions, logger, enc, out_name="test"):
+def handle_pred_output(predictions, logger, enc, params, out_name="test"):
     with tf.gfile.Open(f"{out_name}.txt", "a") as f:
         for i, p in enumerate(predictions):
             p = p["outputs"]
+
+            # remove padding ids from output
+            idx = np.argmax(p == params['padding_id'])
+            p = p[:idx]
+
             text = enc.decode(p)
             f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
             f.write(text)
