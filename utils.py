@@ -1,14 +1,13 @@
-import tensorflow.compat.v1 as tf
-from tensorflow.contrib import summary
 import re
 from urllib.parse import urlparse
 from shutil import rmtree
-import collections
 import logging
 import os
-import mesh_tensorflow as mtf
 from pathlib import Path
 import sys
+import tensorflow.compat.v1 as tf
+import tensorflow.compat.v2 as tf2
+import mesh_tensorflow as mtf
 
 
 def setup_logging(args):
@@ -206,102 +205,53 @@ def loss_denominator(targets, num_microbatches):
     return float(ret)
 
 
-"""Provide a helper class for using summaries on TPU via a host call.
-
-TPUEstimator does not support writing TF summaries out of the box and TPUs can't
-perform operations that write files to disk. To monitor tensor values during
-training you can copy the tensors back to the CPU of the host machine via
-a host call function. This small library provides a convenient API to do this.
-
-Example:
-from compare_gan.tpu import tpu_summaries
-def model_fn(features, labels, params, mode):
-  summary = tpu_summries.TpuSummaries(my_model_dir)
-
-  summary.scalar("my_scalar_summary", tensor1)
-  summary.scalar("my_counter", tensor2, reduce_fn=tf.math.reduce_sum)
-
-  return TPUEstimatorSpec(
-      host_call=summary.get_host_call(),
-      ...)
-
-Warning: The host call function will run every step. Writing large tensors to
-summaries can slow down your training. High ranking outfeed operations in your
-XProf profile can be an indication for this.
-"""
-
-TpuSummaryEntry = collections.namedtuple(
-    "TpuSummaryEntry", "summary_fn name tensor reduce_fn")
-
-
-class TpuSummaries(object):
-  """Class to simplify TF summaries on TPU.
-
-  An instance of the class provides simple methods for writing summaries in the
-  similar way to tf.summary. The difference is that each summary entry must
-  provide a reduction function that is used to reduce the summary values from
-  all the TPU cores.
+def create_host_call(model_dir):
+  """Construct a host_call writing scalar summaries.
+  Borrowed from t2t.
+  TPU.
+  Args:
+    model_dir: String containing path to train
+  Returns:
+    (fn, args) Pair to be called by TPUEstimator as the host_call.
   """
+  graph = tf.get_default_graph()
+  # a list of (name, lowered tensor) tuples
+  summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
 
-  def __init__(self, log_dir, save_summary_steps=500):
-    self.logger = tf.logging
-    self._log_dir = log_dir
-    self._scalar_entries = []
-    # While False no summary entries will be added. On TPU we unroll the graph
-    # and don't want to add multiple summaries per step.
-    self.record = True
-    self._save_summary_steps = save_summary_steps
-    #assert TpuSummaries.inst is None
-    TpuSummaries.inst = self
+  def maybe_cast(tensor):
+    assert tensor.shape.is_compatible_with([]), tensor.name
+    if tensor.dtype == tf.int64:
+      return tf.to_int32(tensor)
+    if tensor.dtype == tf.bfloat16:
+      return tf.cast(tensor, tf.float32)
+    return tensor
 
-  def has(self, name):
-    for entry in self._scalar_entries:
-      if entry.name == name:
-        return True
-    return False
+  reshaped_tensors = [tf.reshape(maybe_cast(t), [1]) for _, t in summaries]
 
-  def scalar(self, name, tensor, reduce_fn=tf.math.reduce_mean):
-    """Add a summary for a scalar tensor."""
-    if not self.record:
-      return
-    if self.has(name):
-      self.logger.info("TpuSummaries.scalar: skipping duplicate %s", name)
-    else:
-      tensor = tf.convert_to_tensor(tensor)
-      if tensor.shape.ndims == 0:
-        tensor = tf.expand_dims(tensor, 0)
-      self._scalar_entries.append(
-          TpuSummaryEntry(summary.scalar, name, tensor, reduce_fn))
+  # When no supported summaries are found, don't create host_call. Otherwise,
+  # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
+  # it, eventually causing hang.
+  if not reshaped_tensors:
+    return None
 
-  def get_host_call(self):
-    """Returns the tuple (host_call_fn, host_call_args) for TPUEstimatorSpec."""
-    # All host_call_args must be tensors with batch dimension.
-    # All tensors are streamed to the host machine (mind the band width).
-    global_step = tf.train.get_or_create_global_step()
-    host_call_args = [tf.expand_dims(global_step, 0)]
-    host_call_args.extend([e.tensor for e in self._scalar_entries])
-    self.logger.info("host_call_args: %s", host_call_args)
-    return (self._host_call_fn, host_call_args)
+  def host_call_fn(global_step, *args):
+    """Training host call. Creates scalar summaries for training metrics."""
+    # This function is executed on the CPU and should not directly reference
+    # any Tensors in the rest of the `model_fn`. To pass Tensors from the
+    # model to the `model_fn`, provide as part of the `host_call`.
+    global_step = tf.cast(global_step[0], tf.int64)
+    with tf2.summary.create_file_writer(model_dir).as_default():
+      # We cannot directly use any tensor from summaries, because each
+      # tensor here must be a concat of multiple tensors from all shards.
+      # Therefore, we rely on the assumption that args wil have the same
+      # length as summaries, and all tensors in args will have the same
+      # order of self._tup_summaries.
+      assert len(args) == len(summaries)
+      for i, tensor in enumerate(args):
+        name = summaries[i][0]
+        tf2.summary.scalar(
+            name, tf.reduce_mean(tensor), step=global_step)
+      return tf.summary.all_v2_summary_ops()
 
-  def _host_call_fn(self, step, *args):
-    """Function that will run on the host machine."""
-    # Host call receives values from all tensor cores (concatenate on the
-    # batch dimension). Step is the same for all cores.
-    step = step[0]
-    self.logger.info("host_call_fn: args=%s", args)
-    ops = []
-
-    # log scalars
-    with summary.create_file_writer(os.path.join(self._log_dir, 'scalars')).as_default():
-      offset = 0
-      with summary.record_summaries_every_n_global_steps(
-            self._save_summary_steps, step):
-        for i, e in enumerate(self._scalar_entries):
-          value = e.reduce_fn(args[i + offset])
-          e.summary_fn(e.name, value, step=step)
-      offset += len(self._scalar_entries)
-      ops.append(summary.all_summary_ops())
-    return tf.group(ops)
-
-
-TpuSummaries.inst = None
+  global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
+  return host_call_fn, [global_step_t] + reshaped_tensors

@@ -5,7 +5,7 @@ import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
 
 from optimizers import get_optimizer
-from utils import (TpuSummaries, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size)
+from utils import (create_host_call, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size)
 from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
@@ -22,9 +22,6 @@ def model_fn(features, labels, mode, params):
     if mode == tf.estimator.ModeKeys.PREDICT:
         params["layout"] = remove_batch_from_layout(params["layout"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
-
-    # init summary class
-    summary = TpuSummaries(params["model_path"])
     
     # Mesh setup
     if params["use_tpu"]:
@@ -188,10 +185,17 @@ def model_fn(features, labels, mode, params):
         if params["num_microbatches"] > 1:
             # if we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
             # so we pass them in here
-            _, update_ops, var_grads = get_optimizer(loss, params, summary, variable_dtype=variable_dtype, inp_var_grads=var_grads)
+            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=var_grads)
         else:
             # otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-            _, update_ops, var_grads = get_optimizer(loss, params, summary, variable_dtype=variable_dtype)
+            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
+        # log summaries to tensorboard
+        mtf.scalar_summary("loss", loss)
+        # log gradients if in params
+        if params["log_grads"] is not None:
+            for g in var_grads:
+                grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
+                mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
     else:
         # For now, we can only export fully-replicated tensors.
         # This has to be done before lowering or they will not be included in the graph
@@ -210,6 +214,10 @@ def model_fn(features, labels, mode, params):
     tf_loss = tf.cast(tf_loss, tf.float32)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
+        # use our patched version until mtf does not update theirs
+        host_call = create_host_call(params['model_path'])
+        mtf.utils.remove_summaries()
+
         # creates update ops to pass into optimizer
         tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
         tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
@@ -242,7 +250,7 @@ def model_fn(features, labels, mode, params):
             return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
-                host_call=summary.get_host_call(),
+                host_call=host_call,
                 train_op=train_op,
                 training_hooks=[restore_hook, saver_hook])
 

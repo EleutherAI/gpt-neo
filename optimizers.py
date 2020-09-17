@@ -13,17 +13,15 @@ def clip_by_global_norm(grads, clip_norm):
     clipped_grads = [None if t is None else t * multiplier for t in grads]
     return clipped_grads, global_norm
 
-def get_optimizer(loss, params, summary, variable_dtype, inp_var_grads=None):
+def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
-    mesh = loss.mesh  # get mesh info from loss
-    graph = mesh.graph  # get graph info from mesh
     global_step = tf.train.get_or_create_global_step() # get global step
 
     learning_rate = tf.constant(value=params["lr"], shape=[], dtype=variable_dtype.slice_dtype) # grab lr param
     clip_value = mtf.constant(mesh, params["gradient_clipping"], dtype=variable_dtype.slice_dtype)
 
     if inp_var_grads is None:
-        var_grads = mtf.gradients([loss], [v.outputs[0] for v in graph.trainable_variables])
+        var_grads = mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
     else:
         var_grads = inp_var_grads
 
@@ -63,7 +61,8 @@ def get_optimizer(loss, params, summary, variable_dtype, inp_var_grads=None):
         learning_rate = ((1.0 - is_warmup) * learning_rate +
                        is_warmup * warmup_learning_rate)
 
-    summary.scalar("lr", learning_rate)
+    learning_rate = mtf.import_fully_replicated(mesh, learning_rate, mtf.Shape([]), name="learning_rate")
+    mtf.scalar_summary("lr", learning_rate)
 
     if params["opt_name"].lower() == "adam":
         optimizer = AdamWeightDecayOptimizer(
@@ -87,7 +86,7 @@ def get_optimizer(loss, params, summary, variable_dtype, inp_var_grads=None):
     if params["gradient_clipping"] is not None:
         (var_grads_fp, _) = clip_by_global_norm(var_grads_fp, clip_norm=clip_value)
 
-    update_ops = optimizer.apply_grads(var_grads_fp, graph.trainable_variables)
+    update_ops = optimizer.apply_grads(var_grads_fp, mesh.graph.trainable_variables)
     return learning_rate, update_ops, var_grads_fp
 
 
