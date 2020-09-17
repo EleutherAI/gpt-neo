@@ -245,7 +245,8 @@ def handle_pred_output(predictions, logger, enc, params, out_name="test"):
 
             # remove padding ids from output
             idx = np.argmax(p == params['padding_id'])
-            p = p[:idx]
+            if idx > 0:
+                p = p[:idx]
 
             text = enc.decode(p)
             f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
