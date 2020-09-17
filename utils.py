@@ -14,6 +14,7 @@ import sys
 def setup_logging(args):
     Path("logs").mkdir(exist_ok=True)
     tf.logging.set_verbosity(logging.INFO)
+    tf.get_logger().propagate = False  # remove double log on console
     handlers = [
         logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
         logging.StreamHandler(sys.stdout)
