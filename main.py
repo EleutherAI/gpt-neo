@@ -179,7 +179,7 @@ def main(args):
         predictions = estimator.predict(input_fn=pred_input_fn)
         logger.info('Predictions generated')
         enc = fetch_encoder(params)
-        handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
+        handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
         return
     elif has_predict_or_eval_steps_or_eval_tasks:
         # If predict and/or eval steps/tasks are on - stop and predict and/or eval every ckpt
@@ -192,7 +192,7 @@ def main(args):
                 logger.info('Starting to run predictions.')
                 predictions = estimator.predict(input_fn=pred_input_fn)
                 enc = fetch_encoder(params)
-                handle_pred_output_fn(predictions, logger, enc, out_name=f"predictions_{current_step}")
+                handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
             if params['eval_steps'] > 0:
                 logger.info('Starting to evaluate.')
                 eval_results = estimator.evaluate(
