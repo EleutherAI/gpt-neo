@@ -400,7 +400,8 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 def model(mtf_features, other_features, params, mesh, variable_dtype, context=None):
     """A GPT style model implemented in mesh tensorflow."""
     results = {}
-    recompute_grad = params["recompute_grad"] == True  # if true, enable gradient checkpointing
+    # if true and in train mode, enable gradient checkpointing
+    recompute_grad = params["recompute_grad"] and (params["mode"] == "train") == True
     use_axial_pos_emb = params["axial_pos_emb"] != None
     no_weight_tie_emb = params["no_weight_tie"] == True
     share_parameters = exists(params["share_parameters"]) and params["share_parameters"] == True
