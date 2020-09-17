@@ -28,10 +28,21 @@ def parse_args(argv):
     parser.add_argument('--new', action='store_true')
     parser.add_argument('--test', action='store_true')
     parser.add_argument('--predict', action='store_true')
-    parser.add_argument('--slow_sampling', action='store_false')
+    parser.add_argument('--slow_sampling', action='store_true')
+    parser.add_argument('--fast_sampling', action='store_true')
     parser.add_argument('--check_dataset', action='store_true')
     args = parser.parse_args(argv[1:])
     return args
+
+def select_sampling_method(fast, slow, moe):
+    if fast and not slow:
+        return False
+    elif not fast and slow:
+        return True
+    elif moe:
+        return True
+    else:
+        return False
 
 def main(args):
     # rewire to use testing related functions if --test is on
@@ -108,7 +119,7 @@ def main(args):
     assert len(params["attention_types"]) == params["n_layer"]  # assert that the length of expanded list = num layers
     params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
     params["predict"] = args.predict
-    params["slow_sampling"] = args.slow_sampling
+    params["slow_sampling"] = select_sampling_method(args.fast_sampling, args.slow_sampling, params["moe_layers"] is not None)
     logger.info('params = {}'.format(params))
 
     # get eval tasks from params
