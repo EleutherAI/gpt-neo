@@ -3,7 +3,6 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
-
 from optimizers import get_optimizer
 from utils import (create_host_call, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size)
 from models.utils import biasmask_attn_weights
