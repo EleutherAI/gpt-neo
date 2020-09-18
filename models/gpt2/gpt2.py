@@ -3,7 +3,6 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
 import mesh_tensorflow.transformer as mtf_transformer
-from utils import loss_denominator
 from models.utils import expand_tile
 
 # --------------------------------------------------------------------------------

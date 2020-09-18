@@ -1,7 +1,6 @@
 import numpy as np
 import tensorflow.compat.v1 as tf
 from functools import partial
-from tokenizers import Tokenizer
 from encoders import encode
 
 def test_generic_text(params, eval=False, **kwargs):
@@ -204,7 +203,7 @@ def mlm_sample_text(params, x, random_documents = False):
     masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
     return masked_features, labels
 
-def pred_input(params, enc = None, text="In a shocking finding, scientist discovered a herd of unicorns living in a remote, "
+def pred_input(params, enc = None, text="In a shocking finding, scientists discovered a herd of unicorns living in a remote, "
                                         "previously unexplored valley, in the Andes Mountains. Even more surprising to the "
                                         "researchers was the fact that the unicorns spoke perfect English."):
     tokens = encode(enc, text)
