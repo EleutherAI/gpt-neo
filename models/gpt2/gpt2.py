@@ -299,9 +299,8 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                                                 activation_dtype=variable_dtype.activation_dtype)
             a += b
 
-        # TODO: do we need this dropout?
-        # if params["mode"] == "train" and params["res_dropout"] > 0:
-        #     a = mtf.dropout(a, rate = params["res_dropout"], name="res_dropout")
+        if params["mode"] == "train" and params["res_dropout"] > 0:
+            a = mtf.dropout(a, rate = params["res_dropout"], name="res_dropout")
         return a
 
 
