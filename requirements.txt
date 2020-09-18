@@ -13,3 +13,4 @@ tokenizers
 transformers
 tpunicorn
 absl-py
+ftfy
