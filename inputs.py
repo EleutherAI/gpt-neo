@@ -209,7 +209,7 @@ def pred_input(params, enc = None, text="In a shocking finding, scientists disco
     tokens = encode(enc, text)
 
     if len(tokens) > params["n_ctx"]:
-        tokens = tokens[:params["n_ctx"]]
+        tokens = tokens[len(tokens) - params["n_ctx"]:]
     if len(tokens) < params["n_ctx"]:
         tokens = tf.pad(tokens, [[0,params["n_ctx"]-len(tokens)]], constant_values=params["padding_id"])
     t = tf.broadcast_to(tokens, [params["batch_size"], params["n_ctx"]])
