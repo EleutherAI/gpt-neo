@@ -26,10 +26,10 @@ def model_fn(features, labels, mode, params):
     if params["use_tpu"]:
         var_placer, mesh_impl = simd_mesh_setup(params, mesh_shape, layout_rules)
     else:
-        # TODO: get working for multiple GPUs
         var_placer = None
-        mesh_devices = ['/device:GPU:0']
-        mesh_shape = [("all_processors", 1)]
+        gpu_ids = params["gpu_ids"]
+        mesh_devices = list(map(lambda id: f'/device:GPU:{id}', gpu_ids))
+        mesh_shape = [("all_processors", len(gpu_ids))]
         layout_rules = [("batch", "all_processors")]
 
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
