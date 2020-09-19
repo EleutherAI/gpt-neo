@@ -11,6 +11,7 @@ import numpy as np
 import tensorflow as tf
 from lm_dataformat import Reader
 from tokenizers import Tokenizer
+from transformers import GPT2Tokenizer
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
@@ -23,6 +24,7 @@ parser.add_argument("--output_dir", type=str, default="out", help="Where to put 
 parser.add_argument("--log_dir", type=str, default="logs", help="Where to put logs")
 parser.add_argument("--processes", type=int, default=8, help="How many subprocesses to spawn. Should be ~number of cores")
 parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenizer.json", help="Path to encoder files")
+parser.add_argument("--use_gpt2_tokenizer", action="store_true", help="Use GPT2 tokenizer as encoder")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
 parser.add_argument("--seperator", type=str, default="[0]", help="Seperator to place between files in chunk mode")
@@ -161,7 +163,11 @@ class EncodedConcatenatedFiles(object):
 Path(args.log_dir).mkdir(exist_ok=True)
 Path(args.output_dir).mkdir(exist_ok=True)
 
-enc = Tokenizer.from_file(args.encoder_path)
+if args.use_gpt2_tokenizer:
+    enc = GPT2Tokenizer.from_pretrained('gpt2')
+else:
+    enc = Tokenizer.from_file(args.encoder_path)
+
 args.seperator = json.loads(args.seperator) # Encode the seperator to list
 files = glob.glob(os.path.join(args.base_dir, "*")) # TODO make this more flexible maybe?
 files = [f for f in files if not os.path.isdir(f)]
