@@ -113,7 +113,8 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
             return out
 
         # Hack-y way to stitch together multiple texts
-        dataset = dataset.shuffle(1000 * stitch).batch(stitch, drop_remainder=True).map(_stitch_text,
+        dataset_seed = params.get('dataset_seed', None)
+        dataset = dataset.shuffle(1000 * stitch, seed=dataset_seed).batch(stitch, drop_remainder=True).map(_stitch_text,
                                                                                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         # Sample 1024(+1) tokens from the stitched together text

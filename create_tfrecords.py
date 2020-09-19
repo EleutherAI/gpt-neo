@@ -11,7 +11,9 @@ import numpy as np
 import tensorflow as tf
 from lm_dataformat import Reader
 from tokenizers import Tokenizer
+from transformers import GPT2Tokenizer
 from tqdm import tqdm
+from encoders import encode
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", type=str, choices=["chunks", "documents"], default="documents", help="Whether a tfrecord example is a constant sized chunk or a full document")
@@ -23,9 +25,10 @@ parser.add_argument("--output_dir", type=str, default="out", help="Where to put 
 parser.add_argument("--log_dir", type=str, default="logs", help="Where to put logs")
 parser.add_argument("--processes", type=int, default=8, help="How many subprocesses to spawn. Should be ~number of cores")
 parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenizer.json", help="Path to encoder files")
+parser.add_argument("--use_gpt2_tokenizer", action="store_true", help="Use GPT2 tokenizer as encoder")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
-parser.add_argument("--seperator", type=str, default="[0]", help="Seperator to place between files in chunk mode")
+parser.add_argument("--separator", type=str, default="[0]", help="separator to place between files in chunk mode")
 parser.add_argument("--chunk_size", type=int, default=1024, help="How big a chunk should be in chunk mode")
 args = parser.parse_args()
 
@@ -56,9 +59,9 @@ def read_in_chunks(stream, chunk_size=1024):
         yield data
 
 class BufferedEncodedStream(object):
-    # Loads a file into memory, optionally fixes unicode, encodes it and adds the seperator to the beginning
+    # Loads a file into memory, optionally fixes unicode, encodes it and adds the separator to the beginning
     # If set to text_mode the input is assumed to not be a file but the direct string data
-    def __init__(self, inp, encoder, seperator=None, fix=False, minimum_size=0, text_mode=False):
+    def __init__(self, inp, encoder, separator=None, fix=False, minimum_size=0, text_mode=False):
         if text_mode:
             d = inp
         else:
@@ -67,12 +70,12 @@ class BufferedEncodedStream(object):
 
         if fix:
             d = ftfy.fix_text(d, normalization='NFKC')
-        self.data = encoder.encode(d).ids
+        self.data = encode(enc, d)
         
         if len(self.data) < minimum_size or all([x == 0 for x in self.data]): # Sanity check
             self.data = [] # Don't return file contents if it doesn't pass the sanity check
-        elif seperator is not None: # Only add seperator if sanity check didn't failt
-            self.data = seperator + self.data # Seperator should be [tokens]
+        elif separator is not None: # Only add separator if sanity check didn't failt
+            self.data = separator + self.data # separator should be [tokens]
         
         self.idx = 0
         self.n = len(self.data)
@@ -92,12 +95,12 @@ class BufferedEncodedStream(object):
 class EncodedCompressedReader:
     # Loads, encodes and concatenates the texts within a zst archive
     # Pass a archive, returns a stream of its concatenated contents
-    def __init__(self, f, encoder, seperator=None, fix=False, minimum_size=0):
+    def __init__(self, f, encoder, separator=None, fix=False, minimum_size=0):
         def _gen():
             # Generator yielding the files inside the archive as encoded streams
             g = Reader(f).stream_data()
             for s in g:
-                yield BufferedEncodedStream(s, encoder, seperator, fix, minimum_size, text_mode=True)
+                yield BufferedEncodedStream(s, encoder, separator, fix, minimum_size, text_mode=True)
                 
         self.g = _gen()
 
@@ -128,10 +131,10 @@ class EncodedCompressedReader:
 class EncodedConcatenatedFiles(object):
     # Stitches list of file names into a stream of properly encoded and seperated tokens
     # Pass in a list of files and it outputs a stream of their contents stitched together
-    def __init__(self, fns, encoder, seperator=None, fix=False, minimum_size=0): 
+    def __init__(self, fns, encoder, separator=None, fix=False, minimum_size=0): 
         self.fs = list(reversed(fns)) # reversed because read() reads from the last element first
         self.enc = encoder
-        self.seperator = seperator # Seperator should be [tokens]
+        self.separator = separator # separator should be [tokens]
         self.fix = fix
         self.minimum_size = minimum_size
 
@@ -144,9 +147,9 @@ class EncodedConcatenatedFiles(object):
         while self.fs and (remaining > 0 or remaining is None):
             if isinstance(self.fs[-1], str): # If the last element in the list is a string, it's an unopened file
                 if self.fs[-1].endswith(".zst") or self.fs[-1].endswith(".xz"): # If it's an archive, we use this reader
-                    self.fs[-1] = EncodedCompressedReader(self.fs[-1], self.enc, self.seperator, self.fix, self.minimum_size)
+                    self.fs[-1] = EncodedCompressedReader(self.fs[-1], self.enc, self.separator, self.fix, self.minimum_size)
                 else: # Otherwise we assume it's a normal text file
-                    self.fs[-1] = BufferedEncodedStream(self.fs[-1], self.enc, self.seperator, self.fix, self.minimum_size)
+                    self.fs[-1] = BufferedEncodedStream(self.fs[-1], self.enc, self.separator, self.fix, self.minimum_size)
 
             data_read = self.fs[-1].read(remaining or -1)
             if len(data_read) < remaining or remaining is None: # If we exhaust the file we're reading, pop it off the list
@@ -161,8 +164,12 @@ class EncodedConcatenatedFiles(object):
 Path(args.log_dir).mkdir(exist_ok=True)
 Path(args.output_dir).mkdir(exist_ok=True)
 
-enc = Tokenizer.from_file(args.encoder_path)
-args.seperator = json.loads(args.seperator) # Encode the seperator to list
+if args.use_gpt2_tokenizer:
+    enc = GPT2Tokenizer.from_pretrained('gpt2')
+else:
+    enc = Tokenizer.from_file(args.encoder_path)
+
+args.separator = json.loads(args.separator) # Encode the separator to list
 files = glob.glob(os.path.join(args.base_dir, "*")) # TODO make this more flexible maybe?
 files = [f for f in files if not os.path.isdir(f)]
 file_chunks = chunks(files, args.files_per) # Assign files_per file to a tfrecord file each
@@ -202,13 +209,13 @@ def create_file(params):
                 if fn.endswith(".zst") or fn.endswith(".xz"):
                     data = _archive_to_files(fn)
                 else:
-                    data = [BufferedEncodedStream(fn, enc, args.seperator, not args.no_ftfy, args.minimum_size).read()]
+                    data = [BufferedEncodedStream(fn, enc, args.separator, not args.no_ftfy, args.minimum_size).read()]
                 
                 for d in data:
                     _write_to_file(d, i)
 
         elif args.mode == "chunks":
-            data_stream = EncodedConcatenatedFiles(fns, enc, seperator=args.seperator, fix=not args.no_ftfy, minimum_size=args.minimum_size)
+            data_stream = EncodedConcatenatedFiles(fns, enc, separator=args.separator, fix=not args.no_ftfy, minimum_size=args.minimum_size)
             data_stream = read_in_chunks(data_stream, args.chunk_size)
             for chunk in data_stream:
                 if not chunk.shape[0] == args.chunk_size: # Additional sanity check
