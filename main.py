@@ -19,6 +19,7 @@ def parse_args(argv):
     # Parse command line arguments
     parser = argparse_flags.ArgumentParser()
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
+    parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0]) # If training on GPU, can specify which GPU ids
     parser.add_argument('--model', type=str, default=None) # JSON file that contains model parameters
     parser.add_argument('--steps_per_checkpoint', type=int, default=5000)
     parser.add_argument('--auto_layout', action="store_true")
@@ -97,6 +98,7 @@ def main(args):
     params["auto_layout"] = args.auto_layout
     params["auto_layout_and_mesh_shape"] = args.auto_layout_and_mesh_shape
     params["use_tpu"] = True if not args.tpu is None else False
+    params["gpu_ids"] = args.gpu_ids
     params["num_cores"] = mesh_shape.size
     params["steps_per_checkpoint"] = args.steps_per_checkpoint
     # expand attention types param

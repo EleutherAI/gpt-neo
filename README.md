@@ -98,6 +98,14 @@ Connect to your VM, clone this repo and cd into the folder. Find a fitting confi
 - `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
 - `--auto_layout` and `--auto_layout_and_mesh_shape` (Optional): Disable training and instead auto generate a memory efficient `layout` (and `mesh_shape`)
 
+## Training on GPUs
+
+You can also choose to train GPTNeo locally on your GPUs. To do so, you simply have to omit the `tpu` flag. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces.
+
+```bash
+$ python3 main.py --model {model_name} --steps_per_checkpoint {n} --gpu_ids 0 1 2
+```
+
 ## Training (with sacred)
 
 Sacred helps track experiments and is much nicer to work with than tensorboard.
