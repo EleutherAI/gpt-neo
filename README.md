@@ -135,9 +135,7 @@ Then, you'll be able to access tensorboard with your browser at `localhost:6006`
 
 # Generating your own Dataset
 
-You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training. First install the dependencies:
-
-`pip3 install ftfy tqdm tokenizers lm_dataformat`
+You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training.
 
 Your data must either be in the form of lots of normal text files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
 
@@ -157,6 +155,8 @@ $ python train_tokenizer.py \
 # if it succeeded, you should see the message
 # 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
 ```
+
+You can also skip this step and directly encode your text with the same tokenizer used for GPT2. To do so, just move on to the next section and make sure you pass the `--use_gpt2_tokenizer` flag (and omit the `--encoder_path`)
 
 ## Document Mode
 
