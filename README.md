@@ -135,9 +135,7 @@ Then, you'll be able to access tensorboard with your browser at `localhost:6006`
 
 # Generating your own Dataset
 
-You can use the `datasets/create_tfrecords.py` script to encode your text data into tfrecords suited for the training. First install the dependencies:
-
-`pip3 install ftfy tqdm tokenizers lm_dataformat`
+You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training.
 
 Your data must either be in the form of lots of normal text files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
 
@@ -148,7 +146,7 @@ You can run the script without parameters to see help for all options. There are
 Neural nets only work on numbers, so strings must be chopped up into tiny unique subsequences and assigned an ID. This is done via a process called tokenization, and must be first cast over your corpus of textual data. It is as simple as one command to generate your tokenizer (assignment of substring sequences to an id).
 
 ```bash
-$ python datasets/train_tokenizer \
+$ python train_tokenizer.py \
     --base_dir ./path/to/your/txt/files \
     --output_dir ./output/path \
     --file-type txt \
@@ -157,6 +155,8 @@ $ python datasets/train_tokenizer \
 # if it succeeded, you should see the message
 # 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
 ```
+
+You can also skip this step and directly encode your text with the same tokenizer used for GPT2. To do so, just move on to the next section and make sure you pass the `--use_gpt2_tokenizer` flag (and omit the `--encoder_path`)
 
 ## Document Mode
 
@@ -167,20 +167,21 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 - `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
 - `output_dir`: Where to save the tfrecords to
-- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
+- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json.
 - `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
 
 ## Chunk Mode
 
-In chunk mode, all documents are concatenated (with seperator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
+In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
 
-`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --seperator <sep> --chunk_size <size>`
+`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --separator <sep> --chunk_size <size> --use_gpt2_tokenizer`
 
 - `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
 - `output_dir`: Where to save the tfrecords to
-- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json. You can use `datasets/byte-level-bpe.tokenizer.json`, or look at `datasets/openwebtext/train_tokenizer.py` for an example of how such a tokenizer can be trained.
-- `seperator`: Written in list format, the seperator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
+- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json.
+- `use_gpt2_tokenizer`: Whether to use the same tokenizer used by GPT2, in which case the separator will be set to [50256]
+- `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
 - `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
 
 # Using a Dataset in a Model
