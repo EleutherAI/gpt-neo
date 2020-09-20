@@ -173,6 +173,9 @@ def main(args):
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info('Current step {}'.format(current_step))
 
+    # make sure input function carries the current step to resume from the correct index
+    input_fn = partial(input_fn, current_step = current_step)
+
     if args.predict:
         predictions = estimator.predict(input_fn=pred_input_fn)
         logger.info('Predictions generated')

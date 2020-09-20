@@ -32,9 +32,11 @@ def test_generic_text(params, eval=False, **kwargs):
     dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
     dataset = dataset.map(_sample_text)
     dataset = dataset.batch(batch_size)
+
+    dataset = dataset.skip(current_step)
     return dataset
 
-def generic_text(params, eval=False, sample_text_fn=None):
+def generic_text(params, eval=False, sample_text_fn=None, current_step=0):
     i = 0 if not eval else 1
     print('##############################')
     print(params["datasets"])
