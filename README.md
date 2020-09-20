@@ -283,3 +283,4 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
 - `attention_types`: the type of attention for each layer in a list of the following format [[["attention_type"], n_layers]]. e.g. for a 12 layer net [[["global"], 12]] or [[["local"], 10], [["global"], 2]]
 - `precision`: `float32` (use this for now) or `bf16` (change some variables to bf16 for better performance, not working yet)
 - `tokens_per_mb_per_replica`: If not None, will split the batch up into smaller microbatches containing `tokens_per_mb_per_replica` tokens to avoid OOMs. Gradients are accumulated locally and reduced once.
+- `seed`: `int32` Set random seed for determistic data interleaving and shuffling

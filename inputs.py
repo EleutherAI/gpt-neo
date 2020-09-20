@@ -42,7 +42,6 @@ def generic_text(params, eval=False, sample_text_fn=None):
 
     weights = []
     datasets = []
-    seed = params.get('dataset_seed', None)
 
     for dataset in params["datasets"]:
         dataset_id, stitch, datatype, weight = dataset
@@ -54,25 +53,24 @@ def generic_text(params, eval=False, sample_text_fn=None):
         path = dataset_config[path_key]
 
         datasets.append(text_dataset(
-            tf.io.gfile.glob(path),
+            sorted(tf.io.gfile.glob(path)),
             params,
             stitch = stitch,
             datatype = datatype,
             batch = False,
-            sample_text_fn = sample_text_fn,
-            seed = seed
+            sample_text_fn = sample_text_fn
         ))
 
         weights.append(weight)
 
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
-    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=seed)
+    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
     dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
 
     return dataset
 
-def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None, seed=None):
+def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
     dataset = tf.data.Dataset.from_tensor_slices(files)
     dataset = dataset.apply(
         tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
@@ -115,7 +113,7 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
             return out
 
         # Hack-y way to stitch together multiple texts
-        dataset = dataset.shuffle(1000 * stitch, seed=seed).batch(stitch, drop_remainder=True).map(_stitch_text,
+        dataset = dataset.shuffle(1000 * stitch).batch(stitch, drop_remainder=True).map(_stitch_text,
                                                                                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         # Sample 1024(+1) tokens from the stitched together text

@@ -36,6 +36,9 @@ def main(args):
     if args.test:
         args.model = 'test'
 
+    if args.check_dataset:
+        tf.enable_eager_execution()
+
     assert args.model is not None, 'Model must be set'
 
     # Setup logging
@@ -43,6 +46,11 @@ def main(args):
 
     # Read params of model
     params = fetch_model_params(args.model)
+
+    # Set random seed
+    seed = params.get('seed', None)
+    if seed is not None:
+        tf.random.set_random_seed(seed)
 
     # Fetch appropriate input functions
     input_fn = generic_text if not args.test else test_generic_text
@@ -59,7 +67,6 @@ def main(args):
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
-        tf.enable_eager_execution()
         dataset = input_fn(params)
         dataset_iter = dataset.make_one_shot_iterator()
         tensor, _ = next(dataset_iter)
