@@ -34,7 +34,7 @@ def test_generic_text(params, eval=False, **kwargs):
     dataset = dataset.batch(batch_size)
     return dataset
 
-def generic_text(params, eval=False, sample_text_fn=None):
+def generic_text(params, eval=False, sample_text_fn=None, current_step=0):
     i = 0 if not eval else 1
     print('##############################')
     print(params["datasets"])
@@ -67,7 +67,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
 
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
     dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
-
+    dataset = dataset.skip(current_step)
     return dataset
 
 def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
@@ -113,8 +113,7 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
             return out
 
         # Hack-y way to stitch together multiple texts
-        dataset_seed = params.get('dataset_seed', None)
-        dataset = dataset.shuffle(1000 * stitch, seed=dataset_seed).batch(stitch, drop_remainder=True).map(_stitch_text,
+        dataset = dataset.shuffle(1000 * stitch).batch(stitch, drop_remainder=True).map(_stitch_text,
                                                                                         num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
         # Sample 1024(+1) tokens from the stitched together text

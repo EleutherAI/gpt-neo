@@ -177,7 +177,8 @@ def main(args):
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
                                   params["train_steps"])
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
+
+            estimator.train(input_fn=partial(input_fn, eval=False, current_step=current_step), max_steps=next_checkpoint)
             current_step = next_checkpoint
             if params['predict_steps'] > 0:
                 logger.info('Starting to run predictions.')
@@ -204,7 +205,7 @@ def main(args):
     else:
         while current_step < params["train_steps"]:
             # Else, don't stop and restart
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
+            estimator.train(input_fn=partial(input_fn, eval=False, current_step=current_step), max_steps=params["train_steps"])
 
 
 if __name__ == '__main__':
