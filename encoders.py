@@ -1,9 +1,6 @@
 from tokenizers import Tokenizer
 from transformers import GPT2Tokenizer
 
-DEFAULT_TOKENIZER_PATH = "datasets/openwebtext/byte-level-bpe.tokenizer.json"
-
-
 def fetch_encoder(params):
     no_dataset = params.get('no_dataset', False)
     if no_dataset:
