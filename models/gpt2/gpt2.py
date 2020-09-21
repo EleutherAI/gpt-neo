@@ -454,10 +454,6 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
                             slice_dtype=variable_dtype.slice_dtype,
                             activation_dtype=variable_dtype.activation_dtype)
 
-    if params["embed_dropout"] > 0 and params["mode"] == "train":
-        wpe = mtf.dropout(wpe, rate=params["embed_dropout"], name="wpe_dropout")
-        wte = mtf.dropout(wte, rate=params["embed_dropout"], name="wte_dropout")
-
     with tf.variable_scope('token_embd'):
         # text embedding
         h = mtf.gather(wte, x, vocab_dim)
