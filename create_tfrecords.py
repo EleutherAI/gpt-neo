@@ -21,7 +21,7 @@ parser.add_argument("--base_dir", type=str, default="/home/GPTNeo/LLMD-CommonCra
                     archives, all others as raw text.")
 parser.add_argument("--files_per", type=int, default=200, help="Text files per tfrecord")
 parser.add_argument("--name", type=str, default="openwebtext", help="Name of output files will be name_i.tfrecords where i is the number of the file")
-parser.add_argument("--output_dir", type=str, default="out", help="Where to put tfrecords")
+parser.add_argument("--output_dir", type=str, default="tfrecords", help="Where to put tfrecords")
 parser.add_argument("--log_dir", type=str, default="logs", help="Where to put logs")
 parser.add_argument("--processes", type=int, default=8, help="How many subprocesses to spawn. Should be ~number of cores")
 parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenizer.json", help="Path to encoder files")
@@ -30,6 +30,7 @@ parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size 
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
 parser.add_argument("--separator", type=str, default="[0]", help="separator to place between files in chunk mode")
 parser.add_argument("--chunk_size", type=int, default=1024, help="How big a chunk should be in chunk mode")
+parser.add_argument("--write_dataset_config", action="store_true", help="Write the dataset config file on completion")
 args = parser.parse_args()
 
 
@@ -248,3 +249,35 @@ if args.mode == "documents":
     print("Done! In {:.2f}s, {} / {} good files.".format(end-start, ret, len(files)))
 elif args.mode == "chunks":
     print("Done! In {:.2f}s, {} chunks.".format(end-start, ret))
+
+
+if args.write_dataset_config:
+    write_file_path = f'./configs/dataset_configs/{args.name}.json'
+
+    with open(write_file_path, 'w') as f:
+        output_path = Path(args.output_dir)
+
+        dataset_config = {
+            "path": str(output_path / f"{args.name}_*.tfrecords"),
+            "eval_path": "",
+        }
+
+        if args.use_gpt2_tokenizer:
+            dataset_config.update(**{
+                "n_vocab": 50256,
+                "tokenizer_is_pretrained": True,
+                "tokenizer_path": "gpt2",
+                "eos_id": 50256,
+                "padding_id": 50257
+            })
+        else:
+            dataset_config.update(**{
+                "n_vocab": enc.get_vocab_size(),
+                "tokenizer_path": str(args.encoder_path),
+                "eos_id": enc.encode("<|endoftext|>").ids[0],
+                "padding_id": enc.encode("<|padding|>").ids[0]
+            })
+
+        f.write(json.dumps(dataset_config, indent=2))
+
+    print(f'Dataset config written to {write_file_path}!')
