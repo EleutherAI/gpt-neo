@@ -13,12 +13,13 @@ import mesh_tensorflow as mtf
 def setup_logging(args):
     Path("logs").mkdir(exist_ok=True)
     tf.logging.set_verbosity(logging.INFO)
-    tf.get_logger().propagate = False  # remove double log on console
+    tf.get_logger().propagate = False  # Remove double log on console
+    name = os.path.splitext(os.path.basename(args.model))[0]
     handlers = [
-        logging.FileHandler('logs/{}.log'.format(os.path.basename(args.model).split(".")[0])),
+        logging.FileHandler(f"logs/{name}.log"),
         logging.StreamHandler(sys.stdout)
     ]
-    logger = logging.getLogger('tensorflow')
+    logger = logging.getLogger("tensorflow")
     logger.handlers = handlers
     return logger
 
@@ -90,15 +91,15 @@ def yes_or_no(question):
 
 def remove_gs_or_filepath(path):
     parsed_url = urlparse(path)
-    if parsed_url.scheme == 'gs':
-        os.system('gsutil rm -rf {}'.format(path))
+    if parsed_url.scheme == "gs":
+        os.system(f"gsutil rm -rf {path}")
         return
     rmtree(path)
 
 
 def save_config(params_dict, logdir):
-    print('saving config to {}'.format(logdir))
-    text = '{\n\n'
+    print(f"Saving config to {logdir}")
+    text = "{\n\n"
     total_params = len(params_dict)
     for count, key in enumerate(params_dict):
         config_value = str(params_dict[key])
@@ -106,18 +107,18 @@ def save_config(params_dict, logdir):
             if config_value.lower() != 'true':
                 if config_value.lower() != 'false':
                     if config_value[0] != '[':
-                        # TODO: making a manual exception for parsing epsilon rn since it's the only number in
+                        # TODO: Making a manual exception for parsing epsilon right now since it's the only number in
                         #       scientific notation. Should fix this.
                         if key != "epsilon":
-                            config_value = '"{}"'.format(config_value)
+                            config_value = f'"{config_value}"'
         if count == total_params - 1:
-            text += '"{}"'.format(str(key)) + ' : ' + config_value + '\n\n'
+            text += f'"{str(key)}"' + ' : ' + config_value + '\n\n'
         else:
-            text += '"{}"'.format(str(key))  + ' : ' + config_value + ',\n\n'
+            text += f'"{str(key)}"'  + ' : ' + config_value + ',\n\n'
     text += '\n\n}'
     sess = tf.InteractiveSession()
-    summary_op = tf.summary.text('run_config', tf.convert_to_tensor(text))
-    summary_writer = tf.summary.FileWriter("{}/config".format(logdir), sess.graph)
+    summary_op = tf.summary.text("run_config", tf.convert_to_tensor(text))
+    summary_writer = tf.summary.FileWriter(f"{logdir}/config", sess.graph)
     text = sess.run(summary_op)
     summary_writer.add_summary(text, 0)
     summary_writer.flush()
@@ -203,6 +204,28 @@ def loss_denominator(targets, num_microbatches):
     """
     ret = float(targets.shape.size) * num_microbatches
     return float(ret)
+
+def check_dataset(input_fn):
+    tf.enable_eager_execution()
+    dataset = input_fn(params)
+    dataset_iter = dataset.make_one_shot_iterator()
+    tensor, _ = next(dataset_iter)
+    enc = fetch_encoder(params)
+
+    for p in tensor[:1]:
+        txt = enc.decode(p)
+    #txt = enc.decode(tensor)
+    max_id = tf.reduce_max(tensor)
+    min_id = tf.reduce_min(tensor)
+
+    print(tensor)
+    print(tensor.shape)
+    print('-' * 50)
+    print(txt[:500], '\n...\n', txt[-500:])
+    print('-' * 50)
+    print('min token id: ', min_id)
+    print('max token id: ', max_id)
+    exit()
 
 
 def create_host_call(model_dir):
