@@ -17,7 +17,7 @@ def identity(x, *args, **kwargs):
     return x
 
 def is_incremental_inference(context):
-    return exists(context) and context.mode == 'incremental'
+    return exists(context) and context.mode == "incremental"
 
 def positions_for(tokens: mtf.Tensor, past_length: int, batch_dim: mtf.Dimension):
     nsteps = tokens.shape[1]
@@ -30,7 +30,7 @@ def norm(x, axis, epsilon=1e-8):
 
 def rezero(x, scope, dtype):
     with tf.variable_scope(scope):
-        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(0), dtype=dtype)
+        g = mtf.get_variable(x.mesh, "g", [], initializer=tf.constant_initializer(0), dtype=dtype)
         return x * g
 
 def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=None):
@@ -39,7 +39,7 @@ def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
 
     with tf.variable_scope(scope):
 
-        g = mtf.get_variable(x.mesh, 'g', [], initializer=tf.constant_initializer(1), 
+        g = mtf.get_variable(x.mesh, "g", [], initializer=tf.constant_initializer(1), 
                     master_dtype=variable_dtype.master_dtype, 
                     slice_dtype=variable_dtype.slice_dtype,
                     activation_dtype=variable_dtype.activation_dtype)
@@ -57,11 +57,11 @@ def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
     with tf.variable_scope(scope):
         n_state = x.shape[-1]
 
-        g = mtf.get_variable(x.mesh, 'g', [n_state], initializer=tf.constant_initializer(1),
+        g = mtf.get_variable(x.mesh, "g", [n_state], initializer=tf.constant_initializer(1),
                                         master_dtype=variable_dtype.master_dtype,
                                         slice_dtype=variable_dtype.slice_dtype,
                                         activation_dtype=variable_dtype.activation_dtype)
-        b = mtf.get_variable(x.mesh, 'b', [n_state], initializer=tf.constant_initializer(0),
+        b = mtf.get_variable(x.mesh, "b", [n_state], initializer=tf.constant_initializer(0),
                                         master_dtype=variable_dtype.master_dtype,
                                         slice_dtype=variable_dtype.slice_dtype,
                                         activation_dtype=variable_dtype.activation_dtype)
@@ -73,8 +73,8 @@ def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
 
 def linear_attention(q, k, v, epsilon=1e-6):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
-    q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
-    k = mtf.rename_dimension(k, 'features_per_head', 'features_per_head_in')
+    q = mtf.rename_dimension(q, "features_per_head", "features_per_head_in")
+    k = mtf.rename_dimension(k, "features_per_head", "features_per_head_in")
 
     dim_in = k.shape[-1]
 
@@ -88,8 +88,8 @@ def linear_attention(q, k, v, epsilon=1e-6):
 
 def causal_linear_attention(q, k, v, epsilon=1e-6):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
-    q = mtf.rename_dimension(q, 'features_per_head', 'features_per_head_in')
-    k = mtf.rename_dimension(k, 'features_per_head', 'features_per_head_in')
+    q = mtf.rename_dimension(q, "features_per_head", "features_per_head_in")
+    k = mtf.rename_dimension(k, "features_per_head", "features_per_head_in")
 
     dim_in = k.shape[-1]
 
@@ -113,8 +113,8 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
 
-    # not in the variable_scope because mtf already has a variable_scope in it
-    with tf.variable_scope('conv1d_main'):
+    # Not in the variable_scope because mtf already has a variable_scope in it
+    with tf.variable_scope("conv1d_main"):
         c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
                              kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev),
                             variable_dtype=variable_dtype,
@@ -125,17 +125,17 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
 def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, mesh):
     """memory / key values from all attention paper"""
 
-    dim_mem_kv = mtf.Dimension('mem_kv_sequence', num_mem_kv)
+    dim_mem_kv = mtf.Dimension("mem_kv_sequence", num_mem_kv)
     emb_dim = k.shape[-1]
     mem_std = 1 / math.sqrt(emb_dim.size)
 
-    mem_k = mtf.get_variable(mesh, 'mem_k', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+    mem_k = mtf.get_variable(mesh, "mem_k", mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
                              initializer=tf.random_normal_initializer(stddev=mem_std),
                              master_dtype=variable_dtype.master_dtype,
                              slice_dtype=variable_dtype.slice_dtype,
                              activation_dtype=variable_dtype.activation_dtype,
                              )
-    mem_v = mtf.get_variable(mesh, 'mem_v', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+    mem_v = mtf.get_variable(mesh, "mem_v", mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
                              initializer=tf.random_normal_initializer(stddev=mem_std),
                              master_dtype=variable_dtype.master_dtype,
                              slice_dtype=variable_dtype.slice_dtype,
@@ -143,11 +143,11 @@ def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, me
 
     mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]),
                        (mem_k, mem_v))
-    mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'sequence'),
+    mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, "mem_kv_sequence", "sequence"),
                        (mem_k, mem_v))
 
-    k = mtf.concat([mem_k, k], 'sequence')
-    v = mtf.concat([mem_v, v], 'sequence')
+    k = mtf.concat([mem_k, k], "sequence")
+    v = mtf.concat([mem_v, v], "sequence")
     return k, v
 
 
@@ -155,17 +155,17 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
-    # n_state is the same as config['n_embd'], which is also the same as dim_embd.
+    # n_state is the same as config["n_embd"], which is also the same as dim_embd.
     assert n_state.size % params["n_head"] == 0
 
-    dim_heads = mtf.Dimension("heads", params['n_head'])
+    dim_heads = mtf.Dimension("heads", params["n_head"])
 
-    num_mem_kv = params.get('num_mem_kv', 0)
+    num_mem_kv = params.get("num_mem_kv", 0)
     use_num_mem_kv = num_mem_kv > 0
 
     with tf.variable_scope(scope):
-        # compute attention inputs
-        dim_kv = mtf.Dimension("features_per_head", params['n_embd'] // params['n_head'])
+        # Compute attention inputs
+        dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"])
         mtfparams = mtf.transformer.attention.attention_params_simple(
             x.mesh,
             io_dim=dim_embd,
@@ -187,7 +187,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
         if exists(context):
             context.record_new_states([k, v])
 
-        with tf.variable_scope('attention'):
+        with tf.variable_scope("attention"):
             if attention_type == "local":
                 # `local_attention_1d` has built in autoregressive masking, so we don't need mask_attn_weights.
                 radius = params.get("local_attention_radius", 256)
@@ -197,7 +197,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
                 a = mtf_transformer.attention.local_attention_1d(
                     q, k, v,
-                    length_dim=k.shape[1],  # TODO: should this be memory length?
+                    length_dim=k.shape[1],  # TODO: Should this be memory length?
                     key_dim=dim_kv,
                     value_dim=dim_kv,
                     radius=radius,
@@ -205,7 +205,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                     fully_autoregressive=params["causal"],
                     attention_kwargs={},
                     # mtf argument here should be **kwargs but is just kwargs! so we have to actually give a dict
-                    # TODO: we might need to split along length dimension at some point, when we do we'll need to
+                    # TODO: We might need to split along length dimension at some point, when we do we'll need to
                     #  wire this up as a param
                 )
 
@@ -214,25 +214,25 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
             elif attention_type == "global":
 
-                # TODO: the only use of context within attention is in _maybe_reshape...
+                # TODO: The only use of context within attention is in _maybe_reshape...
                 #   in that fn, context just needs to contain mesh / layout details:
                 #   mesh_shape = mtf.convert_to_shape(context.model.mesh_shape)
                 #   layout_rules = mtf.convert_to_layout_rules(context.model.layout)
                 #   we should create a fake context, and pass to attention for the efficiency
 
-                # broadcast mask bias across batch and heads
+                # Broadcast mask bias across batch and heads
                 if exists(bias):
                     if not is_incremental_inference(context):
                         broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
                     else:
-                        # in the incremental case, a custom mask needs to be built that masks out all key/values that are greater than the current position
+                        # In the incremental case, a custom mask needs to be built that masks out all key/values that are greater than the current position
                         bias = mtf.gather(bias, context.position - 1, dim_seq)
                         broadcasted_bias = mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-1]])
 
-                # rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence
+                # Rename sequence dim of k, v because otherwise the einsum calculating QK^T won't keep both sequence
                 # dims.
                 #
-                # the reason they rename memory_length (k and v) instead of q, which we originally were going to do
+                # The reason they rename memory_length (k and v) instead of q, which we originally were going to do
                 # because renaming less seems better, is because q's length dim is the one left at the end.
                 #
                 # QK^T (logits, in the `attention` code) has shape [batch, heads, sequence, memory_length]
@@ -241,19 +241,19 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
                 # memory key / values, from all-attention paper
                 if use_num_mem_kv:
-                    dim_mem_kv = mtf.Dimension('mem_kv_sequence', num_mem_kv)
+                    dim_mem_kv = mtf.Dimension("mem_kv_sequence", num_mem_kv)
 
-                    with tf.variable_scope('memory_key_values'):
+                    with tf.variable_scope("memory_key_values"):
                         emb_dim = k.shape[-1]
                         mem_std = 1 / math.sqrt(emb_dim.size)
 
-                        mem_k = mtf.get_variable(mesh, 'mem_k', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+                        mem_k = mtf.get_variable(mesh, "mem_k", mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
                                                 initializer=tf.random_normal_initializer(stddev=mem_std),
                                                 master_dtype=variable_dtype.master_dtype,
                                                 slice_dtype=variable_dtype.slice_dtype,
                                                 activation_dtype=variable_dtype.activation_dtype,
                                             )
-                        mem_v = mtf.get_variable(mesh, 'mem_v', mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
+                        mem_v = mtf.get_variable(mesh, "mem_v", mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
                                                  initializer=tf.random_normal_initializer(stddev=mem_std),
                                                 master_dtype=variable_dtype.master_dtype,
                                                 slice_dtype=variable_dtype.slice_dtype,
@@ -261,11 +261,11 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
                         mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]),
                                            (mem_k, mem_v))
-                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, 'mem_kv_sequence', 'sequence'),
+                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, "mem_kv_sequence", "sequence"),
                                            (mem_k, mem_v))
 
-                        k = mtf.concat([mem_k, k], 'sequence')
-                        v = mtf.concat([mem_v, v], 'sequence')
+                        k = mtf.concat([mem_k, k], "sequence")
+                        v = mtf.concat([mem_v, v], "sequence")
 
                 k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
                 v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
@@ -281,18 +281,18 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                     dropout_rate=attn_dropout_rate
                 )
 
-            elif attention_type == 'linear':
+            elif attention_type == "linear":
                 linear_attn_fn = causal_linear_attention if params["causal"] else linear_attention
                 a = linear_attn_fn(q, k, v)
 
             else:
                 raise NotImplementedError("Unknown attention type {}!".format(attention_type))
 
-        with tf.variable_scope('compute_output'):
+        with tf.variable_scope("compute_output"):
             a = mtfparams.compute_output(a, x_shape)
 
-        with tf.variable_scope('compute_output_bias'):
-            b = mtf.get_variable(x.mesh, 'o_b', [dim_embd], initializer=tf.constant_initializer(0),
+        with tf.variable_scope("compute_output_bias"):
+            b = mtf.get_variable(x.mesh, "o_b", [dim_embd], initializer=tf.constant_initializer(0),
                                                 master_dtype=variable_dtype.master_dtype,
                                                 slice_dtype=variable_dtype.slice_dtype,
                                                 activation_dtype=variable_dtype.activation_dtype)
@@ -306,8 +306,8 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 def mlp(x, scope, n_state, *, variable_dtype, params):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        h = mtf.gelu(linear(x, 'c_fc', n_state, variable_dtype=variable_dtype, params=params))
-        h2 = linear(h, 'c_proj', nx, variable_dtype=variable_dtype, params=params, scale=True)
+        h = mtf.gelu(linear(x, "c_fc", n_state, variable_dtype=variable_dtype, params=params))
+        h2 = linear(h, "c_proj", nx, variable_dtype=variable_dtype, params=params, scale=True)
         if params["mode"] == "train" and params["res_dropout"] > 0:
             h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
         return h2
@@ -316,12 +316,12 @@ def mlp(x, scope, n_state, *, variable_dtype, params):
 def mlp_glu(x, scope, n_state, *, variable_dtype, params):
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        h = linear(x, 'c_fc', n_state, params=params)
+        h = linear(x, "c_fc", n_state, params=params)
 
         h, gate = mtf.split(h, h.shape[-1], 2)
         h *= mtf.gelu(gate)
 
-        h2 = linear(h, 'c_proj', nx, variable_dtype=variable_dtype, params=params, scale=True)
+        h2 = linear(h, "c_proj", nx, variable_dtype=variable_dtype, params=params, scale=True)
         if params["mode"] == "train" and params["res_dropout"] > 0:
             h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
         return h2
@@ -334,7 +334,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
     def fn(x):
         with tf.variable_scope(scope):
-            nx = x.shape[-1]  # grab last dimension from input
+            nx = x.shape[-1]  # Grab last dimension from input
 
             if use_rezero:
                 prenorm = identity
@@ -349,22 +349,22 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             if attention_type != "none":
 
-                res_x = prenorm(x, 'norm_1', variable_dtype=variable_dtype, params=params)
-                a = attn(res_x, 'attn', nx, attention_type=attention_type,
+                res_x = prenorm(x, "norm_1", variable_dtype=variable_dtype, params=params)
+                a = attn(res_x, "attn", nx, attention_type=attention_type,
                                   params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
                                   variable_dtype=variable_dtype, context=context)
             else:
                 a = x
                 
-            x = x + pre_residual_fn(a, 'norm_rezero_1', dtype=variable_dtype)
+            x = x + pre_residual_fn(a, "norm_rezero_1", dtype=variable_dtype)
 
-            res_x = prenorm(x, 'norm_2', variable_dtype=variable_dtype, params=params)
+            res_x = prenorm(x, "norm_2", variable_dtype=variable_dtype, params=params)
 
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
 
-                # override defaults
+                # Override defaults
                 for k, v in params["moe_params"].items():
                     moe_params.add_hparam(k, v)
 
@@ -380,13 +380,13 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
                 intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
 
-                # define intermediate layer of mlp - to split
-                dim_intermediate_expanded = mtf.Dimension('intermediate_expanded', intermediate_size)
+                # Define intermediate layer of mlp - to split
+                dim_intermediate_expanded = mtf.Dimension("intermediate_expanded", intermediate_size)
 
-                m = mlp_fn(res_x, 'mlp', dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
+                m = mlp_fn(res_x, "mlp", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]), dtype=variable_dtype.slice_dtype)
 
-            x = x + pre_residual_fn(m, 'norm_rezero_2', variable_dtype)
+            x = x + pre_residual_fn(m, "norm_rezero_2", variable_dtype)
             return x, aux_loss
 
     return fn
@@ -398,18 +398,18 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 def model(mtf_features, other_features, params, mesh, variable_dtype, context=None):
     """A GPT style model implemented in mesh tensorflow."""
     results = {}
-    # if true and in train mode, enable gradient checkpointing
+    # If true and in train mode, enable gradient checkpointing
     recompute_grad = params["recompute_grad"] and (params["mode"] == "train") == True
     use_axial_pos_emb = params["axial_pos_emb"] != None
     no_weight_tie_emb = params["no_weight_tie"] == True
     share_parameters = exists(params["share_parameters"]) and params["share_parameters"] == True
 
-    # parse inputs and labels from the mtf_features / other_features input dicts
-    # all dimensions are defined inside model_fn for efficiency
+    # Parse inputs and labels from the mtf_features / other_features input dicts
+    # All dimensions are defined inside model_fn for efficiency
     x = mtf_features["inputs"]
 
     batch_dim = x.shape[0]
-    sequence_dim = x.shape[1]  # define seq length dim
+    sequence_dim = x.shape[1]  # Define seq length dim
     embd_dim = other_features["embd_dim"]
     vocab_dim = other_features["vocab_dim"]
     embed_sequence_dim = other_features["embed_sequence_dim"]
@@ -419,24 +419,26 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         x = mtf.reshape(x, [batch_dim])
 
     if not use_axial_pos_emb:
-        wpe = mtf.get_variable(mesh, 'wpe', mtf.Shape([embed_sequence_dim, embd_dim]),  # Position encoding
+        # Use standard position encoding
+        wpe = mtf.get_variable(mesh, "wpe", mtf.Shape([embed_sequence_dim, embd_dim]),
                                initializer=tf.random_normal_initializer(stddev=0.01),
                                master_dtype=variable_dtype.master_dtype,
                                slice_dtype=variable_dtype.slice_dtype,
                                activation_dtype=variable_dtype.activation_dtype)
     else:
+        # Use axial position encoding
         axial_dim_1, axial_dim_2 = params["axial_pos_emb"]
 
-        axial_dim = mtf.Dimension('axial_dim', axial_dim_1 * axial_dim_2)
-        dim_axials = [mtf.Dimension('axial_dim_{}'.format(i), t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
+        axial_dim = mtf.Dimension("axial_dim", axial_dim_1 * axial_dim_2)
+        dim_axials = [mtf.Dimension(f"axial_dim_{i}", t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
 
-        axial_wpe_1 = mtf.get_variable(mesh, 'axial_wpe_1', mtf.Shape([dim_axials[0], embd_dim]),  # Position encoding
+        axial_wpe_1 = mtf.get_variable(mesh, "axial_wpe_1", mtf.Shape([dim_axials[0], embd_dim]),
                                         initializer=tf.random_normal_initializer(stddev=0.01),
                                         master_dtype=variable_dtype.master_dtype,
                                         slice_dtype=variable_dtype.slice_dtype,
                                         activation_dtype=variable_dtype.activation_dtype)
 
-        axial_wpe_2 = mtf.get_variable(mesh, 'axial_wpe_2', mtf.Shape([dim_axials[1], embd_dim]),  # Position encoding
+        axial_wpe_2 = mtf.get_variable(mesh, "axial_wpe_2", mtf.Shape([dim_axials[1], embd_dim]),
                                         initializer=tf.random_normal_initializer(stddev=0.01),
                                         master_dtype=variable_dtype.master_dtype,
                                         slice_dtype=variable_dtype.slice_dtype,
@@ -448,21 +450,22 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
         wpe = mtf.reshape(wpe, [axial_dim, embd_dim])
 
-    wte = mtf.get_variable(mesh, 'wte', mtf.Shape([vocab_dim, embd_dim]),  # Text encoding
+    # Text encoding
+    wte = mtf.get_variable(mesh, "wte", mtf.Shape([vocab_dim, embd_dim]),
                             initializer=tf.random_normal_initializer(stddev=0.02),
                             master_dtype=variable_dtype.master_dtype,
                             slice_dtype=variable_dtype.slice_dtype,
                             activation_dtype=variable_dtype.activation_dtype)
 
-    with tf.variable_scope('token_embd'):
-        # text embedding
+    with tf.variable_scope("token_embd"):
+        # Text embedding
         h = mtf.gather(wte, x, vocab_dim)
         if params["embed_dropout"] > 0 and params["mode"] == "train":
             h = mtf.dropout(h, rate=params["embed_dropout"], name="wte_dropout")
 
 
-    with tf.variable_scope('pos_embd'):
-        # positional embedding
+    with tf.variable_scope("pos_embd"):
+        # Positional embedding
         position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (context.position - 1)
         pos_emb = mtf.gather(wpe, position_indices, wpe.shape[0])
         if params["embed_dropout"] > 0 and params["mode"] == "train":
@@ -471,12 +474,12 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
     # Transformer
 
-    # gradient checkpointing 
+    # For gradient checkpointing 
     aux_losses = 0
 
     for layer in range(params["n_layer"]):
         # attn blocks
-        block_scope = 'h%s' % (str(layer) if not share_parameters else '')
+        block_scope = f"h{layer}" if not share_parameters else ""
 
         block_fn = block(params=params, scope=block_scope, layer_num=layer,
                          bias=other_features["attn_bias"],
@@ -488,47 +491,47 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
 
-    results['present'] = None  # mtf.stack(presents, dim_name=dim_name, axis=1)
+    results["present"] = None  # mtf.stack(presents, dim_name=dim_name, axis=1)
 
     if no_weight_tie_emb:
-        with tf.variable_scope('wte_final_linear'):
-            logits = linear(h, 'linear_out', vocab_dim, variable_dtype=variable_dtype, params=params)
+        with tf.variable_scope("wte_final_linear"):
+            logits = linear(h, "linear_out", vocab_dim, variable_dtype=variable_dtype, params=params)
     else:
-        # layer normalize & affine transform
-        h = layer_norm(h, 'ln_f', variable_dtype=variable_dtype, params=params)
-        seq_dim = sequence_dim if not is_incremental_inference(context) else mtf.Dimension('sequence', 1)
-        with tf.variable_scope('wte_final_einsum'):
-            # equivalent to tf.matmul
+        # Layer normalize & affine transform
+        h = layer_norm(h, "ln_f", variable_dtype=variable_dtype, params=params)
+        seq_dim = sequence_dim if not is_incremental_inference(context) else mtf.Dimension("sequence", 1)
+        with tf.variable_scope("wte_final_einsum"):
+            # Equivalent to tf.matmul
             logits = mtf.einsum([h, wte], output_shape=[batch_dim, seq_dim, vocab_dim])
 
     if params["mode"] == "train":
         labels = mtf_features["labels"]
-        z_loss = params.get('z_loss', 1e-4)
-        # go to full precision for the logits 
+        z_loss = params.get("z_loss", 1e-4)
+        # Go to full precision for the logits 
         logits = mtf.cast(logits, tf.float32)
 
-        with tf.variable_scope('xentropy_final'):
+        with tf.variable_scope("xentropy_final"):
             loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels, vocab_dim=logits.shape[-1], z_loss=z_loss)
 
-        # for non-autoregressive models (masked language modeling training)
-        # make sure labels with padding tokens are not counted in the loss
+        # For non-autoregressive models (masked language modeling training)
+        # Make sure labels with padding tokens are not counted in the loss
         if not params["causal"]:
-            padding_id = params.get('padding_id', 0)
+            padding_id = params.get("padding_id", 0)
             loss_batch = mtf.where(mtf.not_equal(labels, padding_id), loss_batch, mtf.zeros_like(loss_batch))
 
-        with tf.variable_scope('reduce_mean_final'):
+        with tf.variable_scope("reduce_mean_final"):
             loss = mtf.reduce_mean(loss_batch)
 
-        loss += aux_losses  # add on auxiliary losses (currently only used for moe)
+        loss += aux_losses  # Add on auxiliary losses (currently only used for MoE)
         loss /= params["num_microbatches"]
     else:
         loss = None
         loss_batch = None
 
     if loss:
-        # convert to train dimension 
+        # Convert to train dtype 
         loss = mtf.cast(loss, variable_dtype.slice_dtype)
 
-    # cast back to checkpoint dtype
+    # Cast back to checkpoint dtype
     logits = mtf.cast(logits, variable_dtype.master_dtype)
     return logits, loss, loss_batch

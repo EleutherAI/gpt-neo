@@ -214,17 +214,21 @@ def mlm_sample_text(params, x, random_documents = False):
     masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
     return masked_features, labels
 
-def pred_input(params, enc = None, text="In a shocking finding, scientists discovered a herd of unicorns living in a remote, "
-                                        "previously unexplored valley, in the Andes Mountains. Even more surprising to the "
-                                        "researchers was the fact that the unicorns spoke perfect English."):
+
+def pred_input(params, logger, enc=None,
+               text="In a shocking finding, scientists discovered a herd of unicorns living in a remote, "
+                    "previously unexplored valley, in the Andes Mountains. Even more surprising to the "
+                    "researchers was the fact that the unicorns spoke perfect English."):
     tokens = encode(enc, text)
 
     if len(tokens) > params["n_ctx"]:
+        logger.info("The length of your input prompt is longer than the model's context length - truncating input.")
         tokens = tokens[len(tokens) - params["n_ctx"]:]
     if len(tokens) < params["n_ctx"]:
-        tokens = tf.pad(tokens, [[0,params["n_ctx"]-len(tokens)]], constant_values=params["padding_id"])
+        tokens = tf.pad(tokens, [[0, params["n_ctx"] - len(tokens)]], constant_values=params["padding_id"])
     t = tf.broadcast_to(tokens, [params["batch_size"], params["n_ctx"]])
     dataset = tf.data.Dataset.from_tensors(t)
+
     def _dummy_labels(x):
         return x, x
 
@@ -232,7 +236,7 @@ def pred_input(params, enc = None, text="In a shocking finding, scientists disco
     return dataset
 
 
-def test_pred_input(params, enc = None):
+def test_pred_input(params, **kwargs):
     def _dummy_labels(x):
         return x, x
 
