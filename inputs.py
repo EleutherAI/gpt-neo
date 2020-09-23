@@ -34,7 +34,7 @@ def test_generic_text(params, eval=False, **kwargs):
     dataset = dataset.batch(batch_size)
     return dataset
 
-def generic_text(params, eval=False, sample_text_fn=None, current_step=0):
+def generic_text(params, eval=False, sample_text_fn=None):
     i = 0 if not eval else 1
     print('##############################')
     print(params["datasets"])
@@ -68,7 +68,6 @@ def generic_text(params, eval=False, sample_text_fn=None, current_step=0):
     seed = params.get('seed', None)
     dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=seed)
     dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
-    dataset = dataset.skip(current_step)
     return dataset
 
 def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
