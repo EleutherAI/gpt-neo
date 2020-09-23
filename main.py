@@ -26,9 +26,6 @@ def parse_args():
     parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
     parser.add_argument("--check_dataset", action="store_true", help="If set, outputs sample from the dataset and quits.")
     args = parser.parse_args()
-
-    # args.model = "gpt3_small_moe_8"
-    # args.tpu = "daj"
     
     # Rewire to use testing related functions if --test is set
     if args.test:
