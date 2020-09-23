@@ -15,9 +15,9 @@ def clip_by_global_norm(grads, clip_norm):
 
 def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
-    global_step = tf.train.get_or_create_global_step() # get global step
+    global_step = tf.train.get_or_create_global_step()
 
-    learning_rate = tf.constant(value=params["lr"], shape=[], dtype=variable_dtype.slice_dtype) # grab lr param
+    learning_rate = tf.constant(value=params["lr"], shape=[], dtype=variable_dtype.slice_dtype)
     clip_value = mtf.constant(mesh, params["gradient_clipping"], dtype=variable_dtype.slice_dtype)
 
     if inp_var_grads is None:
@@ -25,16 +25,15 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
     else:
         var_grads = inp_var_grads
 
-    # cast to full precision
-    var_grads_fp = [ mtf.cast(v, variable_dtype.slice_dtype) 
-                     for v in var_grads ]
+    # Cast to full precision
+    var_grads_fp = [mtf.cast(v, variable_dtype.slice_dtype) for v in var_grads]
 
     if params["lr_decay"] == "linear":
         learning_rate = tf.train.polynomial_decay(
             learning_rate,
             global_step,
             params["train_steps"],
-            end_learning_rate=params["lr"]*0.1, # decrease to 10% of initial LR according to GPT-3 paper
+            end_learning_rate=params["lr"]*0.1, # Decrease to 10% of initial LR according to GPT-3 paper
             power=1.0,
             cycle=False)
     elif params["lr_decay"] == "cosine":
@@ -42,7 +41,7 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
             learning_rate,
             global_step,
             params["train_steps"],
-            alpha=0.1  # alpha is min lr value as a fraction of init lr.
+            alpha=0.1  # Alpha is min lr value as a fraction of init lr.
         )
 
     if params["warmup_steps"] > 0:

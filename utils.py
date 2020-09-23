@@ -25,7 +25,7 @@ def setup_logging(args):
 
 
 def get_batch_size(params):
-    return params["{}_batch_size".format(params["mode"])]
+    return params[f"{params['mode']}_batch_size"]
 
 
 def add_mode_to_params(params, mode):
@@ -36,35 +36,35 @@ def add_mode_to_params(params, mode):
     elif mode == tf.estimator.ModeKeys.TRAIN:
         params["mode"] = "train"
     else:
-        raise ValueError('invalid mode %s' % mode)
+        raise ValueError(f"Invalid mode {mode}")
     return params
 
 
 def simd_mesh_setup(params, mesh_shape, layout_rules):
-    """constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
+    """Constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
 
-    num_hosts = params['context'].num_hosts
-    host_placement_fn = params['context'].tpu_host_placement_function
+    num_hosts = params["context"].num_hosts
+    host_placement_fn = params["context"].tpu_host_placement_function
     device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
-    tf.logging.info('device_list = {}'.format(device_list))
+    tf.logging.info(f"device_list = {device_list}")
 
     # TODO: Better estimation of replica cache size?
     replica_cache_size = 300 * 1000000  # 300M per replica
 
-    # Worker 0 caches all the TPU binaries.
-    worker0_mem = replica_cache_size * params['context'].num_replicas
+    # Worker 0 caches all the TPU binaries
+    worker0_mem = replica_cache_size * params["context"].num_replicas
     devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
     var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
-    mesh_devices = [''] * mesh_shape.size
+    mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-        mesh_shape, layout_rules, mesh_devices, params['context'].device_assignment)
+        mesh_shape, layout_rules, mesh_devices, params["context"].device_assignment)
 
     return var_placer, mesh_impl
 
 
 def remove_batch_from_layout(layout):
     """
-    the tf-mesh layout splits across batch size, remove it.
+    The tf-mesh layout splits across batch size, remove it.
     Useful for prediction steps, when you no longer want large batches.
 
     :param layout: string describing tf-mesh layout
@@ -76,7 +76,7 @@ def remove_batch_from_layout(layout):
         if "batch" in i:
             pass
         else:
-            ret_layout += "{}{}".format(i, ",")
+            ret_layout += f"{i},"
     return ret_layout[:-1]
 
 
@@ -137,13 +137,11 @@ def expand_attention_types_params(params_list):
 
 def get_n_trainable_vars(graph):
     """
-    gets number of trainable vars in a MTF model.
+    Gets number of trainable vars in a MTF model.
 
     :param graph: Mesh-Tensorflow graph
     :return: None
     """
-    # Getting total number of trainable vars
-    print('\n')
     total_parameters = 0
     for variable in graph.trainable_variables:
       shape = variable.shape.dims
@@ -151,14 +149,12 @@ def get_n_trainable_vars(graph):
       for dim in shape:
           variable_parameters *= dim.size
       total_parameters += variable_parameters
-    print("N TRAINABLE VARS:")
-    print('{:,}'.format(total_parameters))
-    print('\n')
+    print(f"\n\nN TRAINABLE VARS:\n{total_parameters:,}\n\n")
 
 
 def print_dim_names(graph):
     """
-
+    Print names of all Dimensions
     :param graph: Mesh-Tensorflow graph
     :return: None
     """
@@ -167,8 +163,8 @@ def print_dim_names(graph):
         names = variable.shape.dimension_names
         all_dim_names.append(names)
 
-    # print all dim names in graph & write to file
-    all_dim_names = [item for sublist in all_dim_names for item in sublist] # flatten all dims
+    # Print all dim names in graph & write to file
+    all_dim_names = [item for sublist in all_dim_names for item in sublist] # Flatten all dims
     unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
     for dim_name in unique_dims:
@@ -178,7 +174,7 @@ def print_dim_names(graph):
 
 def get_graph_info(graph):
     """
-    wrapper fn that calculates number of trainable vars in an MTF graph & prints all dim_names to file
+    Wrapper fn that calculates number of trainable vars in an MTF graph & prints all dim_names to file
     TODO: how to get un-trainable dim-names too, batch etc.
 
     :param graph: Mesh-Tensorflow graph
