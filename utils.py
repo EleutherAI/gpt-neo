@@ -236,52 +236,53 @@ def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
 
 def create_host_call(model_dir):
-  """Construct a host_call writing scalar summaries.
-  Borrowed from t2t.
-  TPU.
-  Args:
-    model_dir: String containing path to train
-  Returns:
-    (fn, args) Pair to be called by TPUEstimator as the host_call.
-  """
-  graph = tf.get_default_graph()
-  # a list of (name, lowered tensor) tuples
-  summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
+    """Construct a host_call writing scalar summaries.
 
-  def maybe_cast(tensor):
-    assert tensor.shape.is_compatible_with([]), tensor.name
-    if tensor.dtype == tf.int64:
-      return tf.to_int32(tensor)
-    if tensor.dtype == tf.bfloat16:
-      return tf.cast(tensor, tf.float32)
-    return tensor
+    Borrowed from t2t.
+    
+    Args:
+        model_dir: String containing path to train
+    Returns:
+        (fn, args) Pair to be called by TPUEstimator as the host_call.
+    """
 
-  reshaped_tensors = [tf.reshape(maybe_cast(t), [1]) for _, t in summaries]
+    graph = tf.get_default_graph()
+    # A list of (name, lowered tensor) tuples
+    summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
 
-  # When no supported summaries are found, don't create host_call. Otherwise,
-  # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
-  # it, eventually causing hang.
-  if not reshaped_tensors:
-    return None
+    def maybe_cast(tensor):
+        assert tensor.shape.is_compatible_with([]), tensor.name
+        if tensor.dtype == tf.int64:
+            return tf.to_int32(tensor)
+        if tensor.dtype == tf.bfloat16:
+            return tf.cast(tensor, tf.float32)
+        return tensor
 
-  def host_call_fn(global_step, *args):
-    """Training host call. Creates scalar summaries for training metrics."""
-    # This function is executed on the CPU and should not directly reference
-    # any Tensors in the rest of the `model_fn`. To pass Tensors from the
-    # model to the `model_fn`, provide as part of the `host_call`.
-    global_step = tf.cast(global_step[0], tf.int64)
-    with tf2.summary.create_file_writer(model_dir).as_default():
-      # We cannot directly use any tensor from summaries, because each
-      # tensor here must be a concat of multiple tensors from all shards.
-      # Therefore, we rely on the assumption that args wil have the same
-      # length as summaries, and all tensors in args will have the same
-      # order of self._tup_summaries.
-      assert len(args) == len(summaries)
-      for i, tensor in enumerate(args):
-        name = summaries[i][0]
-        tf2.summary.scalar(
-            name, tf.reduce_mean(tensor), step=global_step)
-      return tf.summary.all_v2_summary_ops()
+    reshaped_tensors = [tf.reshape(maybe_cast(t), [1]) for _, t in summaries]
 
-  global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
-  return host_call_fn, [global_step_t] + reshaped_tensors
+    # When no supported summaries are found, don't create host_call. Otherwise,
+    # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
+    # it, eventually causing hang.
+    if not reshaped_tensors:
+        return None
+
+    def host_call_fn(global_step, *args):
+        """Training host call. Creates scalar summaries for training metrics."""
+        # This function is executed on the CPU and should not directly reference
+        # any Tensors in the rest of the `model_fn`. To pass Tensors from the
+        # model to the `model_fn`, provide as part of the `host_call`.
+        global_step = tf.cast(global_step[0], tf.int64)
+        with tf2.summary.create_file_writer(model_dir).as_default():
+            # We cannot directly use any tensor from summaries, because each
+            # tensor here must be a concat of multiple tensors from all shards.
+            # Therefore, we rely on the assumption that args wil have the same
+            # length as summaries, and all tensors in args will have the same
+            # order of self._tup_summaries.
+            assert len(args) == len(summaries)
+            for i, tensor in enumerate(args):
+                name = summaries[i][0]
+                tf2.summary.scalar(name, tf.reduce_mean(tensor), step=global_step)
+        return tf.summary.all_v2_summary_ops()
+
+    global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
+    return host_call_fn, [global_step_t] + reshaped_tensors
