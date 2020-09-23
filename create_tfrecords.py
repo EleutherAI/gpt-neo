@@ -17,7 +17,7 @@ from encoders import encode
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", type=str, choices=["chunks", "documents"], default="documents", help="Whether a tfrecord example is a constant sized chunk or a full document")
-parser.add_argument("--base_dir", type=str, default="/home/GPTNeo/LLMD-CommonCrawl/openwebtext", help="Path to where your files are located. Files ending in .zst are treated as \
+parser.add_argument("--base_dir", type=str, help="Path to where your files are located. Files ending in .zst are treated as \
                     archives, all others as raw text.")
 parser.add_argument("--files_per", type=int, default=200, help="Text files per tfrecord")
 parser.add_argument("--name", type=str, default="openwebtext", help="Name of output files will be name_i.tfrecords where i is the number of the file")
@@ -58,6 +58,11 @@ def read_in_chunks(stream, chunk_size=1024):
         if len(data) == 0:
             break
         yield data
+
+def fetch_special_token_id(enc, special_token):
+    ids = enc.encode(special_token).ids
+    assert len(ids) == 1, f'Special token {special_token} is not assigned a unique id for the tokenizer'
+    return ids[0]
 
 class BufferedEncodedStream(object):
     # Loads a file into memory, optionally fixes unicode, encodes it and adds the separator to the beginning
@@ -274,8 +279,8 @@ if args.write_dataset_config:
             dataset_config.update(**{
                 "n_vocab": enc.get_vocab_size(),
                 "tokenizer_path": str(args.encoder_path),
-                "eos_id": enc.encode("<|endoftext|>").ids[0],
-                "padding_id": enc.encode("<|padding|>").ids[0]
+                "eos_id": fetch_special_token_id(enc, "<|endoftext|>"),
+                "padding_id": fetch_special_token_id(enc, "<|padding|>")
             })
 
         f.write(json.dumps(dataset_config, indent=2))
