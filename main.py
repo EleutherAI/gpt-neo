@@ -1,7 +1,6 @@
 """GPT-like model in Mesh-Tensorflow"""
-import argparse
+
 from functools import partial
-from pathlib import Path
 from absl.flags import argparse_flags
 from absl import app
 import mesh_tensorflow as mtf
@@ -9,7 +8,8 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging
-from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output, mlm_sample_text
+from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, \
+    test_handle_pred_output, mlm_sample_text
 from model_fns import model_fn
 from encoders import fetch_encoder
 from configs import fetch_model_params
@@ -17,6 +17,7 @@ from tasks import task_descriptors
 
 def parse_args(argv):
     # Parse command line arguments
+    # TODO: add help
     parser = argparse_flags.ArgumentParser()
     parser.add_argument('--tpu', type=str) # Name of TPU to train on, if any
     parser.add_argument('--gpu_ids', nargs='+', type=int, default=[0]) # If training on GPU, can specify which GPU ids
@@ -55,7 +56,7 @@ def main(args):
 
     # Fetch encoder per params
     encoder = fetch_encoder(params)
-    pred_input_fn = partial(pred_input_fn, enc = encoder)
+    pred_input_fn = partial(pred_input_fn, logger=logger, enc=encoder)
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
@@ -110,7 +111,7 @@ def main(args):
     # Sample quality of moe models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
     params["slow_sampling"] = True if params["moe_layers"] is not None else False
-    
+
     logger.info('params = {}'.format(params))
 
     # get eval tasks from params
