@@ -28,7 +28,7 @@ def model_fn(features, labels, mode, params):
     else:
         var_placer = None
         gpu_ids = params["gpu_ids"]
-        mesh_devices = list(map(lambda id: f'/device:GPU:{id}', gpu_ids))
+        mesh_devices = [f"device:GPU:{id}" for id in gpu_ids]
         mesh_shape = [("all_processors", len(gpu_ids))]
         layout_rules = [("batch", "all_processors")]
 
