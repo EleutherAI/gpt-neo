@@ -1,5 +1,5 @@
 """GPT-like model in Mesh-Tensorflow"""
-import argparse
+
 from functools import partial
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
@@ -52,7 +52,8 @@ def main(args):
 
     # Fetch encoder per params
     encoder = fetch_encoder(params)
-    pred_input_fn = partial(pred_input_fn, enc=encoder)
+
+    pred_input_fn = partial(pred_input_fn, logger=logger, enc=encoder)
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
@@ -85,7 +86,7 @@ def main(args):
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
     params["slow_sampling"] = True if params["moe_layers"] is not None else False
-    
+
     logger.info(f"params = {params}")
 
     # Get eval tasks from params
