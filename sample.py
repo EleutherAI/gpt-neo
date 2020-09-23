@@ -58,28 +58,28 @@ def sample_autoregressive(partial_sequences,
         a Tensor with shape [<batch_dims>, length_dim]
     """
 
-    inputs = partial_sequences  # partial sequences to fill in
+    inputs = partial_sequences  # Partial sequences to fill in
     batch_dims = inputs.shape.dims[:-1]
     length_dim = inputs.shape.dims[-1]
-    padding_id = params.get('padding_id', 0)
-    slow_sampling = params.get('slow_sampling', False)
+    padding_id = params.get("padding_id", 0)
+    slow_sampling = params.get("slow_sampling", False)
 
 
     initial_position = mtf.reduce_sum(
-        mtf.to_int32(mtf.not_equal(inputs, padding_id)), reduced_dim=length_dim)  # gets position where zero padding starts
+        mtf.to_int32(mtf.not_equal(inputs, padding_id)), reduced_dim=length_dim)  # Gets position where zero padding starts
 
     length_range = mtf.range(inputs.mesh, length_dim, tf.int32)
     input_full_attention = True  # for now hardcode this to true bc lazy
     if input_full_attention:
         # Vanilla autoregressive model - each position can see previous positions.
-        # think this feeds in to the loop fn and tells each position where it can attend to?
+        # Think this feeds in to the loop fn and tells each position where it can attend to?
         read_priority = write_priority = length_range * mtf.to_int32(
             mtf.greater(length_range, initial_position))
     else:
         read_priority = write_priority = length_range
 
-    # builds context to pass around internally
-    # the 'first part' context records initial states of k / v / x
+    # Builds context to pass around internally
+    # The 'first part' context records initial states of k / v / x
 
     if not slow_sampling:
         context_first_part = mtf_transformer.transformer.Context(
@@ -104,8 +104,8 @@ def sample_autoregressive(partial_sequences,
             inputs=inputs,
             encoder_inputs=encoder_inputs)
 
-        with tf.variable_scope('gpt2'):
-            logits, _, _ = gpt2.model({'inputs': inputs}, other_features, params, inputs.mesh, variable_dtype = variable_dtype, context = context_first_part)
+        with tf.variable_scope("gpt2"):
+            logits, _, _ = gpt2.model({"inputs": inputs}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context=context_first_part)
 
         if not has_partial_sequences:
             initial_states = [mtf.zeros_like(t) for t in context_first_part.new_states]
@@ -123,7 +123,7 @@ def sample_autoregressive(partial_sequences,
             reduced_dim=length_dim)
 
     def cond_fn(position, ids, *unused_states):
-        """Should we run another loop iteration."""
+        """Should we run another loop iteration?"""
         past_end = mtf.greater_equal(position, length_dim.size)
         if max_steps:
             past_end = mtf.logical_or(
@@ -140,8 +140,8 @@ def sample_autoregressive(partial_sequences,
         return mtf.logical_not(all_done)
 
     def body_fn(position, ids, *states):
-        nonlocal sampling_keep_top_k
         """One step in the decode loop."""
+        nonlocal sampling_keep_top_k
 
         context = mtf_transformer.transformer.Context(
             model=None,
@@ -165,10 +165,10 @@ def sample_autoregressive(partial_sequences,
             inputs=ids,
             encoder_inputs=encoder_inputs) if not slow_sampling else None
 
-        with tf.variable_scope('gpt2', reuse=tf.AUTO_REUSE):
-            logits, _, _ = gpt2.model({'inputs': ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
+        with tf.variable_scope("gpt2", reuse=tf.AUTO_REUSE):
+            logits, _, _ = gpt2.model({"inputs": ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
 
-        # by default, do topk sampling of 0.9
+        # By default, do top_k sampling of 0.9
         if sampling_keep_top_k == -2:
             sampling_keep_top_k = int(logits.shape[-1].size * 0.1)
 
@@ -204,7 +204,7 @@ def sample_autoregressive(partial_sequences,
         cond_fn, body_fn, while_loop_inputs)[:2]
     del final_position
     if has_partial_sequences and remove_partial_sequences:
-        # remove partial sequences from outputs
+        # Remove partial sequences from outputs
         partial_length = mtf.reduce_sum(
             mtf.to_int32(mtf.not_equal(partial_sequences, padding_id)),
             reduced_dim=length_dim)
