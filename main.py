@@ -11,6 +11,7 @@ from model_fns import model_fn
 from encoders import fetch_encoder
 from configs import fetch_model_params
 from tasks import task_descriptors
+import argparse
 
 def parse_args():
     # Parse command line arguments
