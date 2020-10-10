@@ -182,6 +182,12 @@ TODO
 
 [Sacred](https://github.com/IDSIA/sacred) helps track experiments and is much nicer to work with than tensorboard.
 
+To setup:
+
+1. Install Docker and Docker-compose
+
+2. Run `docker-compose up`
+
 To use: 
 
 1. Ensure model_dir doesnt have any metric logs in it (it trips up the metric stuff for tensorboard, which assumes that it's a continuation of the existing run). You can use `gsutil rm -r ...` to delete model dir
