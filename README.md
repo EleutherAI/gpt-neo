@@ -8,10 +8,10 @@ Training and inference supported on both TPUs and GPUs.
 
 Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context length, including:
 
-    - Local attention
-    - [Linear attention](https://arxiv.org/abs/1812.01243)
-    - [Mixture of Experts](https://arxiv.org/abs/1701.06538)
-    - [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
+* Local attention
+* [Linear attention](https://arxiv.org/abs/1812.01243)
+* [Mixture of Experts](https://arxiv.org/abs/1701.06538)
+* [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
 
 Pretrained models will be released as they are finished training.
 
