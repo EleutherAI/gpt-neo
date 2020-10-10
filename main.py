@@ -5,35 +5,37 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, check_dataset
-from inputs import generic_text, pred_input, test_generic_text, test_pred_input, handle_pred_output, test_handle_pred_output, mlm_sample_text
+from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, \
+    check_dataset
+from inputs import generic_text, pred_input, handle_pred_output, mlm_sample_text
 from model_fns import model_fn
 from encoders import fetch_encoder
 from configs import fetch_model_params
 from tasks import task_descriptors
 import argparse
 
+
 def parse_args():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tpu", type=str, help="Name of TPU to train on, if any.") 
-    parser.add_argument("--gpu_ids", nargs="+", type=int, default=[0], help=" If training on GPU, can specify which GPU ids.")
+    parser.add_argument("--tpu", type=str, help="Name of TPU to train on, if any.")
+    parser.add_argument("--gpu_ids", nargs="+", type=int, default=[0],
+                        help=" If training on GPU, can specify which GPU ids.")
     parser.add_argument("--model", type=str, default=None, help="JSON file that contains model parameters.")
     parser.add_argument("--steps_per_checkpoint", type=int, default=5000, help="Save a model checkpoint every X steps.")
-    parser.add_argument("--auto_layout", action="store_true", help="If set, generates a MTF auto layout.")
-    parser.add_argument("--auto_layout_and_mesh_shape", action="store_true", help="If set, generates a MTF auto layout and auto mesh shape.")
+    parser.add_argument("--auto_layout", action="store_true", help="If set, generates and prints the most memory "
+                                                                   "efficient layout according to MTF auto layout.")
+    parser.add_argument("--auto_layout_and_mesh_shape", action="store_true",
+                        help="If set, generates and prints the most memory efficient layout and mesh shape according to"
+                             " MTF auto layout.")
     parser.add_argument("--new", action="store_true", help="If set, deletes previous checkpoint, if it exists.")
-    parser.add_argument("--test", action="store_true")
     parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
-    parser.add_argument("--check_dataset", action="store_true", help="If set, outputs sample from the dataset and quits.")
+    parser.add_argument("--check_dataset", action="store_true",
+                        help="If set, outputs sample from the dataset and quits.")
     args = parser.parse_args()
-    
-    # Rewire to use testing related functions if --test is set
-    if args.test:
-        args.model = "test"
     assert args.model is not None, "Model must be set"
-
     return args
+
 
 def main(args):
     # Setup logging
@@ -43,9 +45,9 @@ def main(args):
     params = fetch_model_params(args.model)
 
     # Fetch appropriate input functions
-    input_fn = generic_text if not args.test else test_generic_text
-    pred_input_fn = pred_input if not args.test else test_pred_input
-    handle_pred_output_fn = handle_pred_output if not args.test else test_handle_pred_output
+    input_fn = generic_text
+    pred_input_fn = pred_input
+    handle_pred_output_fn = handle_pred_output
 
     if params["mlm_training"]:
         mlm_sample_text_fn = partial(mlm_sample_text, params)
@@ -59,7 +61,7 @@ def main(args):
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
         check_dataset(input_fn)
-        
+
     # Confirm deletion of checkpoint files if --new flag is set
     if args.new:
         if yes_or_no(f"Are you sure you want to remove '{params['model_path']}' to start afresh?"):
@@ -81,7 +83,7 @@ def main(args):
     # Expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
     assert len(params["attention_types"]) == params["n_layer"]  # Assert that the length of expanded list = num layers
-    params["predict_batch_size"] = params.get("predict_batch_size", 1) # Default to 1
+    params["predict_batch_size"] = params.get("predict_batch_size", 1)  # Default to 1
     params["predict"] = args.predict
 
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
@@ -92,7 +94,8 @@ def main(args):
 
     # Get eval tasks from params
     eval_tasks = params.get("eval_tasks", [])
-    has_predict_or_eval_steps_or_eval_tasks = params["predict_steps"] > 0 or params["eval_steps"] > 0 or len(eval_tasks) > 0
+    has_predict_or_eval_steps_or_eval_tasks = params["predict_steps"] > 0 or params["eval_steps"] > 0 or len(
+        eval_tasks) > 0
 
     for t in eval_tasks:
         assert t in task_descriptors, f"Eval task '{t}' is not known"

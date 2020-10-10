@@ -3,37 +3,6 @@ import tensorflow.compat.v1 as tf
 from functools import partial
 from encoders import encode
 
-def test_generic_text(params, eval=False, **kwargs):
-    batch_size = params['train_batch_size']
-
-    def _generate():
-        while True:
-            length = params['n_ctx'] // 2 - 1
-            bos = np.full((batch_size, 1), 1)
-            eos = np.full((batch_size, 1), 2)
-            pad = np.full((batch_size, 1), 3)
-            src_seq = np.random.randint(4,  (params['n_vocab'] - 1), (batch_size, length))
-            tgt_seq = src_seq + 1
-            seq = np.concatenate([bos, src_seq, pad, tgt_seq, eos], axis=1)
-
-            for ind in range(batch_size):
-                yield seq[ind]
-
-    def _sample_text(x):
-        vals1 = x[:params["n_ctx"]]
-        vals2 = x[1:params["n_ctx"] + 1]
-
-        vals1 = tf.reshape(vals1, [params["n_ctx"]])
-        vals2 = tf.reshape(vals2, [params["n_ctx"]])
-        vals1 = tf.cast(vals1, dtype=tf.int32)
-        vals2 = tf.cast(vals2, dtype=tf.int32)
-        return vals1, vals2
-
-    dataset = tf.data.Dataset.from_generator(_generate, output_types=tf.int64)
-    dataset = dataset.map(_sample_text)
-    dataset = dataset.batch(batch_size)
-    return dataset
-
 def generic_text(params, eval=False, sample_text_fn=None):
     i = 0 if not eval else 1
     print('##############################')
@@ -236,22 +205,6 @@ def pred_input(params, logger, enc=None,
     return dataset
 
 
-def test_pred_input(params, **kwargs):
-    def _dummy_labels(x):
-        return x, x
-
-    length = params["n_ctx"] // 2 - 1
-    remaining = params["n_ctx"] // 2
-    bos = tf.constant(1, shape=[1, 1], dtype=tf.int64)
-    src_seq = tf.random.uniform(shape=[1, length], minval=4, maxval=(params['n_vocab'] - 1), dtype=tf.int64)
-    seq = tf.concat([bos, src_seq], axis=1)
-    seq = tf.pad(seq, [[0, 0], [0, remaining]], constant_values=params['padding_id'])
-    dataset = tf.data.Dataset.from_tensors(seq)
-
-    dataset = dataset.map(_dummy_labels)
-    return dataset
-
-
 def handle_pred_output(predictions, logger, enc, params, out_name="test"):
     with tf.gfile.Open(f"{out_name}.txt", "a") as f:
         for i, p in enumerate(predictions):
@@ -273,12 +226,3 @@ def handle_pred_output(predictions, logger, enc, params, out_name="test"):
             logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
             logger.info(text)
             logger.info("\n" + "=" * 80 + "\n")
-
-
-def test_handle_pred_output(predictions, logger, enc, **kwargs):
-    for i, p in enumerate(predictions):
-        logger.info("=" * 40 + " INPUT " + str(i) + " " + "=" * 40 + "\n")
-        logger.info(p["inputs"])
-        logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
-        logger.info(p["outputs"])
-        logger.info("\n" + "=" * 80 + "\n")
