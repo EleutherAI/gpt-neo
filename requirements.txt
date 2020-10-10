@@ -8,7 +8,7 @@ ortools
 pytest
 sacred
 tensorflow>=1.15.2,<2.0
-tensorflow-datasets
+tensorflow-datasets==3.2.1
 tokenizers
 transformers
 tpunicorn
