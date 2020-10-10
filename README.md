@@ -1,33 +1,24 @@
 # GPT Neo
 
-1T or bust my dudes.
+🎉 1T or bust my dudes 🎉
 
-An implementation of training for [GPT2](https://openai.com/blog/better-language-models/)/[GPT3](https://arxiv.org/abs/2005.14165)-like models, with the facilities to train even larger models, using the Tensorflow Mesh library. Currently only TPU training is supported.
+An implementation of [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165)-like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the Tensorflow-Mesh library.
 
-No pretrained model yet, everything has to be built from scratch!
+Training and inference supported on both TPUs and GPUs.
+
+Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context length, including:
+
+    - Local attention
+    - [Linear attention](https://arxiv.org/abs/1812.01243)
+    - [Mixture of Experts](https://arxiv.org/abs/1701.06538)
+    - [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
+
+Pretrained models will be released as they are finished training.
 
 # Requirements
 
-```bash
-$ pip3 install \
-    tensorflow==1.15.2 \
-    mesh-tensorflow==0.1.16 \
-    tensorflow-datasets \
-    ortools \
-    google-api-python-client \
-    oauth2client \
-    pytest \
-    jsonlines \
-    lm_dataformat \
-    sacred \
-    tokenizers \
-    transformers \
-    numpy
 ```
-
-or
-
-```bash
+bash
 $ pip3 install -r requirements.txt
 ```
 
@@ -42,6 +33,8 @@ Download the dummy data: `wget https://storage.googleapis.com/connors-datasets/b
 Then copy the data to your bucket: `gsutil cp bundestag_0.tfrecords gs://<your bucket>/`
 
 To use your own data, see "Generating Your Own Dataset" below.
+
+[TODO] - colab setup
 
 ## Basic Integration Testing
 
