@@ -30,6 +30,9 @@ def parse_args():
                              " MTF auto layout.")
     parser.add_argument("--new", action="store_true", help="If set, deletes previous checkpoint, if it exists.")
     parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
+    parser.add_argument("--prompt", type=str, help="path to .txt file containing a prompt for prediction. If empty, "
+                                                   "defaults to unicorns.",
+                        default="")
     parser.add_argument("--check_dataset", action="store_true",
                         help="If set, outputs sample from the dataset and quits.")
     args = parser.parse_args()
@@ -56,7 +59,7 @@ def main(args):
     # Fetch encoder per params
     encoder = fetch_encoder(params)
 
-    pred_input_fn = partial(pred_input_fn, logger=logger, enc=encoder)
+    pred_input_fn = partial(pred_input_fn, path_to_prompt=args.prompt, logger=logger, enc=encoder)
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:

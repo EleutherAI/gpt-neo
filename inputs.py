@@ -185,9 +185,13 @@ def mlm_sample_text(params, x, random_documents = False):
 
 
 def pred_input(params, logger, enc=None,
-               text="In a shocking finding, scientists discovered a herd of unicorns living in a remote, "
-                    "previously unexplored valley, in the Andes Mountains. Even more surprising to the "
-                    "researchers was the fact that the unicorns spoke perfect English."):
+               path_to_prompt=""):
+
+    unicorns = "In a shocking finding, scientists discovered a herd of unicorns living in a remote, " \
+               "previously unexplored valley, in the Andes Mountains. Even more surprising to the " \
+               "researchers was the fact that the unicorns spoke perfect English."
+
+    text = unicorns if path_to_prompt == "" else open(path_to_prompt, "r").read()
     tokens = encode(enc, text)
 
     if len(tokens) > params["n_ctx"]:
