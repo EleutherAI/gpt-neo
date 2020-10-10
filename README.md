@@ -31,13 +31,13 @@ Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [st
 
 Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the requirements with pip (see above).
 
-Then run through our [Training Guide] below.
+Then run through our [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below.
 
 [TODO] - colab setup
 
 ## GPUs:
 
-You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide] below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead. 
+You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead. 
 
 # Downloading Pretrained Models
 
@@ -120,7 +120,7 @@ In chunk mode, all documents are concatenated (with separator tokens between doc
 
 ## 4. Using a Dataset in a Model
 
-To use a dataset in a model, you must first register that dataset under `./dataset_configs` folder. First choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
+To use a dataset in a model, you must first register that dataset under `./configs/dataset_configs` folder. First choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
 
 If you have a dataset that encoded using a the pretrained gpt2 tokenizer, you can specify that like so:
 
@@ -169,6 +169,12 @@ python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --tpu <tpu
 ```
 python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <0 1 2>
 ```
+
+# Config Guide
+
+We have several model sizes available, but some of our configs require large TPUs and will need tweaking to run on smaller machines, or GPUs. Below is a short guide to each model in the configs directory:
+
+TODO
 
 # Extra Features: 
 
