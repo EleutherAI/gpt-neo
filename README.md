@@ -19,15 +19,14 @@ Pretrained models will be released as they are finished training.
 # Requirements
 
 ```
-bash
-$ pip3 install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 # Training Setup
 
 Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
-Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the correct versions of the libraries with pip (see above).
+Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the requirements with pip (see above).
 
 Download the dummy data: `wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
 
@@ -39,7 +38,7 @@ To use your own data, see "Generating Your Own Dataset" below.
 
 ## Training
 
-Connect to your VM, clone this repo and cd into the folder. Find a fitting config in `/configs` and tweak parameters as needed (see reference at the end of this document). Then run:
+Connect to your VM, `git clone` this repo and `cd` into the folder. Set up a tokenized dataset, and find a fitting config in `/configs` (instructions provided below). Tweak parameters as needed (see reference at the end of this document). Then run:
 
 `python3 main.py --model {your_config_name} --steps_per_checkpoint n --tpu tpu-name`
 
@@ -52,10 +51,10 @@ Connect to your VM, clone this repo and cd into the folder. Find a fitting confi
 You can also choose to train GPTNeo locally on your GPUs. To do so, you simply have to omit the `tpu` flag. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces.
 
 ```bash
-$ python3 main.py --model {model_name} --steps_per_checkpoint {n} --gpu_ids 0 1 2
+$ python3 main.py --model {your_config_name} --steps_per_checkpoint {n} --gpu_ids 0 1 2
 ```
 
-## (OPTIONAL): Create your Tokenizer
+## Create your Tokenizer (OPTIONAL)
 
 We recommend you use [Huggingface's pretrained GPT2 tokenizer](https://huggingface.co/transformers/model_doc/gpt2.html#transformers.GPT2Tokenizer) with our repo (instructions provided below), but if you want to train a model with a different vocabulary size, we provide facilities to train your own tokenizer like so:
 
@@ -70,13 +69,11 @@ $ python train_tokenizer.py \
 # 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
 ```
 
-You can also skip this step and directly encode your text with the same tokenizer used for GPT2. To do so, just move on to the next section and make sure you pass the `--use_gpt2_tokenizer` flag (and omit the `--encoder_path`)
-
-# Generating your own Dataset
+# Tokenizing your Dataset
 
 You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training.
 
-Your data must either be in the form of lots of normal text files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
+Your data must either be in the form of lots of normal .txt files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
 
 You can run the script without parameters to see help for all options. There are two main modes:
 
@@ -84,7 +81,7 @@ You can run the script without parameters to see help for all options. There are
 
 Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
 
-`python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --minimum_size <min> `
+`python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --minimum_size <min> `
 
 - `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
@@ -98,7 +95,7 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 
 In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
 
-`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --separator <sep> --chunk_size <size> --use_gpt2_tokenizer`
+`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --chunk_size <size>`
 
 - `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
@@ -142,6 +139,14 @@ The `<dataset id>` will be the filename, excluding the `.json`, that you created
 ```python
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
+# Downloading Pretrained Models
+
+TODO
+
+# Generating Text
+
+TODO
+
 # Extra Features: 
 
 ## Training (with sacred)
@@ -200,14 +205,6 @@ That's all you need to train a model with the MLM objective, good for any type o
 "mlm_same_token_prob": 0.10,                       # probability of keeping the token the same, defaults to 10%
 "mlm_mask_ignore_ids": [<cls token>, <sep token>]  # ignore masking other special tokens, if any
 ```
-
-# Downloading Pretrained Models
-
-TODO
-
-# Generating Text
-
-TODO
 
 ## Parameter Reference
 
