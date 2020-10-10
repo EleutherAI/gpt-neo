@@ -16,45 +16,50 @@ Also included are alternative model architectures and linear attention implement
 
 Pretrained models will be released as they are finished training.
 
-# Requirements
+# Setup
 
 ```
+git clone https://github.com/EleutherAI/GPTNeo
+cd GPTNeo
 pip3 install -r requirements.txt
 ```
-
 # Training Setup
+
+## TPUs:
 
 Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
 Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the requirements with pip (see above).
 
-Download the dummy data: `wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
-
-Then copy the data to your bucket: `gsutil cp bundestag_0.tfrecords gs://<your bucket>/`
-
-To use your own data, see "Generating Your Own Dataset" below.
+Then run through our [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below.
 
 [TODO] - colab setup
 
-## Training
+## GPUs:
 
-Connect to your VM, `git clone` this repo and `cd` into the folder. Set up a tokenized dataset, and find a fitting config in `/configs` (instructions provided below). Tweak parameters as needed (see reference at the end of this document). Then run:
+You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead. 
 
-`python3 main.py --model {your_config_name} --steps_per_checkpoint n --tpu tpu-name`
+# Downloading Pretrained Models
 
-- `tpu`: Name of the TPU to use.
-- `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
-- `--auto_layout` and `--auto_layout_and_mesh_shape` (Optional): Disable training and instead auto generate a memory efficient `layout` (and `mesh_shape`)
+TODO
 
-## Training on GPUs
+# Generating Text
 
-You can also choose to train GPTNeo locally on your GPUs. To do so, you simply have to omit the `tpu` flag. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces.
+Once you have a trained model, or you've downloaded one of our pre-trained models (coming soon), generating text is as simple as running the main.py script with the `--predict` flag on. You can pass a path to your prompt txt file with the `--prompt` flag, like so:
 
-```bash
-$ python3 main.py --model {your_config_name} --steps_per_checkpoint {n} --gpu_ids 0 1 2
+```
+python3 main.py --predict --prompt <example_prompt.txt> --tpu <tpu_name> --model <config_name>
 ```
 
-## Create your Tokenizer (OPTIONAL)
+or, if using GPUs:
+
+```
+python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids <0 1 2> --model <config_name>
+```
+
+# Training Guide
+
+## 1. Create your Tokenizer (OPTIONAL)
 
 We recommend you use [Huggingface's pretrained GPT2 tokenizer](https://huggingface.co/transformers/model_doc/gpt2.html#transformers.GPT2Tokenizer) with our repo (instructions provided below), but if you want to train a model with a different vocabulary size, we provide facilities to train your own tokenizer like so:
 
@@ -69,15 +74,23 @@ $ python train_tokenizer.py \
 # 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
 ```
 
-# Tokenizing your Dataset
+## 2. Tokenizing your Dataset
 
-You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training.
+If you just want to test training, you can skip this step and download some dummy data like so:
+
+`wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
+
+Then copy the data to your bucket, or if using GPUs, a local directory: 
+
+`gsutil cp bundestag_0.tfrecords gs://<your bucket>/`
+
+If using your own data to train, you can use the `create_tfrecords.py` script to encode your text data into tfrecords.
 
 Your data must either be in the form of lots of normal .txt files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
 
 You can run the script without parameters to see help for all options. There are two main modes:
 
-## Document Mode
+**Document Mode:**
 
 Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
 
@@ -91,7 +104,7 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 - `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
 - `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
 
-## Chunk Mode
+**Chunk Mode:**
 
 In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
 
@@ -105,9 +118,9 @@ In chunk mode, all documents are concatenated (with separator tokens between doc
 - `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
 - `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
 
-# Using a Dataset in a Model
+## 4. Using a Dataset in a Model
 
-To use a dataset in a model, you must first register that dataset under `./dataset_configs` folder. First you choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
+To use a dataset in a model, you must first register that dataset under `./configs/dataset_configs` folder. First choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
 
 If you have a dataset that encoded using a the pretrained gpt2 tokenizer, you can specify that like so:
 
@@ -139,19 +152,35 @@ The `<dataset id>` will be the filename, excluding the `.json`, that you created
 ```python
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
-# Downloading Pretrained Models
 
-TODO
+## 5. Run Training
 
-# Generating Text
+Once you have your datasets set up, find a fitting config in `/configs` (instructions provided below). Tweak parameters as needed (see reference at the end of this document). Then run:
+
+```
+python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --tpu <tpu-name>
+```
+
+- `tpu`: Name of the TPU to use.
+- `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
+- `--auto_layout` and `--auto_layout_and_mesh_shape` (Optional): Disable training and instead auto generate a memory efficient `layout` (and `mesh_shape`)
+- `gpu_ids`: if training using GPUs, omit the `tpu` flag and pass in the ids of your gpus. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces:
+
+```
+python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <0 1 2>
+```
+
+# Config Guide
+
+We have several model sizes available, but some of our configs require large TPUs and will need tweaking to run on smaller machines, or GPUs. Below is a short guide to each model in the configs directory:
 
 TODO
 
 # Extra Features: 
 
-## Training (with sacred)
+## Training (with Sacred)
 
-Sacred helps track experiments and is much nicer to work with than tensorboard.
+[Sacred](https://github.com/IDSIA/sacred) helps track experiments and is much nicer to work with than tensorboard.
 
 To use: 
 
@@ -184,8 +213,7 @@ Host GptVM
 ```
 Then, you'll be able to access tensorboard with your browser at `localhost:6006`.
 
-
-# Masked Language Modeling
+## Masked Language Modeling
 
 In addition to being able to train large GPT's, this repository also allows you to easily do masked language modeling (BERT, RoBERTa). In order to do so, you must follow two additional steps.
 
@@ -210,20 +238,20 @@ That's all you need to train a model with the MLM objective, good for any type o
 
 Pick a valid config from `/configs` and tweak the parameters as needed:
 
-- `n_heads`: The number of attention heads
-- `n_embd`: Size of the hidden layers, must be divisible by `n_heads`
-- `n_vocab`: Vocabulary size
-- `embed_dropout`, `res_dropout`, `attn_dropout`: Dropout chance for word embedding/residuals/attention, set to 0 to disable (default: 0.1)
+- `n_heads`: The number of attention heads.
+- `n_embd`: Size of the hidden layers, must be divisible by `n_heads`.
+- `n_vocab`: Vocabulary size.
+- `embed_dropout`, `res_dropout`, `attn_dropout`: Dropout probability for word embedding/residuals/attention, set to 0 to disable (default: 0.1)
 - `lr`: Learning rate, defaults will vary depending on model size. Use [this table](https://i.imgur.com/g5jKbjT.png) from the GPT3 paper as a guide.
 - `warmup_steps`: Number of steps before full learning rate is reached (linear ramp from `0` to `lr`).
-- `lr_decay`: `cosine` (used by OA) or `linear`. According to OpenAI's scaling paper, the choice of setting here doesn't matter too much as long as it decays to above 0 over a suitable length of time.
+- `lr_decay`: `cosine` (used by OpenAI) or `linear`. According to OpenAI's [scaling paper](https://arxiv.org/abs/2001.08361), the choice of setting here doesn't matter too much as long as it decays to above 0 over a suitable length of time.
 - `opt_name`: `adam` or `adafactor`. Choice of optimizer. `adam` is considered better but takes 2-3x the amount of memory.
 - `beta1`, `beta2` and `epsilon`: `adam` optimizer params.
 - `beta1`, `ada_epsilon1` and `ada_epsilon2`: `adafactor` optimizer params.
 - `weight_decay`: Weight decay parameter, if not present no weight decay is used (the weight decay fix for Adam is used) (default: 0.01) (optional).
 - `train_batch_size`: Batch size during training.
 - `train_steps`: Number of training steps (batches), set to roughly ~1 epoch for now (total number of tokens in your dataset / number of tokens per batch (= `train_batch_size` / `n_ctx`)).
-- `eval_steps`: Number of steps to run for each evaluation. Set to `0` for no eval. Each `steps_per_checkpoint`, the model is tested for `eval_steps` (`steps_per_checkpoint` is set with the CLI currently)
+- `eval_steps`: Number of steps to run for each evaluation. Set to `0` for no eval. i.e Every `steps_per_checkpoint`, the model is tested for `eval_steps` (`steps_per_checkpoint` is set with the CLI currently)
 - `iterations`: Number of steps queued to the TPU (also used for Tensorboard summaries), must be smaller than `steps_per_checkpoint`. (default: 500)
 - `datasets`: List of tfrecords datasets to use. Each dataset is a list with the following parameters: `[train glob , eval glob, stitch, sampling_mode, weight]`. So for example for a single dataset (note the double list): `[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]`
     + `train glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during training
@@ -231,13 +259,13 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
     + `stitch`: If `sampling_mode` `random_sample` is used, the input pipeline samples this amount of texts into one to sample from. You must select stitch so that `stitch * minimum_document_length >= n_ctx`
     + `sampling_mode`: `chunks` (tfrecords are preprocessed into the correct length and are read sequentially) or `documents_random` (`stitch` amount of documents are concatenated and then a `n_ctx` chunk is randomly subsampled)
     + `weights`: How much relative weight this dataset should have compared to others
-- `model`: Which model to train. Currently `GPT2` and `GPT2MOE` GPT-2 model with Mixture of Experts are supported.
-- `model_path`: Google storage location to save model checkpoints.
-- `n_ctx`: Size of context window. In smaller models, this is set to 1024. For larger models, this is 2048.
+- `model`: Which model to train. Currently only `GPT2` is supported.
+- `model_path`: Google storage bucket location (or local path, if using GPUs) to save model checkpoints.
+- `n_ctx`: Size of context window. Default is 2048
 - `n_layer`: Number of layers (blocks) in the model.
-- `scale_by_depth`: If true, the weight initialization of layers are scaled by their depth as in the GPT2 paper. (default: true)
-- `scale_by_in`: If true, the weight initialization of layers are scaled by their number of inputs as in the GPT2 paper. (default: true)
-- `mesh_shape`: A Mesh is an n-dimensional array of processors with named dimensions. Each Tensor is assigned to a Mesh, instead of a device. The 'mesh_shape' is the shape of this array, e.g., for a v3-128 TPU "mesh_shape": “x:16,y:8”.
+- `scale_by_depth`: If true, the weight initialization of layers are scaled by their depth as in the GPT2 paper.
+- `scale_by_in`: If true, the weight initialization of layers are scaled by their number of inputs as in the GPT2 paper.
+- `mesh_shape`: A Mesh is an n-dimensional array of processors with named dimensions used for parallelism in the Mesh-Tensorflow library. Each Tensor is split evenly across mesh dimensions according to the layout (see below). The 'mesh_shape' is the shape of this array, and must be equal to the number of processors. e.g., for a v3-128 TPU "mesh_shape": “x:16,y:8”.
 - `layout`: A Tensor is laid out on its mesh with one slice on each processor. A Tensor "layout", is an injective partial map specifying which dimensions of the tensor are (evenly) split across which dimensions of the mesh. No dimension of a tensor may be split across two dimensions of its mesh and no two dimensions of a tensor may be split across the same dimension of its mesh. The user defines a global set of layout rules in the form of (tensor-dimension-name, mesh-dimension-name) pairs. A dimension of a tensor is split across a dimension of its mesh if there is a matching rule, e.g. (for the above example mesh_shape: "layout":"batch:x,heads:y"
 - `activation_function`: `selu` (self normalizing) or `gelu` (used by OA), activation function used in feed-forward passes. (default: gelu)
 - `attention_types`: the type of attention for each layer in a list of the following format [[["attention_type"], n_layers]]. e.g. for a 12 layer net [[["global"], 12]] or [[["local"], 10], [["global"], 2]]
