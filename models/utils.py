@@ -1,14 +1,6 @@
 import tensorflow as tf
 import mesh_tensorflow as mtf
 
-def expand_tile(value, newdim, axis=0):
-    """Add a new axis of given size."""
-    if axis == 0:
-        return mtf.broadcast(value,
-                             [newdim] + value.shape.dims)  # shape.dims gets us a list which we need in order to concat
-    if axis == 1:
-        return mtf.broadcast(value, value.shape.dims + [newdim])
-
 def biasmask_attn_weights(mesh, nd, ns, variable_dtype):
     # The old mask_attn_weights applied directly to the QK;
     # this returns a bias that the attention code from mtf adds to the attention matrix.
@@ -21,3 +13,16 @@ def biasmask_attn_weights(mesh, nd, ns, variable_dtype):
     i, j = map(lambda t: mtf.broadcast(t, [nd, ns]), (i, j))
     dtype = variable_dtype.activation_dtype
     return mtf.cast(mtf.less(i, j), dtype) * -1e10
+
+def parse_inputs(mtf_features, other_features):
+    # Parse inputs and labels from the mtf_features / other_features input dicts
+    # All dimensions are defined inside model_fn for efficiency
+    x = mtf_features["inputs"]
+
+    batch_dim = x.shape[0]
+    sequence_dim = x.shape[1]
+    embd_dim = other_features["embd_dim"]
+    vocab_dim = other_features["vocab_dim"]
+    embed_sequence_dim = other_features["embed_sequence_dim"]
+
+    return x, batch_dim, sequence_dim, embd_dim, vocab_dim, embed_sequence_dim
