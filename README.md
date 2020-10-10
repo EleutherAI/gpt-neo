@@ -23,33 +23,27 @@ git clone https://github.com/EleutherAI/GPTNeo
 cd GPTNeo
 pip3 install -r requirements.txt
 ```
+# Training Setup
 
-## Training Setup (TPUs)
+## TPUs:
 
 Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [storage bucket](https://cloud.google.com/storage). 
 
 Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the requirements with pip (see above).
 
-Download the dummy data: `wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
-
-Then copy the data to your bucket: `gsutil cp bundestag_0.tfrecords gs://<your bucket>/`
-
-To use your own data, see "Generating Your Own Dataset" below.
+Then run through our [Training Guide] below.
 
 [TODO] - colab setup
 
-## Training Setup (GPUs)
+## GPUs:
 
-You can also choose to train GPTNeo locally on your GPUs. To do so, you simply have to omit the `tpu` flag. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces.
+You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide] below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead. 
 
-```
-python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <0 1 2>
-```
-## Downloading Pretrained Models
+# Downloading Pretrained Models
 
 TODO
 
-## Generating Text
+# Generating Text
 
 Once you have a trained model, or you've downloaded one of our pre-trained models (coming soon), generating text is as simple as running the main.py script with the `--predict` flag on. You can pass a path to your prompt txt file with the `--prompt` flag, like so:
 
@@ -82,13 +76,21 @@ $ python train_tokenizer.py \
 
 ## 2. Tokenizing your Dataset
 
-You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for training.
+If you just want to test training, you can skip this step and download some dummy data like so:
+
+`wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
+
+Then copy the data to your bucket, or if using GPUs, a local directory: 
+
+`gsutil cp bundestag_0.tfrecords gs://<your bucket>/`
+
+If using your own data to train, you can use the `create_tfrecords.py` script to encode your text data into tfrecords.
 
 Your data must either be in the form of lots of normal .txt files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
 
 You can run the script without parameters to see help for all options. There are two main modes:
 
-**Document Mode**
+**Document Mode:**
 
 Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
 
@@ -102,7 +104,7 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 - `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
 - `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
 
-**Chunk Mode**
+**Chunk Mode:**
 
 In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
 
@@ -116,7 +118,7 @@ In chunk mode, all documents are concatenated (with separator tokens between doc
 - `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
 - `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
 
-# 4. Using a Dataset in a Model
+## 4. Using a Dataset in a Model
 
 To use a dataset in a model, you must first register that dataset under `./dataset_configs` folder. First choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
 
@@ -151,7 +153,7 @@ The `<dataset id>` will be the filename, excluding the `.json`, that you created
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
 
-# 5. Training
+## 5. Run Training
 
 Once you have your datasets set up, find a fitting config in `/configs` (instructions provided below). Tweak parameters as needed (see reference at the end of this document). Then run:
 
@@ -162,6 +164,11 @@ python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --tpu <tpu
 - `tpu`: Name of the TPU to use.
 - `steps_per_checkpoint`: The frequency in steps at which to save checkpoints.
 - `--auto_layout` and `--auto_layout_and_mesh_shape` (Optional): Disable training and instead auto generate a memory efficient `layout` (and `mesh_shape`)
+- `gpu_ids`: if training using GPUs, omit the `tpu` flag and pass in the ids of your gpus. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces:
+
+```
+python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <0 1 2>
+```
 
 # Extra Features: 
 
@@ -200,7 +207,7 @@ Host GptVM
 ```
 Then, you'll be able to access tensorboard with your browser at `localhost:6006`.
 
-# Masked Language Modeling
+## Masked Language Modeling
 
 In addition to being able to train large GPT's, this repository also allows you to easily do masked language modeling (BERT, RoBERTa). In order to do so, you must follow two additional steps.
 
