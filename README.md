@@ -6,12 +6,13 @@ An implementation of [GPT2](https://openai.com/blog/better-language-models/) & [
 
 Training and inference supported on both TPUs and GPUs.
 
-Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context length, including:
+Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context lengths, including:
 
 * Local attention
 * [Linear attention](https://arxiv.org/abs/1812.01243)
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
+* Masked Language Modelling
 
 Pretrained models will be released as they are finished training.
 
@@ -36,51 +37,6 @@ To use your own data, see "Generating Your Own Dataset" below.
 
 [TODO] - colab setup
 
-## Basic Integration Testing
-
-Testing is done on any python file that is prefixed with `test_`. Feel free to add your own file, or append to whatever file already exists.
-
-```bash
-$ python -m pytest .
-```
-
-## Quick Testing on Increment Task
-
-This repository has, built in, a quick way of running a simple 1 layer attention network on a increment task (increment the source sequence by 1). This is for making sure any model changes can pass a basic test. The loss should converge to around 1.65. > 2 means the model is not working. 0 means there is likely a causal mask leakage.
-
-To train, simply run
-
-```bash
-$ python main.py --test
-```
-
-To see the tensorboard
-
-```bash
-$ sh scripts/start_test_tb.sh 8081
-```
-
-To run a prediction
-
-```bash
-$ python main.py --test --predict
-```
-
-To clear the checkpoint and restart training (making changes to the model), append a `--new` flag
-
-```bash
-$ python main.py --test --new
-```
-It should converge within 5 minutes. If not, something is wrong.
-
-## Peeking at a Dataset
-
-If you are ever confused by the dataset of a particular config file, you can easily check the minimum and maximum token ids with a single command. This is useful for making sure that the vocabulary size of the model is at least as large as the maximum token id. Tensorflow will not error if you try to gather on a matrix with out of bounds indices, so you need to make sure your vocabulary size is sufficiently large.
-
-```bash
-$ python main --model {config_name} --check_dataset
-```
-
 ## Training
 
 Connect to your VM, clone this repo and cd into the folder. Find a fitting config in `/configs` and tweak parameters as needed (see reference at the end of this document). Then run:
@@ -99,6 +55,95 @@ You can also choose to train GPTNeo locally on your GPUs. To do so, you simply h
 $ python3 main.py --model {model_name} --steps_per_checkpoint {n} --gpu_ids 0 1 2
 ```
 
+## (OPTIONAL): Create your Tokenizer
+
+We recommend you use [Huggingface's pretrained GPT2 tokenizer](https://huggingface.co/transformers/model_doc/gpt2.html#transformers.GPT2Tokenizer) with our repo (instructions provided below), but if you want to train a model with a different vocabulary size, we provide facilities to train your own tokenizer like so:
+
+```bash
+$ python train_tokenizer.py \
+    --base_dir ./path/to/your/txt/files \
+    --output_dir ./output/path \
+    --file-type txt \
+    --vocab-size 50257
+
+# if it succeeded, you should see the message
+# 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
+```
+
+You can also skip this step and directly encode your text with the same tokenizer used for GPT2. To do so, just move on to the next section and make sure you pass the `--use_gpt2_tokenizer` flag (and omit the `--encoder_path`)
+
+# Generating your own Dataset
+
+You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training.
+
+Your data must either be in the form of lots of normal text files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
+
+You can run the script without parameters to see help for all options. There are two main modes:
+
+## Document Mode
+
+Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
+
+`python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --minimum_size <min> `
+
+- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
+- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
+- `output_dir`: Where to save the tfrecords to
+- `use_gpt2_tokenizer`: Whether to use the pretrained HuggingFace GPT2 tokenizer, in which case the separator will be set to [50256].
+- `encoder_path`: if not using the pretrained gpt2 tokenizer, use this flag to provide a path to your generated tokenizer json.
+- `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
+- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
+
+## Chunk Mode
+
+In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
+
+`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --separator <sep> --chunk_size <size> --use_gpt2_tokenizer`
+
+- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
+- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
+- `output_dir`: Where to save the tfrecords to
+- `use_gpt2_tokenizer`: Whether to use the same tokenizer used by GPT2, in which case the separator will be set to [50256]
+- `encoder_path`: if not using the pretrained gpt2 tokenizer, use this flag to provide a path to your generated tokenizer json.
+- `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
+- `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
+
+# Using a Dataset in a Model
+
+To use a dataset in a model, you must first register that dataset under `./dataset_configs` folder. First you choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
+
+If you have a dataset that encoded using a the pretrained gpt2 tokenizer, you can specify that like so:
+
+```python
+{
+    "n_vocab": 50257,
+    "path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
+    "eval_path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
+    "tokenizer_is_pretrained": true,
+    "tokenizer_path": "gpt2"
+}
+```
+
+or if you've trained a custom tokenizer, like so:
+
+```python
+{
+    "n_vocab": 32768,
+    "path": "./path/to/your/*.tfrecords",
+    "eval_path": "./path/to/your/eval/*.tfrecords",
+    "tokenizer_path": "./path/to/your/byte-level-bpe.tokenizer.json"
+}
+```
+
+Finally, when you are defining your model configuration, you add the filename that you created above to the `datasets` array.
+
+The `<dataset id>` will be the filename, excluding the `.json`, that you created above
+
+```python
+"datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
+```
+# Extra Features: 
+
 ## Training (with sacred)
 
 Sacred helps track experiments and is much nicer to work with than tensorboard.
@@ -110,6 +155,14 @@ To use:
 2. Run `python3 run_experiment.py --tpu sometpuhere --model someconfig.json` Options do the same thing as in the old script. 
 
 3. You can go to http://server_ip_goes_here:8080/ to see the Omniboard overview. It's password protected, ask in the discord for info. If you want to see the tensorboard for some reason, the `run_experiment.py` script also spins up a tensorboard and automatically assigns it a port. The script should print out the tensorboard port near the top of the log. 
+
+## Peeking at a Dataset
+
+If you are ever confused by the dataset of a particular config file, you can easily check the minimum and maximum token ids with a single command. This is useful for making sure that the vocabulary size of the model is at least as large as the maximum token id. Tensorflow will not error if you try to gather on a matrix with out of bounds indices, so you need to make sure your vocabulary size is sufficiently large.
+
+```bash
+$ python main --model {config_name} --check_dataset
+```
 
 ## Monitoring
 
@@ -126,89 +179,6 @@ Host GptVM
 ```
 Then, you'll be able to access tensorboard with your browser at `localhost:6006`.
 
-# Generating your own Dataset
-
-You can use the `create_tfrecords.py` script to encode your text data into tfrecords suited for the training.
-
-Your data must either be in the form of lots of normal text files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
-
-You can run the script without parameters to see help for all options. There are two main modes:
-
-## Create your Tokenizer
-
-Neural nets only work on numbers, so strings must be chopped up into tiny unique subsequences and assigned an ID. This is done via a process called tokenization, and must be first cast over your corpus of textual data. It is as simple as one command to generate your tokenizer (assignment of substring sequences to an id).
-
-```bash
-$ python train_tokenizer.py \
-    --base_dir ./path/to/your/txt/files \
-    --output_dir ./output/path \
-    --file-type txt \
-    --vocab-size 50257
-
-# if it succeeded, you should see the message
-# 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
-```
-
-You can also skip this step and directly encode your text with the same tokenizer used for GPT2. To do so, just move on to the next section and make sure you pass the `--use_gpt2_tokenizer` flag (and omit the `--encoder_path`)
-
-## Document Mode
-
-Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
-
-`python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --minimum_size <min> `
-
-- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
-- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
-- `output_dir`: Where to save the tfrecords to
-- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json.
-- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
-
-## Chunk Mode
-
-In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
-
-`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --encoder_path <encoder> --separator <sep> --chunk_size <size> --use_gpt2_tokenizer`
-
-- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
-- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
-- `output_dir`: Where to save the tfrecords to
-- `encoder_path`: Path to your [tokenizers](https://github.com/huggingface/tokenizers) generated tokenizer json.
-- `use_gpt2_tokenizer`: Whether to use the same tokenizer used by GPT2, in which case the separator will be set to [50256]
-- `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
-- `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
-
-# Using a Dataset in a Model
-
-To use a dataset in a model, you must first register that dataset under `./dataset_configs` folder. First you choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
-
-```python
-{
-    "n_vocab": 32768,
-    "path": "./path/to/your/*.tfrecords",
-    "eval_path": "./path/to/your/eval/*.tfrecords",
-    "tokenizer_path": "./path/to/your/byte-level-bpe.tokenizer.json"
-}
-```
-
-If you have a dataset that encoded using a publicly available tokenizer from Huggingface, you can specify that as well. Say we are using the same tokenizer as the one used for `gpt2`
-
-```python
-{
-    "n_vocab": 50257,
-    "path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
-    "eval_path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
-    "tokenizer_is_pretrained": true,
-    "tokenizer_path": "gpt2"
-}
-```
-
-Finally, when you are defining your model configuration, you add the filename that you created above to the `datasets` array.
-
-The `<dataset id>` will be the filename, excluding the `.json`, that you created above
-
-```python
-"datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
-```
 
 # Masked Language Modeling
 
