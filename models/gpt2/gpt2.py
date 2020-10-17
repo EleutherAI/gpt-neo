@@ -113,7 +113,6 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
-
     # Not in the variable_scope because mtf already has a variable_scope in it
     with tf.variable_scope("conv1d_main"):
         c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
@@ -332,7 +331,6 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
             attention_type = params["attention_types"][layer_num]
 
             if attention_type != "none":
-
                 res_x = prenorm(x, "norm_1", variable_dtype=variable_dtype, params=params)
                 a = attn(res_x, "attn", nx, attention_type=attention_type,
                          params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
