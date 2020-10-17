@@ -106,7 +106,10 @@ def main(args):
         task_descriptors[t]["init_fn"](params)
 
     # Set up TPUs and Estimator
-    tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
+    if args.tpu == "colab":
+        tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver() if params["use_tpu"] else None
+    else:
+        tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
 
     config = tpu_config.RunConfig(
         cluster=tpu_cluster_resolver,
