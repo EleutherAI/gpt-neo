@@ -222,7 +222,7 @@ def create_file(params):
                     yield BufferedEncodedStream(s, enc, [], not args.no_ftfy, args.minimum_size, text_mode=True).read()
 
             for fn in fns:
-                if fn.endswith(".zst") or fn.endswith(".xz").endswith("tar.gz"):
+                if fn.endswith(".zst") or fn.endswith(".xz") or fn.endswith("tar.gz"):
                     data = _archive_to_files(fn)
                 else:
                     data = [BufferedEncodedStream(fn, enc, args.separator, not args.no_ftfy, args.minimum_size).read()]
