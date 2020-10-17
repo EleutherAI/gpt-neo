@@ -33,11 +33,16 @@ Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ct
 
 Then run through our [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below.
 
-[TODO] - colab setup
-
 ## GPUs:
 
 You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead. 
+
+# Colab:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EleutherAI/GPTNeo/blob/master/example_notebook.ipynb)
+
+Google colab provides tpu-v8s for free, which should be enough to finetune our models up to GPT3XL (1.5B parameter) sizes.
+Click the above button to run through our example colab notebook.
 
 # Downloading Pretrained Models
 
