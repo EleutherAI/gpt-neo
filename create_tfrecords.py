@@ -172,7 +172,8 @@ class EncodedConcatenatedFiles(object):
         while self.fs and (remaining > 0 or remaining is None):
             if isinstance(self.fs[-1], str):  # If the last element in the list is a string, it's an unopened file
                 if self.fs[-1].endswith(".zst") or self.fs[-1].endswith(
-                        ".xz"):  # If it's an archive, we use this reader
+                        ".xz") or self.fs[-1].endswith(
+                        "tar.gz"):  # If it's an archive, we use this reader
                     self.fs[-1] = EncodedCompressedReader(self.fs[-1], self.enc, self.separator, self.fix,
                                                           self.minimum_size)
                 else:  # Otherwise we assume it's a normal text file
