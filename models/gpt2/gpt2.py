@@ -314,6 +314,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
     use_scale_norm = params["scalenorm"] == True
     use_moe = exists(params["moe_layers"]) and (layer_num in params["moe_layers"])
     use_rezero = params["rezero"] == True
+    macaron_attention = params["macaron"] == True
 
     def fn(x):
         with tf.variable_scope(scope):
@@ -329,6 +330,18 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
             pre_residual_fn = rezero if use_rezero else identity
 
             attention_type = params["attention_types"][layer_num]
+            
+            if macaron_attention:
+                mult = 0.5
+                mlp_fn = mlp_glu if use_mlp_glu else mlp
+                intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
+                # Define intermediate layer of mlp - to split
+                dim_intermediate_expanded = mtf.Dimension("intermediate_expanded", intermediate_size)
+                m = mlp_fn(x, "mlp_macaron", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
+                
+                x = x + (m * mult)
+            else:
+                mult = 1
 
             if attention_type != "none":
                 res_x = prenorm(x, "norm_1", variable_dtype=variable_dtype, params=params)
@@ -368,7 +381,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                 m = mlp_fn(res_x, "mlp", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]), dtype=variable_dtype.slice_dtype)
 
-            x = x + pre_residual_fn(m, "norm_rezero_2", variable_dtype)
+            x = x + pre_residual_fn((m*mult), "norm_rezero_2", variable_dtype)
             return x, aux_loss
 
     return fn
