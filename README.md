@@ -69,7 +69,7 @@ python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids <0 1 2> --mode
 We recommend you use [Huggingface's pretrained GPT2 tokenizer](https://huggingface.co/transformers/model_doc/gpt2.html#transformers.GPT2Tokenizer) with our repo (instructions provided below), but if you want to train a model with a different vocabulary size, we provide facilities to train your own tokenizer like so:
 
 ```bash
-$ python train_tokenizer.py \
+$ python data/train_tokenizer.py \
     --base_dir ./path/to/your/txt/files \
     --output_dir ./output/path \
     --file-type txt \
@@ -282,3 +282,8 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
 - `attention_types`: the type of attention for each layer in a list of the following format [[["attention_type"], n_layers]]. e.g. for a 12 layer net [[["global"], 12]] or [[["local"], 10], [["global"], 2]]
 - `precision`: `float32` (use this for now) or `bf16` (change some variables to bf16 for better performance, not working yet)
 - `tokens_per_mb_per_replica`: If not None, will split the batch up into smaller microbatches containing `tokens_per_mb_per_replica` tokens to avoid OOMs. Gradients are accumulated locally and reduced once.
+
+## TODO: 
+
+- [ ] finalize documentation
+- [ ]

@@ -28,12 +28,10 @@ def model_fn(features, labels, mode, params):
     else:
         var_placer = None
         gpu_ids = params["gpu_ids"]
-        mesh_devices = [f"device:GPU:{id}" for id in gpu_ids]
         mesh_shape = [("all_processors", len(gpu_ids))]
         layout_rules = [("batch", "all_processors")]
-
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
-            mesh_shape, layout_rules, mesh_devices)
+            mesh_shape, layout_rules, gpu_ids)
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
@@ -141,10 +139,12 @@ def model_fn(features, labels, mode, params):
     if num_microbatches > 1:
         # For serialize_training_step we need to modify the model to output results in a dict
         def serialized_fn(mtf_features):
-            if params["model"] == "GPT2":
+            if params["model"] == "GPT":
                 with tf.variable_scope('gpt2'):
                     logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+            else:
+                raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
         # Serialize the training step - Gradients are accumulated locally and reduced once.
         var_grads, output_dict = mtf.serialize_training_step(mtf_features, serialized_fn, batch_dim, num_microbatches)
@@ -153,12 +153,12 @@ def model_fn(features, labels, mode, params):
         logits = output_dict["logits"]
     else:
         # If we're not splitting into microbatches, return logits & loss as is
-        if params["model"] == "GPT2":
+        if params["model"] == "GPT":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
                     logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
         else:
-            raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT2]")
+            raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
     # Auto layout generation
     if params["auto_layout"]:

@@ -22,7 +22,6 @@
     "iterations": 500,
     "n_embd": 512,
     "datasets": [["example", 11, "documents_random", 1.0]],
-    "model": "GPT2",
     "model_path": "./tfmodels",
     "n_ctx": 256,
     "n_layer": 6,
