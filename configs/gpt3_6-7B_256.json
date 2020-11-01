@@ -24,7 +24,6 @@
     "iterations": 500,
     "n_embd": 4096,
     "datasets": [["openwebtext-documents", 11, "documents_random", 1.0]],
-    "model": "GPT2",
     "model_path": "gs://neo-models/GPT3_6-7B",
     "n_ctx": 2048,
     "n_layer": 32,

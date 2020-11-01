@@ -9,7 +9,7 @@ from utils import save_config, expand_attention_types_params, yes_or_no, remove_
     check_dataset
 from inputs import generic_text, pred_input, handle_pred_output, mlm_sample_text
 from model_fns import model_fn
-from encoders import fetch_encoder
+from data.encoders import fetch_encoder
 from configs import fetch_model_params
 from tasks import task_descriptors
 import argparse
@@ -19,8 +19,8 @@ def parse_args():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, if any.")
-    parser.add_argument("--gpu_ids", nargs="+", type=int, default=[0],
-                        help=" If training on GPU, can specify which GPU ids.")
+    parser.add_argument("--gpu_ids", nargs="+", type=str, default=["device:GPU:0"],
+                        help=" If training on GPU, can specify your GPU names in a list - i.e 'device:GPU:0 device:GPU:1'")
     parser.add_argument("--model", type=str, default=None, help="JSON file that contains model parameters.")
     parser.add_argument("--steps_per_checkpoint", type=int, default=5000, help="Save a model checkpoint every X steps.")
     parser.add_argument("--auto_layout", action="store_true", help="If set, generates and prints the most memory "
@@ -89,6 +89,7 @@ def main(args):
     assert len(params["attention_types"]) == params["n_layer"]  # Assert that the length of expanded list = num layers
     params["predict_batch_size"] = params.get("predict_batch_size", 1)  # Default to 1
     params["predict"] = args.predict
+    params['model'] = params.get("model", "GPT") # Default model selection to GPT since it's the only option for now
 
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present

@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow.compat.v1 as tf
 from functools import partial
-from encoders import encode
+from data.encoders import encode
 
 def generic_text(params, eval=False, sample_text_fn=None):
     i = 0 if not eval else 1

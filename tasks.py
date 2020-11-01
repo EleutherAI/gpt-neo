@@ -3,7 +3,7 @@ import json
 import requests
 import numpy as np
 import ftfy
-import encoders
+from data.encoders import fetch_encoder
 import tensorflow as tf
 
 lambada_src_uri = 'https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl'
