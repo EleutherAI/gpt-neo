@@ -95,7 +95,7 @@ def causal_linear_attention(q, k, v, epsilon=1e-6):
     dim_in = k.shape[-1]
 
     q = mtf.softmax(q, dim_in)
-    k = mtf.elu(k) + 1
+    k = mtf.exp(k)
 
     cumulative_k = mtf.cumsum(k, seq_dim)
     context = mtf.einsum([k, v], output_shape=[batch_dim, seq_dim, head_dim, dim_in, dim_out])
