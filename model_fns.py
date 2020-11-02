@@ -35,10 +35,7 @@ def model_fn(features, labels, mode, params):
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
-    if params["precision"] == "bfloat16":
-        variable_dtype = mtf.VariableDType(master_dtype=tf.bfloat16, slice_dtype=tf.float32, activation_dtype=tf.bfloat16)
-    else:
-        variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
+    variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
     # Build mtf mesh object
     mesh = mtf.Mesh(graph, "my_mesh", var_placer)
