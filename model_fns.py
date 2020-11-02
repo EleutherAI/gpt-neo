@@ -141,8 +141,6 @@ def model_fn(features, labels, mode, params):
         for g in var_grads:
             grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
             mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
-    max_logits = mtf.argmax(logits, vocab_dim)
-    fully_replicated_max_logits = mtf.anonymize(max_logits)
 
     # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
@@ -161,14 +159,16 @@ def model_fn(features, labels, mode, params):
     tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
     tf.logging.info(f"tf_update_ops: {tf_update_ops}")
     train_op = tf.group(tf_update_ops)
+
+    max_logits = mtf.argmax(logits, vocab_dim)
+    fully_replicated_max_logits = mtf.anonymize(max_logits)
     tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
+    tf_accuracy = tf.metrics.mean(tf.cast(tf.math.equal(tf_max_logits, labels), tf.float32))
+    tf.identity(tf_accuracy, "train_accuracy")
+    tf.summary.scalar("train_accuracy", tf_accuracy)
 
     with mtf.utils.outside_all_rewrites():
-        def _accuracy_fn(labels, tf_max_logits):
-            accuracy = tf.metrics.mean(tf.cast(tf.math.equal(tf_max_logits, labels), tf.float32))
-            return {"lambada_acc": accuracy}
-        eval_metrics = (_accuracy_fn, [labels, tf_max_logits])
-                            
+
         # Copy master variables to slices. Must be called first.
         restore_hook = mtf.MtfRestoreHook(lowering)
         # Set up the checkpoint server and return the TPUEstimatorSpec
@@ -192,5 +192,4 @@ def model_fn(features, labels, mode, params):
             loss=tf_loss,
             host_call=host_call,
             train_op=train_op,
-            training_hooks=[restore_hook, saver_hook],
-            eval_metrics=eval_metrics)
+            training_hooks=[restore_hook, saver_hook])

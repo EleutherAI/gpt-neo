@@ -21,7 +21,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
     data = tf.data.Dataset.from_tensor_slices(array)
     data = data.window(size=sequence_length + 1, stride=1, shift=1,
                        drop_remainder=True)
-    data = data.flat_map(lambda x: x.batch(sequence_length))
+    data = data.flat_map(lambda x: x.batch(sequence_length + 1))
     dataset_shards = [data.shard(shards, i)
                       for i in range(shards)]
     data = dataset_shards[0]

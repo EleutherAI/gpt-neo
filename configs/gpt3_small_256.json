@@ -1,6 +1,6 @@
 {
     "dataset_ids": ["openwebtext-documents"],
-    "n_head": 12,
+    "n_head": 8,
     "n_vocab": 256,
     "embed_dropout": 0,
     "lr": 0.0006,
@@ -29,7 +29,7 @@
     "n_layer": 4,
     "scale_by_depth": true,
     "scale_by_in": false,
-    "attention_types": [[["global"],12]],
+    "attention_types": [[["global"],4]],
     "mesh_shape": "x:8,y:1",
     "layout": "batch:x,heads:y,vocab:y,intermediate_expanded:y",
     "activation_function": "gelu",
