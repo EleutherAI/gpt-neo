@@ -74,7 +74,7 @@ def main(args):
             exit()
 
     # Save config to logdir for experiment management
-    save_config(params, params["model_path"])
+    # save_config(params, params["model_path"])
 
     # Add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
@@ -111,6 +111,8 @@ def main(args):
         tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver() if params["use_tpu"] else None
     else:
         tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
+
+    tf.tpu.experimental.initialize_tpu_system(tpu_cluster_resolver)
 
     config = tpu_config.RunConfig(
         cluster=tpu_cluster_resolver,

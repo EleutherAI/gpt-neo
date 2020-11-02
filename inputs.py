@@ -9,9 +9,9 @@ import requests
 def generic_text(params, eval=False, sample_text_fn=None):
     sequence_length = params['n_ctx']
     shards = params.get('shards', 16)
-    buffer = params.get('buffer', 1024)    
+    buffer = params.get('buffer', 1024)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
-    
+
     if not os.path.exists('out.tensor'):
         with open("out.tensor", 'wb') as f:
             f.write(requests.get(
@@ -27,15 +27,16 @@ def generic_text(params, eval=False, sample_text_fn=None):
     data = dataset_shards[0]
     for ds in dataset_shards[1:]:
         data = data.concatenate(ds)
-     
+
     data = data.shuffle(buffer)
     data = data.batch(batch_size, drop_remainder=True)
 
     def prepare(x):
-        vals1 = x[:params["n_ctx"]]
-        vals2 = x[1:params["n_ctx"] + 1]
-        vals1 = tf.reshape(vals1, [params["n_ctx"]])
-        vals2 = tf.reshape(vals2, [params["n_ctx"]])
+        x = tf.reshape(x, (batch_size, sequence_length + 1))
+        vals1 = x[:, :sequence_length]
+        vals2 = x[:, 1:sequence_length + 1]
+        vals1 = tf.reshape(vals1, (batch_size, sequence_length))
+        vals2 = tf.reshape(vals2, (batch_size, sequence_length))
         vals1 = tf.cast(vals1, dtype=tf.int32)
         vals2 = tf.cast(vals2, dtype=tf.int32)
         return vals1, vals2
