@@ -91,14 +91,6 @@ def main(args):
 
     logger.info(f"params = {params}")
 
-    # Get eval tasks from params
-    eval_tasks = params.get("eval_tasks", [])
-    has_predict_or_eval_steps_or_eval_tasks = params["predict_steps"] > 0 or params["eval_steps"] > 0 or len(
-        eval_tasks) > 0
-
-    for t in eval_tasks:
-        assert t in task_descriptors, f"Eval task '{t}' is not known"
-        task_descriptors[t]["init_fn"](params)
 
     # Set up TPUs and Estimator
     if args.tpu == "colab":
@@ -126,62 +118,26 @@ def main(args):
         model_fn=model_fn,
         config=config,
         train_batch_size=params["train_batch_size"],
-        eval_batch_size=params["train_batch_size"],
         predict_batch_size=params["predict_batch_size"],
         params=params)
 
     def _make_task_estimator(task):
         task_params = params.copy()
-        task_params["eval_task"] = task
         return tpu_estimator.TPUEstimator(
             use_tpu=params["use_tpu"],
             model_fn=model_fn,
             config=config,
             train_batch_size=params["train_batch_size"],
-            eval_batch_size=params["train_batch_size"],
             predict_batch_size=params["predict_batch_size"],
             params=task_params)
 
-    eval_task_estimators = {
-        task: _make_task_estimator(task)
-        for task in eval_tasks
-    }
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info(f"Current step {current_step}")
 
-    elif has_predict_or_eval_steps_or_eval_tasks:
-        # Eval and train - stop and predict and/or eval every checkpoint
-        while current_step < params["train_steps"]:
-            next_checkpoint = min(current_step + args.steps_per_checkpoint,
-                                  params["train_steps"])
-
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
-            current_step = next_checkpoint
-
-            if params["eval_steps"] > 0:
-                logger.info("Running evaluation...")
-                eval_results = estimator.evaluate(
-                    input_fn=partial(input_fn, eval=True),
-                    steps=params["eval_steps"])
-                logger.info(f"Eval results: {eval_results}")
-
-            for task in eval_tasks:
-                logger.info(f"Starting evaluation task '{task}'")
-                task_info = task_descriptors[task]["get_task_info_fn"](params)
-                task_estimator = eval_task_estimators[task]
-                task_input_fn = task_descriptors[task]["input_fn"]
-                eval_results = task_estimator.evaluate(
-                    input_fn=task_input_fn,
-                    steps=task_info["n_steps"],
-                    name=task)
-                logger.info(f"Eval task '{task}' results: {eval_results}")
-        return
-    else:
-        # Else, just train
-        while current_step < params["train_steps"]:
-            # Else, don't stop and restart
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
+    while current_step < params["train_steps"]:
+        # Else, don't stop and restart
+        estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
 
 
 if __name__ == "__main__":
