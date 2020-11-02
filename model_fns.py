@@ -95,7 +95,6 @@ def model_fn(features, labels, mode, params):
                                                                         layout_rules=layout_rules,
                                                                         tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
     params["num_microbatches"] = num_microbatches  # Add num microbatches to params
-    
     if num_microbatches > 1:
         # For serialize_training_step we need to modify the model to output results in a dict
         def serialized_fn(mtf_features):
@@ -145,13 +144,17 @@ def model_fn(features, labels, mode, params):
     # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
 
+    max_logits = mtf.argmax(logits, vocab_dim)
+    fully_replicated_max_logits = mtf.anonymize(max_logits)
     # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
+
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
+    tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
 
     # Use our patched version until mtf updates theirs
-    host_call = create_host_call(params['model_path'])
+    host_call = create_host_call(params['model_path'], tf_max_logits, labels)
     mtf.utils.remove_summaries()
 
     # Creates train_op
@@ -160,18 +163,12 @@ def model_fn(features, labels, mode, params):
     tf.logging.info(f"tf_update_ops: {tf_update_ops}")
     train_op = tf.group(tf_update_ops)
 
-    max_logits = mtf.argmax(logits, vocab_dim)
-    fully_replicated_max_logits = mtf.anonymize(max_logits)
-    tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
-    tf_accuracy = tf.metrics.mean(tf.cast(tf.math.equal(tf_max_logits, labels), tf.float32))
-    tf.identity(tf_accuracy, "train_accuracy")
-    tf.summary.scalar("train_accuracy", tf_accuracy)
-
     with mtf.utils.outside_all_rewrites():
 
         # Copy master variables to slices. Must be called first.
         restore_hook = mtf.MtfRestoreHook(lowering)
-        # Set up the checkpoint server and return the TPUEstimatorSpec
+
+
         saver = tf.train.Saver(
             tf.global_variables(),
             sharded=True,
