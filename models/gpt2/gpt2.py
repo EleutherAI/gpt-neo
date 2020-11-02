@@ -153,7 +153,11 @@ def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, me
 
 def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
     # x :: [batch, seq, n_embd]
-    x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
+    print(x.shape)
+    x_shape, dim_batch, sequence_length, dim_embd, mesh = x.shape, *x.shape, x.mesh
+
+    if attention_type == 'conv':
+       params['n_head'] = 1
 
     # n_state is the same as config["n_embd"], which is also the same as dim_embd.
     assert n_state.size % params["n_head"] == 0
@@ -166,23 +170,24 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
     with tf.variable_scope(scope):
         # Compute attention inputs
         dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"])
-        mtfparams = mtf.transformer.attention.attention_params_simple(
-            x.mesh,
-            io_dim=dim_embd,
-            kv_dim=dim_kv,
-            heads_dim=dim_heads,
-            variable_dtype=variable_dtype
-        )
-        q = mtfparams.compute_q(x)
-        k = mtfparams.compute_k(x)
-        v = mtfparams.compute_v(x)
+        if attention_type != 'conv':
+            mtfparams = mtf.transformer.attention.attention_params_simple(
+                x.mesh,
+                io_dim=dim_embd,
+                kv_dim=dim_kv,
+                heads_dim=dim_heads,
+                variable_dtype=variable_dtype
+            )
+            q = mtfparams.compute_q(x)
+            k = mtfparams.compute_k(x)
+            v = mtfparams.compute_v(x)
 
-        if is_incremental_inference(context):
-            one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
-            inv_one_hot = 1.0 - one_hot
-            old_k, old_v = context.get_states(2)
-            k = old_k * inv_one_hot + k * one_hot
-            v = old_v * inv_one_hot + v * one_hot
+            if is_incremental_inference(context):
+                one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
+                inv_one_hot = 1.0 - one_hot
+                old_k, old_v = context.get_states(2)
+                k = old_k * inv_one_hot + k * one_hot
+                v = old_v * inv_one_hot + v * one_hot
 
         if exists(context):
             context.record_new_states([k, v])
@@ -208,6 +213,14 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
                 if is_incremental_inference(context):
                     a = mtf.gather(a, context.position - 1, dim_seq)
+            elif attention_type == 'conv':
+                radius = params.get("local_attention_radius", 256)
+                cdim = params.get("convolution_dimension", 4)
+                a = mtf.add_n([mtf.layers.conv1d(mtf.shift(x, distance + size - 1, sequence_length, False),
+                                                 dim_kv, size)
+                               for size, distance in zip((6,) + (1,) * (cdim - 1),
+                                                         [0] + [radius ** (i // cdim) for i in range(1, cdim)])])
+                a = mtf.rename_dimension(a, dim_kv.name, dim_embd.name)
 
             elif attention_type == "global":
 
@@ -270,8 +283,9 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             else:
                 raise NotImplementedError("Unknown attention type {}!".format(attention_type))
 
-        with tf.variable_scope("compute_output"):
-            a = mtfparams.compute_output(a, x_shape)
+        if attention_type != 'conv':
+            with tf.variable_scope("compute_output"):
+                a = mtfparams.compute_output(a, x_shape)
 
         with tf.variable_scope("compute_output_bias"):
             b = mtf.get_variable(x.mesh, "o_b", [dim_embd], initializer=tf.constant_initializer(0),

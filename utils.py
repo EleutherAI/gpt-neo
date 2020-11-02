@@ -235,7 +235,7 @@ def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
             f"\nRe-initialize graph with selected layout & mesh shape")
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
 
-def create_host_call(model_dir):
+def create_host_call(model_dir, tf_max_logits, labels):
     """Construct a host_call writing scalar summaries.
 
     Borrowed from t2t.
@@ -249,16 +249,18 @@ def create_host_call(model_dir):
     graph = tf.get_default_graph()
     # A list of (name, lowered tensor) tuples
     summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
+    summaries = [['accuracy', tf.cast(tf.math.equal(tf_max_logits, labels), tf.float32)]] + summaries
 
     def maybe_cast(tensor):
-        assert tensor.shape.is_compatible_with([]), tensor.name
+        if tensor.shape.is_compatible_with([]):
+           tensor = tf.reshape(tensor, [1])
         if tensor.dtype == tf.int64:
             return tf.to_int32(tensor)
         if tensor.dtype == tf.bfloat16:
             return tf.cast(tensor, tf.float32)
         return tensor
 
-    reshaped_tensors = [tf.reshape(maybe_cast(t), [1]) for _, t in summaries]
+    reshaped_tensors = [maybe_cast(t) for _, t in summaries]
 
     # When no supported summaries are found, don't create host_call. Otherwise,
     # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
