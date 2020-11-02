@@ -320,6 +320,7 @@ We have experimentally found a moe layer for every two self-attention layers to 
 - `scalenorm`: If true, uses scalenorm instead of layernorm.
 - `rezero`: If true, uses [rezero](https://www.groundai.com/project/rezero-is-all-you-need-fast-convergence-at-large-depth/1) instead of layernorm.
 - `num_mem_kv`: adds memory / key values from the [all-attention paper](https://arxiv.org/pdf/1907.01470.pdf). Param is an int with the number of desired mem/key values.
+- `macaron`: if true - uses a [macaron transformer](https://arxiv.org/pdf/1906.02762.pdf) for each layer block.
 
 ## TODO: 
 
