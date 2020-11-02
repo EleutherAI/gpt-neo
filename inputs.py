@@ -2,114 +2,43 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from functools import partial
 from data.encoders import encode
+import torch
+import os
+import requests
 
 def generic_text(params, eval=False, sample_text_fn=None):
-    i = 0 if not eval else 1
-    print('##############################')
-    print(params["datasets"])
-    print('##############################')
-
-    weights = []
-    datasets = []
-
-    for dataset in params["datasets"]:
-        dataset_id, stitch, datatype, weight = dataset
-
-        assert dataset_id in params['dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
-        dataset_config = params['dataset_configs'][dataset_id]
-
-        path_key = 'path' if not eval else 'eval_path'
-        path = dataset_config[path_key]
-
-        datasets.append(text_dataset(
-            tf.io.gfile.glob(path),
-            params,
-            stitch = stitch,
-            datatype = datatype,
-            batch = False,
-            sample_text_fn = sample_text_fn
-        ))
-
-        weights.append(weight)
-
+    sequence_length = params['n_ctx']
+    shards = params.get('shards', 16)
+    buffer = params.get('buffer', 1024)    
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
+    
+    if not os.path.exists('out.tensor'):
+        with open("out.tensor", 'wb') as f:
+            f.write(requests.get(
+                "https://storage.googleapis.com/text-datasets/out.tensor").content)
 
-    seed = params.get('seed', None)
-    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=seed)
-    dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
-    return dataset
+    array = torch.load('out.tensor').numpy()
+    data = tf.data.Dataset.from_tensor_slices(array)
+    data = data.window(size=sequence_length, stride=1, shift=1,
+                       drop_remainder=True)
+    data = data.flat_map(lambda x: x.batch(sequence_length))
+    dataset_shards = [data.shard(shards, i)
+                      for i in range(shards)]
+    data = dataset_shards[0]
+    for ds in dataset_shards[1:]:
+        data = data.concatenate(ds)
+     
+    data = data.shuffle(buffer)
+    data = data.batch(batch_size, drop_remainder=True)
 
-def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
-    seed = params.get('seed', None)
-    deterministic =  seed is not None
-    num_parallel_calls = 1 if deterministic else tf.data.experimental.AUTOTUNE
+    def prepare(x):
+        return tf.cast(tf.reshape(x,
+                                  (batch_size, 
+                                   sequence_length)),
+                       tf.int32)
+    data = data.map(prepare)
+    return data
 
-    dataset = tf.data.Dataset.from_tensor_slices(files)
-
-    if deterministic:
-        dataset = dataset.interleave(tf.data.TFRecordDataset, cycle_length=4)
-    else:
-        dataset = dataset.apply(
-            tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
-
-    if "documents" in datatype:
-        def _parse_function(example_proto):
-            features = {
-                # "hash": tf.VarLenFeature(tf.string),
-                "text": tf.VarLenFeature(tf.int64)
-            }
-            parsed_features = tf.parse_single_example(example_proto, features)
-            return parsed_features["text"], parsed_features["text"].dense_shape[0]
-    else:
-        def _parse_function(example_proto):
-            features = {
-                "text": tf.VarLenFeature(tf.int64)
-            }
-            parsed_features = tf.parse_single_example(example_proto, features)
-            return parsed_features["text"]  # Assuming the text is not sparse
-
-    dataset = dataset.map(_parse_function, num_parallel_calls=1)
-
-    # Subsample method
-    if "documents" in datatype:
-        # Since samples can be less than the correct length, and TPUs don't like variable lengths, this function stitches together enough samples
-        # to have a text at least 1024 tokens long. For this to work the stitch parameter must be correctly tuned so that
-        # stitch * min(characters_in_text) >= amount
-        def _stitch_text(x, y):
-            x = tf.sparse.to_dense(x)
-
-            def _get_x(i):
-                return tf.gather(x[i], tf.range(y[i]))
-
-            out = _get_x(0)
-            eos_id = params['eos_id']
-
-            for i in range(1, stitch):
-                out = tf.concat([out, [eos_id], _get_x(i)], axis=0)  # text1<|endoftext|>text2
-
-            return out
-
-        # Hack-y way to stitch together multiple texts
-
-        dataset = dataset.shuffle(1000 * stitch, seed=seed).batch(stitch, drop_remainder=True).map(_stitch_text,
-                                                                                        num_parallel_calls=num_parallel_calls)
-
-        # Sample 1024(+1) tokens from the stitched together text
-        is_random_documents = datatype == "documents_random"
-        if sample_text_fn is not None:
-            _sample_text = partial(sample_text_fn, random_documents = is_random_documents)
-        else:
-            _sample_text = autoregressive_sample_text_random_documents if is_random_documents else autoregressive_sample_text
-            _sample_text = partial(_sample_text, params)
-
-        dataset = dataset.map(_sample_text, num_parallel_calls=num_parallel_calls)
-
-    if batch:
-        dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
-
-    dataset = dataset.repeat()
-
-    return dataset
 
 def autoregressive_sample_text(params, x):
     vals1 = x[:params["n_ctx"]]
