@@ -84,43 +84,6 @@ def model_fn(features, labels, mode, params):
     other_features["embed_sequence_dim"] = embed_sequence_dim
     other_features["memory_length_dim"] = memory_length_dim
 
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        # Set up the model for prediction
-        inputs = mtf_features["inputs"]
-        if params["remove_partial_sequences"] is None:
-            params["remove_partial_sequences"] = False
-
-        mtf_samples = sample_autoregressive(
-            inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
-
-        mtf_samples = mtf.anonymize(mtf_samples)
-        inputs = mtf.anonymize(inputs)
-        lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
-        inputs = lowering.export_to_tf_tensor(inputs)
-        outputs = lowering.export_to_tf_tensor(mtf_samples)
-        predictions = {
-            "inputs": inputs,
-            "outputs": outputs}
-        
-        def scaffold_fn():
-            return tf.train.Scaffold(
-                local_init_op=tf.group(
-                    tf.train.Scaffold.default_local_init_op(),
-                    lowering.copy_masters_to_slices(),
-                    name="mtf_local_init_op"),
-                ready_op=tf.concat(
-                    [tf.report_uninitialized_variables(),
-                    resources.report_uninitialized_resources()],
-                    axis=0,
-                    name="mtf_ready_op"))
-
-        return tpu_estimator.TPUEstimatorSpec(
-            mode=tf.estimator.ModeKeys.PREDICT,
-            predictions=predictions,
-            scaffold_fn=scaffold_fn,
-            prediction_hooks=[mtf.MtfRestoreHook(lowering)])
-
     # We're not predicting, so we better be training or evaluating
     assert (mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL)
 
@@ -163,30 +126,23 @@ def model_fn(features, labels, mode, params):
     if params["auto_layout_and_mesh_shape"]:
         auto_layout_and_mesh_shape(graph, params["num_cores"], logits, loss)
 
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        # In TRAIN mode, get optimizer
-        if params["num_microbatches"] > 1:
-            # If we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
-            # So we pass them in here
-            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=var_grads)
-        else:
-            # Otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
-        # Log summaries to tensorboard
-        mtf.scalar_summary("loss", loss)
-        # Log gradients if in params
-        if params["log_grads"] not in [None, False]:
-            for g in var_grads:
-                grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
-                mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
+    # In TRAIN mode, get optimizer
+    if params["num_microbatches"] > 1:
+        # If we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
+        # So we pass them in here
+        _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=var_grads)
     else:
-        # For now, we can only export fully-replicated tensors.
-        # This has to be done before lowering or they will not be included in the graph
-        mean_logits = mtf.reduce_mean(logits, reduced_dim=vocab_dim)
-        max_logits = mtf.argmax(logits, vocab_dim)
-        fully_replicated_mean_logits = mtf.anonymize(mean_logits)
-        fully_replicated_max_logits = mtf.anonymize(max_logits)
-        fully_replicated_loss_batch = mtf.anonymize(loss_batch)
+        # Otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
+        _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
+    # Log summaries to tensorboard
+    mtf.scalar_summary("loss", loss)
+    # Log gradients if in params
+    if params["log_grads"] not in [None, False]:
+        for g in var_grads:
+            grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
+            mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
+    max_logits = mtf.argmax(logits, vocab_dim)
+    fully_replicated_max_logits = mtf.anonymize(max_logits)
 
     # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
@@ -196,84 +152,45 @@ def model_fn(features, labels, mode, params):
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
 
-    if mode == tf.estimator.ModeKeys.TRAIN:
-        # Use our patched version until mtf updates theirs
-        host_call = create_host_call(params['model_path'])
-        mtf.utils.remove_summaries()
+    # Use our patched version until mtf updates theirs
+    host_call = create_host_call(params['model_path'])
+    mtf.utils.remove_summaries()
 
-        # Creates train_op
-        tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-        tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
-        tf.logging.info(f"tf_update_ops: {tf_update_ops}")
-        train_op = tf.group(tf_update_ops)
-    else:
-        tf_mean_logits = lowering.export_to_tf_tensor(fully_replicated_mean_logits)
-        tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
-        tf_loss_batch = tf.to_float(lowering.export_to_tf_tensor(fully_replicated_loss_batch))
+    # Creates train_op
+    tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
+    tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
+    tf.logging.info(f"tf_update_ops: {tf_update_ops}")
+    train_op = tf.group(tf_update_ops)
+    tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
 
     with mtf.utils.outside_all_rewrites():
+        def _accuracy_fn(labels, tf_max_logits):
+            accuracy = tf.metrics.mean(tf.cast(tf.math.equal(tf_max_logits, labels), tf.float32))
+            return {"lambada_acc": accuracy}
+        eval_metrics = (_accuracy_fn, [labels, tf_max_logits])
+                            
         # Copy master variables to slices. Must be called first.
         restore_hook = mtf.MtfRestoreHook(lowering)
-        if mode == tf.estimator.ModeKeys.TRAIN:
-            # Set up the checkpoint server and return the TPUEstimatorSpec
-            saver = tf.train.Saver(
-                tf.global_variables(),
-                sharded=True,
-                max_to_keep=10,
-                keep_checkpoint_every_n_hours=2,
-                defer_build=False,
-                save_relative_paths=True)
-            tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
-            saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-            saver_hook = tf.train.CheckpointSaverHook(
-                params["model_path"],
-                save_steps=params["steps_per_checkpoint"],
-                saver=saver,
-                listeners=[saver_listener])
+        # Set up the checkpoint server and return the TPUEstimatorSpec
+        saver = tf.train.Saver(
+            tf.global_variables(),
+            sharded=True,
+            max_to_keep=10,
+            keep_checkpoint_every_n_hours=2,
+            defer_build=False,
+            save_relative_paths=True)
+        tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+        saver_listener = mtf.MtfCheckpointSaverListener(lowering)
+        saver_hook = tf.train.CheckpointSaverHook(
+            params["model_path"],
+            save_steps=params["steps_per_checkpoint"],
+            saver=saver,
+            listeners=[saver_listener])
 
-            return tpu_estimator.TPUEstimatorSpec(
-                tf.estimator.ModeKeys.TRAIN,
-                loss=tf_loss,
-                host_call=host_call,
-                train_op=train_op,
-                training_hooks=[restore_hook, saver_hook])
-
-        elif mode == tf.estimator.ModeKeys.EVAL:
-            # Evaluation metrics
-            def _perplexity(tf_loss_batch):
-                loss = tf.reduce_mean(tf_loss_batch)
-                loss /= params["num_microbatches"]
-                perplexity = tf.exp(loss)
-                return tf.metrics.mean(perplexity)
-
-            def _metric_fn(tf_mean_logits, tf_loss_batch):
-                mean_logits = tf.metrics.mean(tf_mean_logits)
-                perp = _perplexity(tf_loss_batch)
-                return {"mean_logits": mean_logits, "perplexity": perp}
-
-            def _lambada_metric_fn(labels, tf_max_logits, tf_loss_batch):
-                eos_token = params["eos_id"]
-                answer_positions = tf.where(tf.math.not_equal(labels, eos_token))
-
-                correct_answers = tf.gather_nd(tf.math.equal(tf_max_logits, labels), answer_positions)
-                accuracy = tf.metrics.mean(tf.cast(correct_answers, tf.float32))
-
-                # I guess tf_loss_batch has z_loss and maybe other stuff added to it
-                # so maybe this should be calculated separately in the future
-                answer_loss = tf.gather_nd(tf_loss_batch, answer_positions)
-                log_perplexity = tf.metrics.mean(answer_loss)
-
-                return {"lambada_acc": accuracy, "lambada_log_ppl": log_perplexity}
-
-            eval_task = params["eval_task"]
-            if eval_task == "lambada":
-                eval_metrics = (_lambada_metric_fn, [labels, tf_max_logits, tf_loss_batch])
-            else:
-                eval_metrics = (_metric_fn, [tf_mean_logits, tf_loss_batch])
-
-            return tpu_estimator.TPUEstimatorSpec(
-                tf.estimator.ModeKeys.EVAL,
-                evaluation_hooks=[restore_hook],
-                loss=tf_loss,
-                eval_metrics=eval_metrics)
-
+        return tpu_estimator.TPUEstimatorSpec(
+            tf.estimator.ModeKeys.TRAIN,
+            loss=tf_loss,
+            host_call=host_call,
+            train_op=train_op,
+            training_hooks=[restore_hook, saver_hook],
+            eval_metrics=eval_metrics)
