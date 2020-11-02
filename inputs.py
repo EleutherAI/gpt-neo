@@ -19,7 +19,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
 
     array = torch.load('out.tensor').numpy()
     data = tf.data.Dataset.from_tensor_slices(array)
-    data = data.window(size=sequence_length, stride=1, shift=1,
+    data = data.window(size=sequence_length + 1, stride=1, shift=1,
                        drop_remainder=True)
     data = data.flat_map(lambda x: x.batch(sequence_length))
     dataset_shards = [data.shard(shards, i)
@@ -32,20 +32,23 @@ def generic_text(params, eval=False, sample_text_fn=None):
     data = data.batch(batch_size, drop_remainder=True)
 
     def prepare(x):
-        return tf.cast(tf.reshape(x,
-                                  (batch_size, 
-                                   sequence_length)),
-                       tf.int32)
+        vals1 = x[:params["n_ctx"]]
+        vals2 = x[1:params["n_ctx"] + 1]
+        vals1 = tf.reshape(vals1, [params["n_ctx"]])
+        vals2 = tf.reshape(vals2, [params["n_ctx"]])
+        vals1 = tf.cast(vals1, dtype=tf.int32)
+        vals2 = tf.cast(vals2, dtype=tf.int32)
+        return vals1, vals2
     data = data.map(prepare)
     return data
 
 
 def autoregressive_sample_text(params, x):
-    vals1 = x[:params["n_ctx"]]
-    vals2 = x[1:params["n_ctx"] + 1]
+    vals1 = x[:, :sequence_length]
+    vals2 = x[:, 1:sequence_length + 1]
 
-    vals1 = tf.reshape(vals1, [params["n_ctx"]])
-    vals2 = tf.reshape(vals2, [params["n_ctx"]])
+    vals1 = tf.reshape(vals1, [batch_size, sequence_length])
+    vals2 = tf.reshape(vals2, [batch_size, sequence_length])
     vals1 = tf.cast(vals1, dtype=tf.int32)
     vals2 = tf.cast(vals2, dtype=tf.int32)
     return vals1, vals2
