@@ -9,7 +9,6 @@ from utils import save_config, expand_attention_types_params, yes_or_no, remove_
     check_dataset
 from inputs import generic_text, pred_input, handle_pred_output, mlm_sample_text
 from model_fns import model_fn
-from data.encoders import fetch_encoder
 from configs import fetch_model_params
 from tasks import task_descriptors
 import argparse
@@ -56,11 +55,6 @@ def main(args):
     if params["mlm_training"]:
         mlm_sample_text_fn = partial(mlm_sample_text, params)
         input_fn = partial(generic_text, sample_text_fn=mlm_sample_text_fn)
-
-    # Fetch encoder per params
-    encoder = fetch_encoder(params)
-
-    pred_input_fn = partial(pred_input_fn, path_to_prompt=args.prompt, logger=logger, enc=encoder)
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
@@ -154,14 +148,6 @@ def main(args):
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info(f"Current step {current_step}")
 
-    if args.predict:
-        # Predict
-        predictions = estimator.predict(input_fn=pred_input_fn)
-        logger.info("Predictions generated")
-        enc = fetch_encoder(params)
-        handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
-        return
-
     elif has_predict_or_eval_steps_or_eval_tasks:
         # Eval and train - stop and predict and/or eval every checkpoint
         while current_step < params["train_steps"]:
@@ -170,12 +156,6 @@ def main(args):
 
             estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
             current_step = next_checkpoint
-
-            if params["predict_steps"] > 0:
-                logger.info("Running prediction...")
-                predictions = estimator.predict(input_fn=pred_input_fn)
-                enc = fetch_encoder(params)
-                handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
 
             if params["eval_steps"] > 0:
                 logger.info("Running evaluation...")
