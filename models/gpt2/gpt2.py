@@ -72,7 +72,7 @@ def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
         return x
 
 
-def linear_attention(q, k, v, epsilon=1e-6):
+def linear_attention(q, k, v):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
     q = mtf.rename_dimension(q, "features_per_head", "features_per_head_in")
     k = mtf.rename_dimension(k, "features_per_head", "features_per_head_in")
@@ -223,31 +223,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
                 # memory key / values, from all-attention paper
                 if use_num_mem_kv:
-                    dim_mem_kv = mtf.Dimension("mem_kv_sequence", num_mem_kv)
-
-                    with tf.variable_scope("memory_key_values"):
-                        emb_dim = k.shape[-1]
-                        mem_std = 1 / math.sqrt(emb_dim.size)
-
-                        mem_k = mtf.get_variable(mesh, "mem_k", mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
-                                                 initializer=tf.random_normal_initializer(stddev=mem_std),
-                                                 master_dtype=variable_dtype.master_dtype,
-                                                 slice_dtype=variable_dtype.slice_dtype,
-                                                 activation_dtype=variable_dtype.activation_dtype,
-                                                 )
-                        mem_v = mtf.get_variable(mesh, "mem_v", mtf.Shape([dim_mem_kv, dim_heads, emb_dim]),
-                                                 initializer=tf.random_normal_initializer(stddev=mem_std),
-                                                 master_dtype=variable_dtype.master_dtype,
-                                                 slice_dtype=variable_dtype.slice_dtype,
-                                                 activation_dtype=variable_dtype.activation_dtype)
-
-                        mem_k, mem_v = map(lambda t: mtf.broadcast(t, [dim_batch, dim_mem_kv, dim_heads, emb_dim]),
-                                           (mem_k, mem_v))
-                        mem_k, mem_v = map(lambda t: mtf.rename_dimension(t, "mem_kv_sequence", "sequence"),
-                                           (mem_k, mem_v))
-
-                        k = mtf.concat([mem_k, k], "sequence")
-                        v = mtf.concat([mem_v, v], "sequence")
+                    k, v = memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, mesh)
 
                 k = mtf.replace_dimensions(k, k.shape[1], memory_length_dim)
                 v = mtf.replace_dimensions(v, v.shape[1], memory_length_dim)
@@ -414,7 +390,6 @@ def axial_positional_emb(embd_dim, mesh, params, variable_dtype):
 
     return wpe
 
-
 # --------------------------------------------------------------------------------
 # MODEL:
 
@@ -428,7 +403,8 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         x = mtf.gather(x, context.position - 1, sequence_dim)
         x = mtf.reshape(x, [batch_dim])
 
-    use_axial_pos_emb = params["axial_pos_emb"] != None
+    use_axial_pos_emb = params["axial_pos_emb"] is not None
+
     if not use_axial_pos_emb:
         # Use standard position encoding
         wpe = mtf.get_variable(mesh, "wpe", mtf.Shape([embed_sequence_dim, embd_dim]),
@@ -486,7 +462,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
             logits = linear(h, "linear_out", vocab_dim, variable_dtype=variable_dtype, params=params)
     else:
         # Layer normalize & affine transform
-        h = layer_norm(h, "ln_f", variable_dtype=variable_dtype, params=params)
+        h = layer_norm(h, "ln_f", variable_dtype=variable_dtype)
         seq_dim = sequence_dim if not is_incremental_inference(context) else mtf.Dimension("sequence", 1)
         with tf.variable_scope("wte_final_einsum"):
             # Equivalent to tf.matmul
@@ -494,7 +470,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
     if params["mode"] == "train":
         labels = mtf_features["labels"]
-        z_loss = params.get("z_loss", 1e-4)
+        z_loss = params.get("z_loss", 1e-4) # an auxiliary loss used to stabilize mtf xentropy
         # Go to full precision for the logits 
         logits = mtf.cast(logits, tf.float32)
 

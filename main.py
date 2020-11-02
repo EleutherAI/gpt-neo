@@ -20,7 +20,7 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, if any.")
     parser.add_argument("--gpu_ids", nargs="+", type=str, default=["device:GPU:0"],
-                        help=" If training on GPU, can specify your GPU names in a list - i.e 'device:GPU:0 device:GPU:1'")
+                        help="If training on GPU, can specify your GPU names in a list - i.e 'device:GPU:0 device:GPU:1'")
     parser.add_argument("--model", type=str, default=None, help="JSON file that contains model parameters.")
     parser.add_argument("--steps_per_checkpoint", type=int, default=5000, help="Save a model checkpoint every X steps.")
     parser.add_argument("--auto_layout", action="store_true", help="If set, generates and prints the most memory "

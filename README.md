@@ -18,7 +18,7 @@ Pretrained models will be released as they are finished training.
 
 # Setup
 
-```
+```bash
 git clone https://github.com/EleutherAI/GPTNeo
 cd GPTNeo
 pip3 install -r requirements.txt
@@ -52,14 +52,14 @@ TODO
 
 Once you have a trained model, or you've downloaded one of our pre-trained models (coming soon), generating text is as simple as running the main.py script with the `--predict` flag on. You can pass a path to your prompt txt file with the `--prompt` flag, like so:
 
-```
+```bash
 python3 main.py --predict --prompt <example_prompt.txt> --tpu <tpu_name> --model <config_name>
 ```
 
 or, if using GPUs:
 
-```
-python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids <0 1 2> --model <config_name>
+```bash
+python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids device:GPU:0 device:GPU:1 --model <config_name>
 ```
 
 # Training Guide
@@ -69,7 +69,7 @@ python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids <0 1 2> --mode
 We recommend you use [Huggingface's pretrained GPT2 tokenizer](https://huggingface.co/transformers/model_doc/gpt2.html#transformers.GPT2Tokenizer) with our repo (instructions provided below), but if you want to train a model with a different vocabulary size, we provide facilities to train your own tokenizer like so:
 
 ```bash
-$ python data/train_tokenizer.py \
+python data/train_tokenizer.py \
     --base_dir ./path/to/your/txt/files \
     --output_dir ./output/path \
     --file-type txt \
@@ -83,23 +83,29 @@ $ python data/train_tokenizer.py \
 
 If you just want to test training, you can skip this step and download some dummy data like so:
 
-`wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords`
+```
+wget https://storage.googleapis.com/connors-datasets/bundestag/bundestag_0.tfrecords
+```
 
 Then copy the data to your bucket, or if using GPUs, a local directory: 
 
-`gsutil cp bundestag_0.tfrecords gs://<your bucket>/`
+```
+gsutil cp bundestag_0.tfrecords gs://<your bucket>/
+```
 
-If using your own data to train, you can use the `create_tfrecords.py` script to encode your text data into tfrecords.
+If using your own data to train, you can use the `data/create_tfrecords.py` script to encode your text data into tfrecords.
 
 Your data must either be in the form of lots of normal .txt files (one document per file), or in any format supported by [lm_dataformat](https://github.com/leogao2/lm_dataformat). 
 
-You can run the script without parameters to see help for all options. There are two main modes:
+You can run the script without parameters to see help for all options.
 
-**Document Mode:**
+In **document mode** Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (For more details see the parameters reference section).
+Document mode is the default mode.
 
-Each example in the tfrecords is one (variably sized) document. This is to be used with the `documents_fixed` and `documents_random` sampling modes (see parameters, below).
-
-`python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --minimum_size <min> `
+The below command will tokenize all files in acceptable formats in *base_dir* using gpt2 tokenizer and save them to *output_dir*
+```
+python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --minimum_size <min> 
+```
 
 - `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
@@ -107,29 +113,15 @@ Each example in the tfrecords is one (variably sized) document. This is to be us
 - `use_gpt2_tokenizer`: Whether to use the pretrained HuggingFace GPT2 tokenizer, in which case the separator will be set to [50256].
 - `encoder_path`: if not using the pretrained gpt2 tokenizer, use this flag to provide a path to your generated tokenizer json.
 - `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
-- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (see parameters below).
-
-**Chunk Mode:**
-
-In chunk mode, all documents are concatenated (with separator tokens between documents) and then sliced into equally sized chunks. So each tfrecords example is one uniformly sized chunk. For use with the `chunks` sampling mode (see parameters, below).
-
-`python3 create_tfrecords.py --mode chunks --base_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --chunk_size <size>`
-
-- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
-- `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
-- `output_dir`: Where to save the tfrecords to
-- `use_gpt2_tokenizer`: Whether to use the same tokenizer used by GPT2, in which case the separator will be set to [50256]
-- `encoder_path`: if not using the pretrained gpt2 tokenizer, use this flag to provide a path to your generated tokenizer json.
-- `separator`: Written in list format, the separator token(s) to insert between documents (e.g. "[0]"). Will depend on your encoder.
-- `chunk_size`: How large each chunk should be. Must be equal to `n_ctx`. (Note: The tfrecords examples will be size `n_ctx+1`. This is normal and is to ensure the last input token has a target)
+- `minimum_size`: The minimum size (in tokens) a document must have, otherwise it is discarded. This is what will later determine your `stitch` parameter: `stitch * minimum_size` must always be greater or equal `n_ctx` (For more details see the parameters reference section).
 
 ## 4. Using a Dataset in a Model
 
 To use a dataset in a model, you must first register that dataset under `./configs/dataset_configs` folder. First choose a filename with a `.json` extension. That filename will serve as the dataset identification. The config should be filled out the following manner.
 
-If you have a dataset that encoded using a the pretrained gpt2 tokenizer, you can specify that like so:
+If you have a dataset encoded using the pretrained gpt2 tokenizer, you can specify that like so:
 
-```python
+```json
 {
     "n_vocab": 50257,
     "path": "gs://neo-datasets/openwebtext-documents/openwebtext_*.tfrecords",
@@ -141,7 +133,7 @@ If you have a dataset that encoded using a the pretrained gpt2 tokenizer, you ca
 
 or if you've trained a custom tokenizer, like so:
 
-```python
+```json
 {
     "n_vocab": 32768,
     "path": "./path/to/your/*.tfrecords",
@@ -150,17 +142,63 @@ or if you've trained a custom tokenizer, like so:
 }
 ```
 
-Finally, when you are defining your model configuration, you add the filename that you created above to the `datasets` array.
+Finally, in your model config, add the filename that you created above to the `datasets` array.
 
 The `<dataset id>` will be the filename, excluding the `.json`, that you created above
 
-```python
+```json
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
 
-## 5. Run Training
+## 5. Choose a model configuration
 
-Once you have your datasets set up, find a fitting config in `/configs` (instructions provided below). Tweak parameters as needed (see reference at the end of this document). Then run:
+Once you have your datasets set up, find a suitable config in `/configs`.
+
+Here we use a GPT3-XL sized model as an example, but there are many more in `./configs`, all of which have short summaries in the Available Configs section.
+
+All you need to do is edit the dataset id as described above, and edit `model_path` (where logs and checkpoints will be saved) to point to a cloud bucket you have write access to (or local path, if using GPUs).
+
+```json
+{
+    "n_head": 32,
+    "n_vocab": 50257,
+    "embed_dropout": 0.1,
+    "lr": 0.0002,
+    "lr_decay": "cosine",
+    "warmup_steps": 3000,
+    "beta1": 0.9,
+    "beta2": 0.95,
+    "epsilon": 1e-8,
+    "opt_name": "adam",
+    "weight_decay": 0.1,
+    "train_batch_size": 512,
+    "attn_dropout": 0.1,
+    "train_steps": 286150,
+    "eval_steps": 0,
+    "predict_steps": 1,
+    "res_dropout": 0.1,
+    "eval_batch_size": 128,
+    "predict_batch_size": 1,
+    "iterations": 2500,
+    "n_embd": 2048,
+    "datasets": [["your_dataset_name", 25, "documents_random", 1.0]],
+    "model_path": "gs://neo-models/GPT3_XL",
+    "n_ctx": 2048,
+    "n_layer": 24,
+    "scale_by_depth": true,
+    "scale_by_in": false,
+    "attention_types" :  [[["global"],24]],
+    "mesh_shape": "x:128,y:2",
+    "layout": "batch:x,memory_length:y,embd:y",
+    "activation_function": "gelu",
+    "recompute_grad": true,
+    "gradient_clipping": 1.0,
+    "tokens_per_mb_per_replica": 2048
+}
+```
+
+
+## 6. Run Training
 
 ```
 python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --tpu <tpu-name>
@@ -175,7 +213,7 @@ python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --tpu <tpu
 python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <0 1 2>
 ```
 
-# Config Guide
+# Available Configs
 
 We have several model sizes available, but some of our configs require large TPUs and will need tweaking to run on smaller machines, or GPUs. Below is a short guide to each model in the configs directory:
 
@@ -195,34 +233,19 @@ To setup:
 
 To use: 
 
-1. Ensure model_dir doesnt have any metric logs in it (it trips up the metric stuff for tensorboard, which assumes that it's a continuation of the existing run). You can use `gsutil rm -r ...` to delete model dir
+1. Ensure model_dir doesn't have any metric logs in it (it trips up the metric stuff for tensorboard, which assumes that it's a continuation of the existing run). You can use `gsutil rm -r ...` to delete model dir
 
-2. Run `python3 run_experiment.py --tpu sometpuhere --model someconfig.json` Options do the same thing as in the old script. 
+2. Run `python3 run_experiment.py --tpu sometpuhere --model someconfig.json` Options are the same as `main.py`. 
 
-3. You can go to http://server_ip_goes_here:8080/ to see the Omniboard overview. It's password protected, ask in the discord for info. If you want to see the tensorboard for some reason, the `run_experiment.py` script also spins up a tensorboard and automatically assigns it a port. The script should print out the tensorboard port near the top of the log. 
+3. You can go to http://server_ip_goes_here:8080/ to see the Omniboard overview. If you prefer to see a tensorboard, the script also spins one up and automatically assigns it a port. The script should print out the tensorboard port near the top of the log. 
 
 ## Peeking at a Dataset
 
 If you are ever confused by the dataset of a particular config file, you can easily check the minimum and maximum token ids with a single command. This is useful for making sure that the vocabulary size of the model is at least as large as the maximum token id. Tensorflow will not error if you try to gather on a matrix with out of bounds indices, so you need to make sure your vocabulary size is sufficiently large.
 
 ```bash
-$ python main --model {config_name} --check_dataset
+python main --model {config_name} --check_dataset
 ```
-
-## Monitoring
-
-To monitor: `tensorboard --logdir model_path`
-
-Tensorboard exposes an http server on port `6006`. To access it on the remote machine, just do `localhost:6006`.
-However, the remote machine will usually just have a terminal. To easily view the resulting webpage, you'll need to forward the port through SSH so that you can access it on your client machine.
-An easy way to do port forwarding is to add the following to your client machine's `~/.ssh/config`:
-```s
-Host GptVM
- LocalForward 6006 localhost:6006
- HostName your_vm_ip
- User your_user
-```
-Then, you'll be able to access tensorboard with your browser at `localhost:6006`.
 
 ## Masked Language Modeling
 
@@ -252,26 +275,25 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
 - `n_heads`: The number of attention heads.
 - `n_embd`: Size of the hidden layers, must be divisible by `n_heads`.
 - `n_vocab`: Vocabulary size.
-- `embed_dropout`, `res_dropout`, `attn_dropout`: Dropout probability for word embedding/residuals/attention, set to 0 to disable (default: 0.1)
-- `lr`: Learning rate, defaults will vary depending on model size. Use [this table](https://i.imgur.com/g5jKbjT.png) from the GPT3 paper as a guide.
+- `embed_dropout`, `res_dropout`, `attn_dropout`: Dropout probability for word embedding/residuals/attention
+- `lr`: Learning rate
 - `warmup_steps`: Number of steps before full learning rate is reached (linear ramp from `0` to `lr`).
-- `lr_decay`: `cosine` (used by OpenAI) or `linear`. According to OpenAI's [scaling paper](https://arxiv.org/abs/2001.08361), the choice of setting here doesn't matter too much as long as it decays to above 0 over a suitable length of time.
-- `opt_name`: `adam` or `adafactor`. Choice of optimizer. `adam` is considered better but takes 2-3x the amount of memory.
+- `lr_decay`: `cosine` or `linear`.
+- `opt_name`: `adam` or `adafactor`.
 - `beta1`, `beta2` and `epsilon`: `adam` optimizer params.
 - `beta1`, `ada_epsilon1` and `ada_epsilon2`: `adafactor` optimizer params.
 - `weight_decay`: Weight decay parameter, if not present no weight decay is used (the weight decay fix for Adam is used) (default: 0.01) (optional).
 - `train_batch_size`: Batch size during training.
 - `train_steps`: Number of training steps (batches), set to roughly ~1 epoch for now (total number of tokens in your dataset / number of tokens per batch (= `train_batch_size` / `n_ctx`)).
-- `eval_steps`: Number of steps to run for each evaluation. Set to `0` for no eval. i.e Every `steps_per_checkpoint`, the model is tested for `eval_steps` (`steps_per_checkpoint` is set with the CLI currently)
-- `iterations`: Number of steps queued to the TPU (also used for Tensorboard summaries), must be smaller than `steps_per_checkpoint`. (default: 500)
+- `eval_steps`: Number of steps to run for each evaluation. Set to `0` for no eval. i.e After every checkpoint, the model is tested for `eval_steps`
+- `iterations`: Number of steps queued to the TPU, must be smaller than `steps_per_checkpoint`. (default: 500)
 - `datasets`: List of tfrecords datasets to use. Each dataset is a list with the following parameters: `[train glob , eval glob, stitch, sampling_mode, weight]`. So for example for a single dataset (note the double list): `[["bundestag_*.tfrecords", "", 10, "random_sample", 1.0]]`
-    + `train glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during training
-    + `eval glob`: A [glob](https://en.wikipedia.org/wiki/Glob_(programming)) pattern for files used during evaluation
+    + `dataset_id`: The name of a dataset configuration file in `./configs/dataset_configs`
     + `stitch`: If `sampling_mode` `random_sample` is used, the input pipeline samples this amount of texts into one to sample from. You must select stitch so that `stitch * minimum_document_length >= n_ctx`
     + `sampling_mode`: `chunks` (tfrecords are preprocessed into the correct length and are read sequentially) or `documents_random` (`stitch` amount of documents are concatenated and then a `n_ctx` chunk is randomly subsampled)
     + `weights`: How much relative weight this dataset should have compared to others
-- `model`: Which model to train. Currently only `GPT2` is supported.
-- `model_path`: Google storage bucket location (or local path, if using GPUs) to save model checkpoints.
+- `model`: Which model to train. Currently only `GPT` is supported, and it defaults to this if not present.
+- `model_path`: Google storage bucket location (or local path, if using GPUs) to save model checkpoints and logs.
 - `n_ctx`: Size of context window. Default is 2048
 - `n_layer`: Number of layers (blocks) in the model.
 - `scale_by_depth`: If true, the weight initialization of layers are scaled by their depth as in the GPT2 paper.
@@ -279,11 +301,27 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
 - `mesh_shape`: A Mesh is an n-dimensional array of processors with named dimensions used for parallelism in the mesh-tensorflow library. Each Tensor is split evenly across mesh dimensions according to the layout (see below). The 'mesh_shape' is the shape of this array, and must be equal to the number of processors. e.g., for a v3-128 TPU "mesh_shape": “x:16,y:8”.
 - `layout`: A Tensor is laid out on its mesh with one slice on each processor. A Tensor "layout", is an injective partial map specifying which dimensions of the tensor are (evenly) split across which dimensions of the mesh. No dimension of a tensor may be split across two dimensions of its mesh and no two dimensions of a tensor may be split across the same dimension of its mesh. The user defines a global set of layout rules in the form of (tensor-dimension-name, mesh-dimension-name) pairs. A dimension of a tensor is split across a dimension of its mesh if there is a matching rule, e.g. (for the above example mesh_shape: "layout":"batch:x,heads:y"
 - `activation_function`: `selu` (self normalizing) or `gelu` (used by OA), activation function used in feed-forward passes. (default: gelu)
-- `attention_types`: the type of attention for each layer in a list of the following format [[["attention_type"], n_layers]]. e.g. for a 12 layer net [[["global"], 12]] or [[["local"], 10], [["global"], 2]]
-- `precision`: `float32` (use this for now) or `bf16` (change some variables to bf16 for better performance, not working yet)
+- `attention_types`: the type of attention for each layer in a list of the following format [[["attention_type"], n_layers]]. e.g. for a 12 layer net [[["global"], 12]] or [[["local"], 10], [["global"], 2]].
+    + Choose from: `linear`, `global`, `local` or `none`. We have found a 50/50 mix of `global` and `linear` to work well. `none` allows you to create feed-forward only layers for more efficient [PAR Transformer](https://arxiv.org/abs/2009.04534) models.
+- `precision`: `float32` or `bfloat16`.
 - `tokens_per_mb_per_replica`: If not None, will split the batch up into smaller microbatches containing `tokens_per_mb_per_replica` tokens to avoid OOMs. Gradients are accumulated locally and reduced once.
+
+**Mixture of Experts**
+
+- `moe_layers`: A list of layer numbers to append a [mixture of experts](https://arxiv.org/abs/1701.06538) layer onto. E.G: `[2,4,6,8,10,12]`.
+We have experimentally found a moe layer for every two self-attention layers to work well.
+-  `moe_params`: a dictionary of additional kwargs to pass in to the moe layer. E.G
+    `{"moe_dropout_rate": 0.0 }`
+    
+**Experimental features** 
+
+- `axial_pos_emb_`: If true, uses [axial positional embedding](https://arxiv.org/abs/1912.12180. 
+- `mlp_glu`: If true, uses a gated linear unit variant of feed forward layers.
+- `scalenorm`: If true, uses scalenorm instead of layernorm.
+- `rezero`: If true, uses [rezero](https://www.groundai.com/project/rezero-is-all-you-need-fast-convergence-at-large-depth/1) instead of layernorm.
+- `num_mem_kv`: adds memory / key values from the [all-attention paper](https://arxiv.org/pdf/1907.01470.pdf). Param is an int with the number of desired mem/key values.
 
 ## TODO: 
 
-- [ ] finalize documentation
-- [ ]
+- [x] finalize documentation
+- [ ] update configs

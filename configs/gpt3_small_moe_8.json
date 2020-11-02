@@ -1,5 +1,4 @@
 {
-    "dataset_ids": ["openwebtext-documents"],
     "n_head": 12,
     "n_vocab": 50304,
     "embed_dropout": 0,
@@ -9,8 +8,6 @@
     "beta1": 0.9,
     "beta2": 0.95,
     "epsilon": 1e-8,
-    "ada_epsilon1": 1e-30,
-    "ada_epsilon2": 1e-3,
     "opt_name": "adam",
     "weight_decay": 0.10,
     "train_batch_size": 256,
@@ -26,14 +23,14 @@
     "moe_params": {
         "moe_dropout_rate": 0.0
     },
-    "datasets": [["openwebtext-documents", 11, "documents_random", 1.0]],
+    "moe_layers": [2,4,6,8,10,12],
+    "datasets": [["openwebtext-documents", 25, "documents_random", 1.0]],
     "model_path": "gs://neo-models/gpt3_small_moe",
     "n_ctx": 2048,
     "n_layer": 12,
     "scale_by_depth": true,
     "scale_by_in": false,
     "attention_types": [[["global"],12]],
-    "moe_layers": [2,4,6,8,10,12],
     "mesh_shape": "x:4,y:2",
     "layout": "batch:x,heads:y,vocab:y,intermediate_expanded:y,experts:y",
     "activation_function": "gelu",
