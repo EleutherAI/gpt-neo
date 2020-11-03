@@ -24,7 +24,7 @@
     "iterations": 2500,
     "n_embd": 256,
     "datasets": [],
-    "model_path": "gs://text-datasets/gpt-neo-models/local-ctx=4096-layer=24",
+    "model_path": "gs://text-datasets/gpt-neo-models/fixed-shift-local-ctx=4096-layer=24",
     "n_ctx": 4096,
     "n_layer": 24,
     "scale_by_depth": true,
