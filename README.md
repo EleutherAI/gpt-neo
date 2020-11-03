@@ -2,7 +2,7 @@
 
 🎉 1T or bust my dudes 🎉
 
-An implementation of model parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165)-like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
+An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165)-like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
 Training and inference supported on both TPUs and GPUs.
 
