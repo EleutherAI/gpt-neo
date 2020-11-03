@@ -1,7 +1,7 @@
 {
     "dataset_ids": ["openwebtext-documents"],
     "n_head": 1,
-    "convolution_dimension": 1
+    "convolution_dimension": 1,
     "n_vocab": 256,
     "embed_dropout": 0,
     "lr": 0.0006,
@@ -25,7 +25,7 @@
     "iterations": 2500,
     "n_embd": 256,
     "datasets": [],
-    "model_path": "gs://text-datasets/gpt-neo-models/non-dilatedconv-ctx=4096-layer=24",
+    "model_path": "gs://text-datasets/gpt-neo-models/fixed-shift-non-dilatedconv-ctx=4096-layer=24",
     "n_ctx": 4096,
     "n_layer": 24,
     "scale_by_depth": true,
