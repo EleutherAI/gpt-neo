@@ -1,6 +1,7 @@
 {
     "dataset_ids": ["openwebtext-documents"],
-    "n_head": 1,
+    "local_attention_radius": 1024,
+    "n_head": 8,
     "n_vocab": 256,
     "embed_dropout": 0,
     "lr": 0.0006,
@@ -24,7 +25,7 @@
     "iterations": 2500,
     "n_embd": 256,
     "datasets": [],
-    "model_path": "gs://text-datasets/gpt-neo-models/fixed-shift-local-ctx=4096-layer=24",
+    "model_path": "gs://text-datasets/gpt-neo-models/fixed-shift-local-ctx=4096-layer=24-heads=8-local=1024",
     "n_ctx": 4096,
     "n_layer": 24,
     "scale_by_depth": true,

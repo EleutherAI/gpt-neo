@@ -216,10 +216,13 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             elif attention_type == 'conv':
                 radius = params.get("local_attention_radius", 256)
                 cdim = params.get("convolution_dimension", 4)
+                min_size = params.get("base_convolution_size", 6)
                 a = mtf.add_n([mtf.layers.conv1d(mtf.shift(x, distance + size - 1, sequence_length, False),
                                                  dim_kv, size)
-                               for size, distance in zip((6,) + (1,) * (cdim - 1),
-                                                         [0] + [radius ** (i // cdim) for i in range(1, cdim)])])
+                               for size, distance in zip((min_size,) + (1,) * (cdim - 1),
+                                                         [0] + [x for x in
+                                                                [int(radius ** (i / cdim)) for i in range(1, cdim)]
+                                                                if min_size > 6])])
                 a = mtf.rename_dimension(a, dim_kv.name, dim_embd.name)
 
             elif attention_type == "global":
