@@ -146,7 +146,7 @@ Finally, in your model config, add the filename that you created above to the `d
 
 The `<dataset id>` will be the filename, excluding the `.json`, that you created above
 
-```json
+```
 "datasets": [[<dataset id>, <stitch>, <datatype>, <weight>]] # datasets key defines at run time how each dataset is processed for training
 ```
 
