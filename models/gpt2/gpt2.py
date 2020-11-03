@@ -215,8 +215,8 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                     a = mtf.gather(a, context.position - 1, dim_seq)
             elif attention_type == 'conv':
                 radius = params.get("local_attention_radius", 256)
-                cdim = params.get("convolution_dimension", 4)
-                min_size = params.get("base_convolution_size", 6)
+                cdim = params.get("convolution_dimension", 1)
+                min_size = params.get("base_convolution_size", 256)
                 a = mtf.add_n([mtf.layers.conv1d(mtf.shift(x, distance + size - 1, sequence_length, False),
                                                  dim_kv, size)
                                for size, distance in zip((min_size,) + (1,) * (cdim - 1),
