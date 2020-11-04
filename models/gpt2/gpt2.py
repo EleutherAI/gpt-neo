@@ -227,9 +227,10 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                 if lightweight_conv_attention:
                     s = mtf.slice(a, 0, lightweight_conv_attention, dim_kv.name)
                     a = mtf.slice(a, lightweight_conv_attention, dim_kv.size - lightweight_conv_attention, dim_kv.name)
-                    s = mtf.softmax(s, [i for i in s.shape if i.name == dim_kv.name][0])
-                    a = mtf.add_n([s[:, :, i] * (mtf.shift(x, i, sequence_length, False) if i else x)
-                                   for i in range(lightweight_conv_attention)])
+                    softmax_dim = [i for i in s.shape if i.name == dim_kv.name][0]
+                    s = mtf.softmax(s, softmax_dim)
+                    a = mtf.add_n([l * (mtf.shift(a, i, sequence_length, False) if i else x)
+                                   for i, l in enumerate(mtf.unstack(s, softmax_dim))])
                 a = mtf.rename_dimension(a, dim_kv.name, dim_embd.name)
 
             elif attention_type == "global":
