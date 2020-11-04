@@ -229,7 +229,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                     a = mtf.slice(a, lightweight_conv_attention, dim_kv.size - lightweight_conv_attention, dim_kv.name)
                     softmax_dim = [i for i in s.shape if i.name == dim_kv.name][0]
                     s = mtf.softmax(s, softmax_dim)
-                    a = mtf.add_n([l * (mtf.shift(a, i, sequence_length, False) if i else x)
+                    a = mtf.add_n([l * (mtf.shift(a, i, sequence_length, False) if i else a)
                                    for i, l in enumerate(mtf.unstack(s, softmax_dim))])
                 a = mtf.rename_dimension(a, dim_kv.name, dim_embd.name)
 
