@@ -169,7 +169,8 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
     with tf.variable_scope(scope):
         # Compute attention inputs
-        dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"])
+        lightweight_conv_attention = params.get("lightweight_conv_attention", 0)
+        dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"] + lightweight_conv_attention)
         if attention_type != 'conv':
             mtfparams = mtf.transformer.attention.attention_params_simple(
                 x.mesh,
@@ -223,6 +224,12 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                                                          [0] + [x for x in
                                                                 [int(radius ** (i / cdim)) for i in range(1, cdim)]
                                                                 if min_size > 6])])
+                if lightweight_conv_attention:
+                    s = mtf.slice(a, 0, lightweight_conv_attention, dim_kv)
+                    a = mtf.slice(a, lightweight_conv_attention, dim_kv.size, dim_kv)
+                    s = mtf.softmax(s, dim_kv)
+                    a = mtf.add_n([s[:, :, i] * (mtf.shift(x, i, sequence_length, False) if i else x)
+                                   for i in range(lightweight_conv_attention)])
                 a = mtf.rename_dimension(a, dim_kv.name, dim_embd.name)
 
             elif attention_type == "global":
