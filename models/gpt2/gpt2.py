@@ -223,7 +223,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                                for size, distance in zip((min_size,) + (1,) * (cdim - 1),
                                                          [0] + [x for x in
                                                                 [int(radius ** (i / cdim)) for i in range(1, cdim)]
-                                                                if min_size > 6])])
+                                                                if x > min_size])])
                 if lightweight_conv_attention:
                     s = mtf.slice(a, 0, lightweight_conv_attention, dim_kv.name)
                     a = mtf.slice(a, lightweight_conv_attention, dim_kv.size - lightweight_conv_attention, dim_kv.name)
