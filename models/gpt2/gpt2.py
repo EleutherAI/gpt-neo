@@ -170,7 +170,9 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
     with tf.variable_scope(scope):
         # Compute attention inputs
         lightweight_conv_attention = params.get("lightweight_conv_attention", 0)
-        dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"] + lightweight_conv_attention)
+        lightweight_conv_heads = params.get("lightweight_conv_heads", 0)
+        lightweight_conv_parameters = lightweight_conv_attention * lightweight_conv_heads
+        dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"] + lightweight_conv_parameters)
         if attention_type != 'conv':
             mtfparams = mtf.transformer.attention.attention_params_simple(
                 x.mesh,
@@ -225,14 +227,15 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                                                                 [int(radius ** (i / cdim)) for i in range(1, cdim)]
                                                                 if x > min_size])])
                 if lightweight_conv_attention:
-                    s = mtf.slice(a, 0, lightweight_conv_attention, dim_kv.name)
-                    a = mtf.slice(a, lightweight_conv_attention, dim_kv.size - lightweight_conv_attention, dim_kv.name)
-                    softmax_dim = [i for i in s.shape if i.name == dim_kv.name][0]
-                    s = mtf.softmax(s, softmax_dim)
-                    s = mtf.rename_dimension(s, softmax_dim.name, "softmax_dim")
-                    softmax_dim = [i for i in s.shape if i.name == "softmax_dim"][0]
+                    s = mtf.slice(a, 0, lightweight_conv_parameters, dim_kv.name)
+                    a = mtf.slice(a, lightweight_conv_parameters, dim_kv.size - lightweight_conv_parameters, dim_kv.name)
+                    lightweight_heads = mtf.Dimension('lightweight_heads', lightweight_conv_heads)
+                    lightweight_attention = mtf.Dimension('lightweight_attention', lightweight_conv_attention)
+                    s = mtf.reshape(s, s.dims[:-1] + [lightweight_heads, lightweight_attention])
+                    s = mtf.softmax(s, lightweight_attention)
+                    s = mtf.reduce_sum(s, reduced_dim=lightweight_heads)
                     ret = 0
-                    for i, t in enumerate(mtf.unstack(s, softmax_dim)):
+                    for i, t in enumerate(mtf.unstack(s, lightweight_attention)):
                         ret += mtf.shift(a, i, sequence_length, False) * t
                     a = ret
                 a = mtf.rename_dimension(a, dim_kv.name, dim_embd.name)
