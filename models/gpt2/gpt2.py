@@ -231,7 +231,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                     a = mtf.slice(a, lightweight_conv_parameters, dim_kv.size - lightweight_conv_parameters, dim_kv.name)
                     lightweight_heads = mtf.Dimension('lightweight_heads', lightweight_conv_heads)
                     lightweight_attention = mtf.Dimension('lightweight_attention', lightweight_conv_attention)
-                    s = mtf.reshape(s, s.dims[:-1] + [lightweight_heads, lightweight_attention])
+                    s = mtf.reshape(s, s.shape.dims[:-1] + [lightweight_heads, lightweight_attention])
                     s = mtf.softmax(s, lightweight_attention)
                     s = mtf.reduce_sum(s, reduced_dim=lightweight_heads)
                     ret = 0
