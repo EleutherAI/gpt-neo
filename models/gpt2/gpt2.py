@@ -354,6 +354,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
     use_rezero = params["rezero"] == True
     macaron_attention = params["macaron"] == True
     residual = params.get('residual', True)
+    use_mlp = params.get('use_mlp', True)
 
     def fn(x):
         with tf.variable_scope(scope):
@@ -413,14 +414,14 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                                                                            layout=params["layout"],
                                                                            variable_dtype=variable_dtype)
             else:
-
-                mlp_fn = mlp_glu if use_mlp_glu else mlp
-                intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
-
-                # Define intermediate layer of mlp - to split
-                dim_intermediate_expanded = mtf.Dimension("intermediate_expanded", intermediate_size)
-
-                m = mlp_fn(res_x, "mlp", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
+                if use_mlp:
+                    mlp_fn = mlp_glu if use_mlp_glu else mlp
+                    intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
+                    # Define intermediate layer of mlp - to split
+                    dim_intermediate_expanded = mtf.Dimension("intermediate_expanded", intermediate_size)
+                    m = mlp_fn(res_x, "mlp", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
+                else:
+                    m = x
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]), dtype=variable_dtype.slice_dtype)
                 
             if residual:
