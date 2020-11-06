@@ -176,9 +176,11 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
         n_embd = params["n_embd"] // (1 + shuffle)
         dim_kv = mtf.Dimension("features_per_head",  n_embd // params["n_head"] + lightweight_conv_parameters)
         if shuffle:
+            original_dim_embd = dim_embd
             x0 = mtf.slice(x, 0, n_embd, dim_embd.name)
             x = mtf.slice(x, n_embd, n_embd, dim_embd.name)
             x_shape = x.shape
+            dim_embd = x_shape.dims[:-1]
         if attention_type != 'conv':
             mtfparams = mtf.transformer.attention.attention_params_simple(
                 x.mesh,
@@ -313,7 +315,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             
         if shuffle:
             a = mtf.stack([a, x0], mtf.Dimension('tmp_stack', 2), 4)
-            a = mtf.reshape(a, a.shape.dims[:-2] + [dim_embd])
+            a = mtf.reshape(a, a.shape.dims[:-2] + [original_dim_embd])
 
         if params["mode"] == "train" and params["res_dropout"] > 0:
             a = mtf.dropout(a, rate=params["res_dropout"], name="res_dropout")
