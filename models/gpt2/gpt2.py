@@ -180,7 +180,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             x0 = mtf.slice(x, 0, n_embd, dim_embd.name)
             x = mtf.slice(x, n_embd, n_embd, dim_embd.name)
             x_shape = x.shape
-            dim_embd = x_shape.dims[:-1]
+            dim_embd = x_shape.dims[-1]
         if attention_type != 'conv':
             mtfparams = mtf.transformer.attention.attention_params_simple(
                 x.mesh,
