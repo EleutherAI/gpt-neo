@@ -28,8 +28,6 @@ def model_fn(features, labels, mode, params):
     else:
         var_placer = None
         gpu_ids = params["gpu_ids"]
-        mesh_shape = [("all_processors", len(gpu_ids))]
-        layout_rules = [("batch", "all_processors")]
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
             mesh_shape, layout_rules, gpu_ids)
 
