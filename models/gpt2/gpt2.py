@@ -176,8 +176,8 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
         n_embd = params["n_embd"] // (1 + shuffle)
         dim_kv = mtf.Dimension("features_per_head",  n_embd // params["n_head"] + lightweight_conv_parameters)
         if shuffle:
-            x0 = mtf.slice(x, 0, n_embd, dim_embd)
-            x = mtf.slice(x, n_embd, n_embd, dim_embd)
+            x0 = mtf.slice(x, 0, n_embd, dim_embd.name)
+            x = mtf.slice(x, n_embd, n_embd, dim_embd.name)
             x_shape = x.shape
         if attention_type != 'conv':
             mtfparams = mtf.transformer.attention.attention_params_simple(
