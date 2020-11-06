@@ -353,6 +353,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
     use_moe = exists(params["moe_layers"]) and (layer_num in params["moe_layers"])
     use_rezero = params["rezero"] == True
     macaron_attention = params["macaron"] == True
+    residual = params.get('residual', True)
 
     def fn(x):
         with tf.variable_scope(scope):
@@ -388,11 +389,14 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                          variable_dtype=variable_dtype, context=context)
             else:
                 a = x
+               
+            if residual:
+                x = x + pre_residual_fn(a, "norm_rezero_1", dtype=variable_dtype)
 
-            x = x + pre_residual_fn(a, "norm_rezero_1", dtype=variable_dtype)
-
-            res_x = prenorm(x, "norm_2", variable_dtype=variable_dtype, params=params)
-
+                res_x = prenorm(x, "norm_2", variable_dtype=variable_dtype, params=params)
+            else:
+                res_x = x                
+                
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
@@ -418,8 +422,11 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
                 m = mlp_fn(res_x, "mlp", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]), dtype=variable_dtype.slice_dtype)
-
-            x = x + pre_residual_fn((m*mult), "norm_rezero_2", variable_dtype)
+                
+            if residual:
+                x = x + pre_residual_fn((m*mult), "norm_rezero_2", variable_dtype)
+            else:
+                x = m
             return x, aux_loss
 
     return fn
