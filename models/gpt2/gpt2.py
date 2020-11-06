@@ -314,7 +314,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                 a = mtfparams.compute_output(a, x_shape)
             
         if shuffle:
-            a = mtf.stack([a, x0], mtf.Dimension('tmp_stack', 2), 4)
+            a = mtf.stack([a, x0], 'tmp_stack', 4)
             a = mtf.reshape(a, a.shape.dims[:-2] + [original_dim_embd])
 
         if params["mode"] == "train" and params["res_dropout"] > 0:
