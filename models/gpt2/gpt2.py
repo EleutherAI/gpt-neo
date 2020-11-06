@@ -171,8 +171,14 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
         # Compute attention inputs
         lightweight_conv_attention = params.get("lightweight_conv_attention", 0)
         lightweight_conv_heads = params.get("lightweight_conv_heads", 0)
+        shuffle = params.get("shuffle", False)
         lightweight_conv_parameters = lightweight_conv_attention * lightweight_conv_heads
-        dim_kv = mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"] + lightweight_conv_parameters)
+        n_embd = params["n_embd"] // (1 + shuffle)
+        dim_kv = mtf.Dimension("features_per_head",  n_embd // params["n_head"] + lightweight_conv_parameters)
+        if shuffle:
+            x0 = mtf.slice(x, 0, n_embd, dim_embd)
+            x = mtf.slice(x, n_embd, n_embd, dim_embd)
+            x_shape = x.shape
         if attention_type != 'conv':
             mtfparams = mtf.transformer.attention.attention_params_simple(
                 x.mesh,
@@ -304,13 +310,10 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
         if attention_type != 'conv':
             with tf.variable_scope("compute_output"):
                 a = mtfparams.compute_output(a, x_shape)
-
-        with tf.variable_scope("compute_output_bias"):
-            b = mtf.get_variable(x.mesh, "o_b", [dim_embd], initializer=tf.constant_initializer(0),
-                                 master_dtype=variable_dtype.master_dtype,
-                                 slice_dtype=variable_dtype.slice_dtype,
-                                 activation_dtype=variable_dtype.activation_dtype)
-            a += b
+            
+        if shuffle:
+            a = mtf.stack([a, x0], mtf.Dimension('tmp_stack', 2), 4)
+            a = mtf.reshape(a, a.shape.dims[:-2] + [dim_embd])
 
         if params["mode"] == "train" and params["res_dropout"] > 0:
             a = mtf.dropout(a, rate=params["res_dropout"], name="res_dropout")
