@@ -371,7 +371,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             attention_type = params["attention_types"][layer_num]
             
-            if macaron_attention:
+            if residual and macaron_attention:
                 mult = 0.5
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
                 intermediate_size = nx.size * 4 * (1 if not use_mlp_glu else 2)
@@ -396,7 +396,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
                 res_x = prenorm(x, "norm_2", variable_dtype=variable_dtype, params=params)
             else:
-                res_x = x                
+                res_x = x = a                
                 
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
