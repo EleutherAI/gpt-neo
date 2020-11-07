@@ -421,7 +421,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                     dim_intermediate_expanded = mtf.Dimension("intermediate_expanded", intermediate_size)
                     m = mlp_fn(res_x, "mlp", dim_intermediate_expanded, variable_dtype=variable_dtype, params=params)
                 else:
-                    m = x
+                    m = res_x
                 aux_loss = mtf.zeros(x.mesh, mtf.Shape([]), dtype=variable_dtype.slice_dtype)
                 
             if residual:
