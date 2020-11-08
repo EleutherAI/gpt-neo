@@ -67,13 +67,16 @@ def train_thread(tpu, id, q):
         try:
             nq, *args = q.get_nowait()
             if nq == 'kill':
+                print('train thread recieved kill signal from logging thread')
                 # first send SIGTERM
                 proc.terminate()
 
                 time.sleep(60)
                 
                 # if it still hasn't exited, we send SIGKILL
-                if proc.poll() is None: proc.kill()
+                if proc.poll() is None: 
+                    print('SIGTERM not successful, sending SIGKILL')
+                    proc.kill()
 
         except queue.Empty:
             pass
@@ -178,7 +181,9 @@ def main(_run):
                 q.put(('kill',))
 
                 # give training thread some time to do its thing and recreate tpu
-                time.sleep(60*5)
+                while trainthd.is_alive():
+                    print('logging thread waiting for killing stalled run and for tpu recreate to finish')
+                    time.sleep(60)
 
 
         if args.no_delete_tpu:
