@@ -12,6 +12,8 @@ import requests
 import glob
 from configs import fetch_model_params
 import socket
+import subprocess
+import queue
 
 
 parser = argparse.ArgumentParser()
@@ -26,6 +28,7 @@ parser.add_argument('--new', action='store_true')
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--predict', action='store_true')
 parser.add_argument('--no_delete_tpu', action='store_true')
+parser.add_argument('--heartbeat_timeout', type=int, default=300) # kill and restart if nothing logged to tensorboard in this many seconds
 args = parser.parse_args()
 
 params = fetch_model_params(args.model)
@@ -41,7 +44,7 @@ def get_open_port(lo=8000, hi=8100):
                 return i
 
 
-def train_thread(tpu, id):
+def train_thread(tpu, id, q):
     print('starting training on', tpu)
 
     # pass binary flags through
@@ -56,7 +59,25 @@ def train_thread(tpu, id):
 
     cmd = "python3 main.py --tpu {tpu} --model run_configs/config_{id}.json --steps_per_checkpoint {steps_per_checkpoint} {opts}".format(tpu=tpu, id=id, steps_per_checkpoint=args.steps_per_checkpoint, opts=opts)
     print('Running:', cmd)
-    os.system(cmd)
+    proc = subprocess.Popen(cmd, shell=True)
+
+    # poll until it's exited
+    while proc.poll() is None:
+        time.sleep(60)
+        try:
+            nq, *args = q.get_nowait()
+            if nq == 'kill':
+                # first send SIGTERM
+                proc.terminate()
+
+                time.sleep(60)
+                
+                # if it still hasn't exited, we send SIGKILL
+                if proc.poll() is None: proc.kill()
+
+        except queue.Empty:
+            pass
+
     print('exited training!')
     
     if args.no_delete_tpu:
@@ -129,8 +150,11 @@ def main(_run):
     curr_step = {}
 
     while True:
-        trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id))
+        last_tb_log_time = time.time()
+        q = queue.Queue()
+        trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id, q))
         trainthd.start()
+
         while trainthd.is_alive():
             time.sleep(60)
             print('Polling tensorboard for metrics...')
@@ -143,7 +167,19 @@ def main(_run):
                     if k == 'loss':
                         _run.log_scalar('tb_ts', ts, step)
                         print('Logged to sacred: step={},loss={},tb_ts={}'.format(step, val, ts))
+                    
+                    # found something new, so logging!
+                    last_tb_log_time = time.time()
+
                     curr_step[k] = step
+
+            if time.time() - last_tb_log_time > args.heartbeat_timeout:
+                # the run hasn't logged in a while, so we restart it
+                q.put(('kill',))
+
+                # give training thread some time to do its thing and recreate tpu
+                time.sleep(60*5)
+
 
         if args.no_delete_tpu:
             break
