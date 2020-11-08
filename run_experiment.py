@@ -49,7 +49,7 @@ def train_thread(tpu, id):
     for flag in ['auto_layout', 'auto_layout_and_mesh_shape', 'new', 'test', 'predict', ]:
         if args.__getattribute__(flag):
             opts += ' --' + flag
-    opts = ''
+
     for flag in ['autostack', ]:
         if not args.__getattribute__(flag):
             opts += ' --' + flag
