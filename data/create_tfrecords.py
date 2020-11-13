@@ -217,7 +217,7 @@ def create_file(params):
         if args.mode == "documents":
             def _archive_to_files(f):
                 # Generator that yields the contents of the files in an archive
-                g = Reader(f).stream_data()
+                g = Reader(f).stream_data(threaded=False)
                 for s in g:
                     yield BufferedEncodedStream(s, enc, [], not args.no_ftfy, args.minimum_size, text_mode=True).read()
 
