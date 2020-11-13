@@ -121,7 +121,7 @@ class EncodedCompressedReader:
     def __init__(self, f, encoder, separator=None, fix=False, minimum_size=0):
         def _gen():
             # Generator yielding the files inside the archive as encoded streams
-            g = Reader(f).stream_data()
+            g = Reader(f).stream_data(threaded=False)
             for s in g:
                 yield BufferedEncodedStream(s, encoder, separator, fix, minimum_size, text_mode=True)
 
