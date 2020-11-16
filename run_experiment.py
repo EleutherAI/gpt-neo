@@ -44,7 +44,7 @@ def get_open_port(lo=8000, hi=8100):
                 return i
 
 
-def train_thread(tpu, id, q):
+def train_thread(args, tpu, id, q):
     print('starting training on', tpu)
 
     # pass binary flags through
@@ -155,7 +155,7 @@ def main(_run):
     while True:
         last_tb_log_time = time.time()
         q = queue.Queue()
-        trainthd = threading.Thread(target=train_thread, args=(args.tpu, _run._id, q))
+        trainthd = threading.Thread(target=train_thread, args=(args, args.tpu, _run._id, q))
         trainthd.start()
 
         while trainthd.is_alive():
