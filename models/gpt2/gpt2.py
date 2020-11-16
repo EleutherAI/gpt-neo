@@ -468,9 +468,10 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
             # Equivalent to tf.matmul
             logits = mtf.einsum([h, wte], output_shape=[batch_dim, seq_dim, vocab_dim])
 
-    if params["mode"] == "train":
+    if params["mode"] in ["train", "eval"]:
         labels = mtf_features["labels"]
         z_loss = params.get("z_loss", 1e-4) # an auxiliary loss used to stabilize mtf xentropy
+
         # Go to full precision for the logits 
         logits = mtf.cast(logits, tf.float32)
 

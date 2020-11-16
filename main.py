@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument("--new", action="store_true", help="If set, deletes previous checkpoint, if it exists, and "
                                                            "starts a new training run")
     parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
+    parser.add_argument("--eval", action="store_true", help="If set, run model in evaluation mode.")
     parser.add_argument("--prompt", type=str, help="path to .txt file containing a prompt for prediction. If empty, "
                                                    "defaults to unicorns.",
                         default="")
@@ -142,7 +143,7 @@ def main(args):
             model_fn=model_fn,
             config=config,
             train_batch_size=params["train_batch_size"],
-            eval_batch_size=params["train_batch_size"],
+            eval_batch_size=params["eval_batch_size"],
             predict_batch_size=params["predict_batch_size"],
             params=task_params)
 
@@ -161,6 +162,20 @@ def main(args):
         enc = fetch_encoder(params)
         handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
         return
+
+    if args.eval:
+        for task in eval_tasks:
+            logger.info(f"Starting evaluation task '{task}'")
+            task_info = task_descriptors[task]["get_task_info_fn"](params)
+            task_estimator = eval_task_estimators[task]
+            task_input_fn = task_descriptors[task]["input_fn"]
+            eval_results = task_estimator.evaluate(
+                input_fn=task_input_fn,
+                steps=task_info["n_steps"],
+                name=task)
+            logger.info(f"Eval task '{task}' results: {eval_results}")
+        return
+
 
     elif has_predict_or_eval_steps_or_eval_tasks:
         # Eval and train - stop and predict and/or eval every checkpoint

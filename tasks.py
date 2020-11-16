@@ -5,6 +5,7 @@ import numpy as np
 import ftfy
 from data.encoders import fetch_encoder
 import tensorflow as tf
+import re
 
 lambada_src_uri = 'https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl'
 normalization = 'NFKC'
@@ -22,7 +23,7 @@ def lambada_create_tokens_data(params, path):
         req.raise_for_status()
         jsons = [json.loads(l) for l in req.iter_lines()]
         texts = [ftfy.fix_text(j['text'], normalization=normalization) for j in jsons]
-        enc = encoders.fetch_encoder(params)
+        enc = fetch_encoder(params)
         arrays = [enc.encode(t) for t in texts]
         json.dump(arrays, f)
         return arrays
@@ -34,7 +35,7 @@ def lambada_read_or_create_tokens_data(params, path):
     with open(path) as f:
         return json.load(f)
 
-def lambada_bin_pack(params, tokens_data):
+def bin_pack(params, tokens_data):
     eos_token = params['eos_id']
     n_ctx = params['n_ctx']
     dummy_token = 1
@@ -64,7 +65,7 @@ def lambada_init(params):
     assert lt_path.endswith('.json'), 'lambada_tokens_path must have extension json'
 
     tokens_data = lambada_read_or_create_tokens_data(params, lt_path)
-    bins_array = lambada_bin_pack(params, tokens_data)
+    bins_array = bin_pack(params, tokens_data)
     params['lambada_tokens_path'] = lt_path
     params['lambada_n_steps'] = len(bins_array)//params['eval_batch_size']
 
@@ -73,13 +74,46 @@ def lambada_get_task_info(params):
         'n_steps': params['lambada_n_steps'],
     }
 
+def wikitext_detokenizer(string):
+    # contractions
+    string = string.replace("s '", "s'")
+    string = re.sub(r"/' [0-9]/", r"/'[0-9]/", string)
+    # number separators
+    string = string.replace(" @-@ ", "-")
+    string = string.replace(" @,@ ", ",")
+    string = string.replace(" @.@ ", ".")
+    # punctuation
+    string = string.replace(" : ", ": ")
+    string = string.replace(" ; ", "; ")
+    string = string.replace(" . ", ". ")
+    string = string.replace(" ! ", "! ")
+    string = string.replace(" ? ", "? ")
+    string = string.replace(" , ", ", ")
+    # double brackets
+    string = re.sub(r"\(\s*([^\)]*?)\s*\)", r"(\1)", string)
+    string = re.sub(r"\[\s*([^\]]*?)\s*\]", r"[\1]", string)
+    string = re.sub(r"{\s*([^}]*?)\s*}", r"{\1}", string)
+    string = re.sub(r"\"\s*([^\"]*?)\s*\"", r'"\1"', string)
+    string = re.sub(r"'\s*([^']*?)\s*'", r"'\1'", string)
+    # miscellaneous
+    string = string.replace("= = = =", "====")
+    string = string.replace("= = =", "===")
+    string = string.replace("= =", "==")
+    string = string.replace(" " + chr(176) + " ", chr(176))
+    string = string.replace(" \n", "\n")
+    string = string.replace("\n ", "\n")
+    string = string.replace(" N ", " 1 ")
+    string = string.replace(" 's", "'s")
+
+    return string
+
 # The LAMBADA evaluation code looks at the logits of each position just before an eos_token
 def lambada_input(params):
     eos_token = 50256 if params['n_vocab'] >= 50257 else 0
     n_ctx = params['n_ctx']
     lt_path = params['lambada_tokens_path']
     tokens_data = lambada_read_or_create_tokens_data(params, lt_path)
-    bins_array = lambada_bin_pack(params, tokens_data)
+    bins_array = bin_pack(params, tokens_data)
     dataset = tf.data.Dataset.from_tensor_slices(bins_array)
     def _get_output(bin):
         bin = tf.cast(bin, dtype=tf.int32)
@@ -97,10 +131,77 @@ def lambada_input(params):
     dataset = dataset.repeat()
     return dataset
 
+def wikitext_create_tokens_data(params, path, version="wikitext2"):
+    assert version.lower() in ["wikitext2", "wikitext103"]
+    wikitext2_src = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-raw-v1.zip"
+    wikitext103_src = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-raw-v1.zip"
+    version_src = wikitext103_src if version.lower() == "wikitext103" else wikitext2_src
+    with open(path, 'w') as f:
+        wikitext_path = f"./{version}-raw-v1.zip"
+        os.system(f"wget {version_src} -O {wikitext_path}")
+        os.makedirs(f"{version}", exist_ok=True)
+        os.system(f"unzip {wikitext_path} -d {version}")
+        n = 103 if version.lower() == "wikitext103" else 2
+        with open(f"./{version}/wikitext-{n}-raw/wiki.test.raw", 'r') as wt:
+            texts = [wikitext_detokenizer(ftfy.fix_text(t, normalization="NFKC")) for t in wt.readlines()]
+        input(texts[0:100])
+        enc = fetch_encoder(params)
+        arrays = [enc.encode(t) for t in texts]
+        json.dump(arrays, f)
+        return arrays
+
+def wikitext_read_or_create_tokens_data(params, path="wikitext.json"):
+    # if you tell me where the file should go, i will helpfully create it for you
+    if not os.path.exists(path):
+        return wikitext_create_tokens_data(params, path)
+    with open(path) as f:
+        return json.load(f)
+
+def wikitext_init(params):
+    wikitext_path = params.get("wikitext_path", "wikitext.json")
+    tokens_data = wikitext_read_or_create_tokens_data(params, wikitext_path)
+    bins_array = bin_pack(params, tokens_data)
+    params['wikitext_path'] = wikitext_path
+    params['wikitext_n_steps'] = len(bins_array)//params['eval_batch_size']
+
+def wikitext_get_task_info(params):
+    return {
+        'n_steps': params['wikitext_n_steps'],
+    }
+
+def wikitext_input(params):
+    eos_token = 50256 if params['n_vocab'] >= 50257 else 0
+    n_ctx = params['n_ctx']
+    wt_path = params['wikitext_path']
+    tokens_data = wikitext_read_or_create_tokens_data(params, wt_path)
+    bins_array = bin_pack(params, tokens_data)
+    dataset = tf.data.Dataset.from_tensor_slices(bins_array)
+    def _get_output(bin):
+        bin = tf.cast(bin, dtype=tf.int32)
+        indexes = tf.range(n_ctx)
+        results = tf.gather(bin, (indexes+1)%n_ctx)
+        eos_next_positions = tf.math.equal(tf.gather(bin, (indexes+2)%n_ctx), eos_token)
+        output = tf.where(eos_next_positions, results, tf.constant(eos_token, shape=[n_ctx]))
+        bin = tf.reshape(bin, [n_ctx])
+        bin = tf.cast(bin, dtype=tf.int32)
+        output = tf.reshape(output, [n_ctx])
+        output = tf.cast(output, dtype=tf.int32)
+        return bin, output
+    dataset = dataset.map(_get_output)
+    dataset = dataset.batch(params['eval_batch_size'], drop_remainder=True)
+    dataset = dataset.repeat()
+    return dataset
+
+
 task_descriptors = {
     'lambada': {
         'init_fn': lambada_init,
         'get_task_info_fn': lambada_get_task_info,
         'input_fn': lambada_input,
+    },
+    'wikitext': {
+        'init_fn': wikitext_init,
+        'get_task_info_fn': wikitext_get_task_info,
+        'input_fn': wikitext_input,
     }
 }
