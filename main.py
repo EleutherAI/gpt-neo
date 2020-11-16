@@ -65,7 +65,7 @@ def main(args):
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
-        check_dataset(input_fn)
+        check_dataset(input_fn, params)
 
     # Confirm deletion of checkpoint files if --new flag is set
     if args.new:
@@ -169,6 +169,8 @@ def main(args):
             task_info = task_descriptors[task]["get_task_info_fn"](params)
             task_estimator = eval_task_estimators[task]
             task_input_fn = task_descriptors[task]["input_fn"]
+            check_dataset(task_input_fn, params)
+
             eval_results = task_estimator.evaluate(
                 input_fn=task_input_fn,
                 steps=task_info["n_steps"],
