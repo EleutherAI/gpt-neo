@@ -65,7 +65,7 @@ def train_thread(args, tpu, id, q):
     while proc.poll() is None:
         time.sleep(60)
         try:
-            nq, *args = q.get_nowait()
+            nq, *nargs = q.get_nowait()
             if nq == 'kill':
                 print('train thread recieved kill signal from logging thread')
                 # first send SIGTERM
