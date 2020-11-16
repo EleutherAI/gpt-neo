@@ -59,7 +59,7 @@ python3 main.py --predict --prompt <example_prompt.txt> --tpu <tpu_name> --model
 or, if using GPUs:
 
 ```bash
-python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids device:GPU:0 device:GPU:1 --model <config_name>
+python3 main.py --predict --prompt <example_prompt.txt> --gpu_ids <device:GPU:0 device:GPU:1> --model <config_name>
 ```
 
 # Training Guide
@@ -210,7 +210,7 @@ python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --tpu <tpu
 - `gpu_ids`: if training using GPUs, omit the `tpu` flag and pass in the ids of your gpus. In the example below, we train on 3 GPUs, specifying their device ids delimited by spaces:
 
 ```
-python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <0 1 2>
+python3 main.py --model <your_config_name> --steps_per_checkpoint <n> --gpu_ids <device:GPU:0 device:GPU:1>
 ```
 
 # Available Configs
