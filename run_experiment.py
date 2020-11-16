@@ -90,6 +90,14 @@ def train_thread(args, tpu, id, q):
     time.sleep(60)
     os.system("pu recreate {} --yes --retry 3600 --retry-randomness 1.5".format(tpu))
     print('recreate done, exiting train_thread')
+    
+    # clear out queue
+    while True:
+        try:
+            q.get_nowait()
+            print('dropped request in queue after pu recreate')
+        except queue.Empty:
+            break
 
 
 def get_json(uri, params=None, timeout=15):
