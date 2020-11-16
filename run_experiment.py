@@ -28,7 +28,7 @@ parser.add_argument('--new', action='store_true')
 parser.add_argument('--test', action='store_true')
 parser.add_argument('--predict', action='store_true')
 parser.add_argument('--no_delete_tpu', action='store_true')
-parser.add_argument('--heartbeat_timeout', type=int, default=300) # kill and restart if nothing logged to tensorboard in this many seconds
+parser.add_argument('--heartbeat_timeout', type=int, default=1800) # kill and restart if nothing logged to tensorboard in this many seconds
 args = parser.parse_args()
 
 params = fetch_model_params(args.model)
