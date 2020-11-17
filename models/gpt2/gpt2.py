@@ -345,7 +345,9 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                                                                            train=moe_train,
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
+                                                                           activation=params.get("moe_activation", "relu"),
                                                                            variable_dtype=variable_dtype)
+                m = mtf.dropout(m, rate=params["res_dropout"], name="moe_dropout")
             else:
 
                 mlp_fn = mlp_glu if use_mlp_glu else mlp
