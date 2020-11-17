@@ -14,3 +14,5 @@ transformers
 tpunicorn
 absl-py
 ftfy
+sacred
+pymongo
