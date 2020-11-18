@@ -13,12 +13,12 @@
     "train_batch_size": 512,
     "attn_dropout": 0,
     "train_steps": 286150,
-    "eval_steps": 0,
+    "eval_steps": 2,
     "predict_steps": 1,
     "res_dropout": 0,
-    "eval_batch_size": 128,
+    "eval_batch_size": 512,
     "predict_batch_size": 1,
-    "iterations": 2500,
+    "iterations": 500,
     "n_embd": 2048,
     "datasets": [["pile", 25, "documents_random", 1.0]],
     "model_path": "gs://neo-models/GPT3_XL_Pile",
@@ -32,6 +32,6 @@
     "activation_function": "gelu",
     "recompute_grad": true,
     "gradient_clipping": 1.0,
-    "tokens_per_mb_per_replica": 2048
+    "tokens_per_mb_per_replica": 2048,
+    "precision": "bfloat16"
 }
-
