@@ -215,8 +215,8 @@ def goodbye(id):
 
         
 if __name__ == '__main__':
-    for file in glob.glob("**/*"):
-        if file.split('.')[-1] in ['py']:    
+    for file in glob.glob("**/*", recursive=True):
+        if file.split('.')[-1] in ['py', 'json'] or file.endswith('requirements.txt'):
             print('Adding', file, 'to sacred')
             ex.add_source_file(file)
 
