@@ -210,7 +210,7 @@ def pred_input(params, logger, enc=None,
 
 
 def handle_pred_output(predictions, logger, enc, params, out_name="test"):
-    with tf.gfile.Open(f"{out_name}.txt", "a") as f:
+    with tf.gfile.Open(f"{out_name}.txt", "w") as f:
         for i, p in enumerate(predictions):
             p = p["outputs"]
 
