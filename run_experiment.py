@@ -130,6 +130,9 @@ def get_run_data(port):
         if '.' in runs:
             if 'loss' in tag_sets['.']:
                 r['loss'] = get_scalar_data(base_uri, '.', 'loss')
+        if 'eval' in runs:
+            if 'loss' in tag_sets['eval']:
+                r['val_loss'] = get_scalar_data(base_uri, 'eval', 'loss')
         if 'eval_lambada' in runs:
             if 'lambada_acc' in tag_sets['eval_lambada']:
                 r['lambada_acc'] = get_scalar_data(base_uri, 'eval_lambada', 'lambada_acc')
