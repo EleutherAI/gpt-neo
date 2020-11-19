@@ -159,6 +159,7 @@ def main(_run):
     atexit.register(goodbye, _run._id)
 
     curr_step = {}
+    seen_predictions = set()
 
     while True:
         last_tb_log_time = time.time()
@@ -183,6 +184,14 @@ def main(_run):
                     last_tb_log_time = time.time()
 
                     curr_step[k] = step
+
+            for f in glob.glob('predictions_{}_*'.format(_run._id)):
+                if f in seen_predictions:
+                    continue
+                print('collecting prediction file', f)
+                ex.add_artifact(f)
+                
+                seen_predictions.add(f)
 
             if time.time() - last_tb_log_time > args.heartbeat_timeout:
                 # the run hasn't logged in a while, so we restart it
