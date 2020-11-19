@@ -36,6 +36,7 @@ def parse_args():
                         default="")
     parser.add_argument("--check_dataset", action="store_true",
                         help="If set, outputs sample from the dataset and quits.")
+    parser.add_argument("--sacred_id", type=str, default="nosacred", help="Sacred run id.")
     args = parser.parse_args()
     assert args.model is not None, "Model must be set"
     return args
@@ -159,7 +160,7 @@ def main(args):
         predictions = estimator.predict(input_fn=pred_input_fn)
         logger.info("Predictions generated")
         enc = fetch_encoder(params)
-        handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
+        handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
         return
 
     elif has_predict_or_eval_steps_or_eval_tasks:
@@ -175,7 +176,7 @@ def main(args):
                 logger.info("Running prediction...")
                 predictions = estimator.predict(input_fn=pred_input_fn)
                 enc = fetch_encoder(params)
-                handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{current_step}")
+                handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
 
             if params["eval_steps"] > 0:
                 logger.info("Running evaluation...")
