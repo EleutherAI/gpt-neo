@@ -57,7 +57,7 @@ def train_thread(args, tpu, id, q):
         if not args.__getattribute__(flag):
             opts += ' --' + flag
 
-    cmd = "python3 main.py --tpu {tpu} --model run_configs/config_{id}.json --steps_per_checkpoint {steps_per_checkpoint} {opts}".format(tpu=tpu, id=id, steps_per_checkpoint=args.steps_per_checkpoint, opts=opts)
+    cmd = "python3 main.py --tpu {tpu} --model run_configs/config_{id}.json --steps_per_checkpoint {steps_per_checkpoint} {opts} --sacred_id {run_id}".format(tpu=tpu, id=id, steps_per_checkpoint=args.steps_per_checkpoint, opts=opts, run_id=id)
     print('Running:', cmd)
     proc = subprocess.Popen(cmd, shell=True)
 
