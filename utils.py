@@ -8,6 +8,7 @@ import sys
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 import mesh_tensorflow as mtf
+from data.encoders import fetch_encoder
 
 
 def setup_logging(args):
@@ -201,7 +202,7 @@ def loss_denominator(targets, num_microbatches):
     ret = float(targets.shape.size) * num_microbatches
     return float(ret)
 
-def check_dataset(input_fn):
+def check_dataset(input_fn, params):
     tf.enable_eager_execution()
     dataset = input_fn(params)
     dataset_iter = dataset.make_one_shot_iterator()
