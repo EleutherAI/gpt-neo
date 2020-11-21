@@ -211,30 +211,23 @@ def check_dataset(input_fn, params):
 
     for p in tensor[:1]:
         txt = enc.decode(p)
-    #txt = enc.decode(tensor)
-    max_id = tf.reduce_max(tensor)
-    min_id = tf.reduce_min(tensor)
 
-    print(tensor)
-    print(tensor.shape)
     print('-' * 50)
-    print(txt[:500], '\n...\n', txt[-500:])
+    print(txt[:500], '\n\n...\n\n', txt[-500:])
     print('-' * 50)
-    print('min token id: ', min_id)
-    print('max token id: ', max_id)
     exit()
 
 def auto_layout(graph, mesh_shape, logits, loss):
     layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
     print(f"Auto-selected layout:\n{layout_rules}\nRe-initialize graph with selected layout")
-    quit() # TODO: It should be easy to just reinitialize everything with selected layout
+    quit() 
 
 def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores,
                                                                     [logits, loss], max_mesh_shape_dimensions=4)
     print(f"Num cores:\n{num_cores}\nAuto-selected layout:\n{layout_rules}\nAuto-selected mesh shape:\n{mesh_shape}" \
             f"\nRe-initialize graph with selected layout & mesh shape")
-    quit() # TODO: It should be easy to just reinitialize everything with selected layout
+    quit() 
 
 def create_host_call(model_dir):
     """Construct a host_call writing scalar summaries.

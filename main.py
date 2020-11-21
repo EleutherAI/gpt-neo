@@ -164,14 +164,13 @@ def main(args):
         handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
         return
 
+
     if args.eval:
         for task in eval_tasks:
             logger.info(f"Starting evaluation task '{task}'")
             task_info = task_descriptors[task]["get_task_info_fn"](params)
             task_estimator = eval_task_estimators[task]
             task_input_fn = task_descriptors[task]["input_fn"]
-            check_dataset(task_input_fn, params)
-
             eval_results = task_estimator.evaluate(
                 input_fn=task_input_fn,
                 steps=task_info["n_steps"],

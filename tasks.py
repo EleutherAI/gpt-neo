@@ -56,9 +56,8 @@ def bin_pack(params, tokens_data):
 def lambada_init(params):
     ds_configs = params['dataset_configs']
     l = [
-        ds_configs[ds_id]['lambada_tokens_path']
+        ds_configs[ds_id].get('lambada_tokens_path', "./lambada.json")
         for ds_id, _, _, _ in params['datasets']
-        if 'lambada_tokens_path' in ds_configs[ds_id]
     ]
     assert len(l) > 0, 'lambada_tokens_path not found in the dataset config'
     lt_path = l[0]
@@ -143,10 +142,12 @@ def wikitext_create_tokens_data(params, path, version="wikitext2"):
         os.system(f"unzip {wikitext_path} -d {version}")
         n = 103 if version.lower() == "wikitext103" else 2
         with open(f"./{version}/wikitext-{n}-raw/wiki.test.raw", 'r') as wt:
-            texts = [wikitext_detokenizer(ftfy.fix_text(t, normalization="NFKC")) for t in wt.readlines()]
-        input(texts[0:100])
+            text = ftfy.fix_text(wikitext_detokenizer(wt.read()))
         enc = fetch_encoder(params)
-        arrays = [enc.encode(t) for t in texts]
+        encoded_text = enc.encode(text)
+        arrays = []
+        for i in range(0, len(encoded_text), params["n_ctx"] - 1):
+            arrays.append(encoded_text[i:i + params["n_ctx"] - 1])
         json.dump(arrays, f)
         return arrays
 
