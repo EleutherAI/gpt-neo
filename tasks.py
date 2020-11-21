@@ -3,7 +3,7 @@ import json
 import requests
 import numpy as np
 import ftfy
-from data.encoders import fetch_encoder
+from data.encoders import fetch_encoder, encode
 import tensorflow as tf
 import re
 
@@ -24,7 +24,7 @@ def lambada_create_tokens_data(params, path):
         jsons = [json.loads(l) for l in req.iter_lines()]
         texts = [ftfy.fix_text(j['text'], normalization=normalization) for j in jsons]
         enc = fetch_encoder(params)
-        arrays = [enc.encode(t) for t in texts]
+        arrays = [encode(enc, t) for t in texts]
         json.dump(arrays, f)
         return arrays
 
@@ -144,7 +144,7 @@ def wikitext_create_tokens_data(params, path, version="wikitext2"):
         with open(f"./{version}/wikitext-{n}-raw/wiki.test.raw", 'r') as wt:
             text = ftfy.fix_text(wikitext_detokenizer(wt.read()))
         enc = fetch_encoder(params)
-        encoded_text = enc.encode(text)
+        encoded_text = encode(enc, text)
         arrays = []
         for i in range(0, len(encoded_text), params["n_ctx"] - 1):
             arrays.append(encoded_text[i:i + params["n_ctx"] - 1])
