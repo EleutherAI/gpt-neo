@@ -263,8 +263,10 @@ In addition to being able to train large GPT's, this repository also allows you 
 That's all you need to train a model with the MLM objective, good for any type of data that you have encoded properly. If you would like to tweak the other related hyperparameters, please continue reading.
 
 ```python
+"mlm_cls_token_id": <cls token id>,                # auto append specified CLS token id on the left
 "mlm_mask_prob": 0.15,                             # the probability of masking a token, defaults to 15%
 "mlm_same_token_prob": 0.10,                       # probability of keeping the token the same, defaults to 10%
+"mlm_random_token_prob": 0.10,                     # probability of tokens that are replaced with random tokens, 10% was recommended by the BERT paper
 "mlm_mask_ignore_ids": [<cls token>, <sep token>]  # ignore masking other special tokens, if any
 ```
 

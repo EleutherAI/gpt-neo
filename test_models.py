@@ -9,6 +9,7 @@ tf.compat.v1.enable_eager_execution()
 import mesh_tensorflow as mtf
 from mesh_tensorflow import placement_mesh_impl
 
+from inputs import mlm_sample_text
 from models.gpt2 import gpt2
 from models.utils import biasmask_attn_weights
 
@@ -132,3 +133,31 @@ def test_sampling():
         mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
         lowering = mtf.Lowering(graph, {mesh: mesh_impl})
         samples = lowering.export_to_tf_tensor(samples)
+
+# mlm
+
+mlm_params = defaultdict(lambda: None, {
+    "n_head": 1,
+    "n_ctx": 4,
+    "n_embd": 1,
+    "n_vocab": 256,
+    "embed_dropout": 0.,
+    "n_layer": 2,
+    "num_microbatches": 1,
+    "train_batch_size": 1,
+    "attention_types": ['global', 'local'],
+    "res_dropout": 0.1,
+    "mesh_shape": [],
+    "layout": {},
+    "share_parameters": True,
+    "mlm_training": True,
+    "mlm_mask_id": 3,
+    "mlm_cls_token_id": 4,
+    "mlm_random_token_prob": 0.1
+})
+
+def test_mlm_sample_text():
+    document = tf.random.normal((16,))
+    with not_raises(Exception):
+        features, labels = mlm_sample_text(mlm_params, document, random_documents = True)
+        assert features.shape == (mlm_params['n_ctx'],)
