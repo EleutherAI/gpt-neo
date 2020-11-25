@@ -144,11 +144,15 @@ def mlm_sample_text(params, x, random_documents = False):
     assert 'mlm_mask_id' in params, 'the key `mlm_mask_id` must be set on your config to do masked language model training, specifying the id of the reserved mask token'
 
     mask_id = params['mlm_mask_id']
+    cls_token_id = params.get('mlm_cls_token_id', None)
+    num_tokens = params.get('n_vocab', None)
+
+    mask_ignore_ids = set(params.get('mlm_mask_ignore_ids', []))
+    mask_ignore_ids.add(cls_token_id)
+
     mask_prob = params.get('mlm_mask_prob', 0.15)
     same_token_prob = params.get('mlm_same_token_prob', 0.10)
-    cls_token_id = params.get('mlm_cls_token_id', None)
-
-    mask_ignore_ids = params.get('mlm_mask_ignore_ids', [])
+    random_token_prob = params.get('mlm_random_token_prob', 0.)
 
     seq_len = ctx_len if cls_token_id is None else (ctx_len - 1)
 
@@ -180,12 +184,24 @@ def mlm_sample_text(params, x, random_documents = False):
     # generate mask for actually replacing the tokens, for allowing a small number of tokens to stay the same
     replace_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed), 1 - same_token_prob)
 
+    # randomly replace some tokens with random tokens before masking
+    if random_token_prob > 0:
+        random_token_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed), random_token_prob)
+        random_tokens = tf.random.uniform(shape, minval = 1, maxval = num_tokens, dtype = tf.dtypes.int32, seed = seed)
+
+        # make sure random tokens do not include illegal token ids specified by `mlm_mask_ignore_ids`
+        random_can_mask = tf.not_equal(random_tokens, 0)
+        for ignore_id in mask_ignore_ids:
+            random_can_mask &= tf.not_equal(random_tokens, ignore_id)
+
+        features = tf.where(random_token_mask & random_can_mask, random_tokens, features)
+
     # mask the tokens
     mask_tokens = tf.ones(shape, dtype=tf.int32) * mask_id
-    masked_features = tf.where(mask_mask & replace_mask, features, mask_tokens)
+    masked_features = tf.where(mask_mask & replace_mask, mask_tokens, features)
 
     # labels will be set to 0 for all non-masked tokens
-    labels = tf.where(tf.logical_not(mask_mask), features, tf.zeros(shape, dtype=tf.int32))
+    labels = tf.where(mask_mask, tf.zeros(shape, dtype=tf.int32), features)
 
     masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
     return masked_features, labels

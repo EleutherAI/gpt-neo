@@ -152,7 +152,8 @@ mlm_params = defaultdict(lambda: None, {
     "share_parameters": True,
     "mlm_training": True,
     "mlm_mask_id": 3,
-    "mlm_cls_token_id": 4
+    "mlm_cls_token_id": 4,
+    "mlm_random_token_prob": 0.1
 })
 
 def test_mlm_sample_text():
