@@ -146,17 +146,24 @@ def mlm_sample_text(params, x, random_documents = False):
     mask_id = params['mlm_mask_id']
     mask_prob = params.get('mlm_mask_prob', 0.15)
     same_token_prob = params.get('mlm_same_token_prob', 0.10)
+    cls_token_id = params.get('mlm_cls_token_id', None)
 
     mask_ignore_ids = params.get('mlm_mask_ignore_ids', [])
 
+    seq_len = ctx_len if cls_token_id is None else (ctx_len - 1)
+
     if random_documents:
         s = tf.size(x)
-        r = tf.random.uniform([], maxval=s - ctx_len, dtype=tf.dtypes.int32, seed=seed)
-        r1 = tf.range(r, r + ctx_len)
-        r1 = tf.reshape(r1, [ctx_len])
+        r = tf.random.uniform([], maxval=(s - seq_len), dtype=tf.dtypes.int32, seed=seed)
+        r1 = tf.range(r, r + seq_len)
+        r1 = tf.reshape(r1, [seq_len])
         features = tf.gather(x, r1)
     else:
-        features = x[:ctx_len]
+        features = x[:seq_len]
+
+    # add cls token id if specified by `mlm_cls_token_id`
+    if cls_token_id is not None:
+        features = tf.pad(features, [[1, 0]], constant_values=cls_token_id)
 
     features = tf.cast(features, dtype=tf.int32)
     shape = features.shape
@@ -178,7 +185,7 @@ def mlm_sample_text(params, x, random_documents = False):
     masked_features = tf.where(mask_mask & replace_mask, features, mask_tokens)
 
     # labels will be set to 0 for all non-masked tokens
-    labels = tf.where(not mask_mask, features, tf.zeros(shape, dtype=tf.int32))
+    labels = tf.where(tf.logical_not(mask_mask), features, tf.zeros(shape, dtype=tf.int32))
 
     masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
     return masked_features, labels
