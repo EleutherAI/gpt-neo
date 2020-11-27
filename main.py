@@ -187,6 +187,11 @@ def main(args):
 
             estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
             current_step = next_checkpoint
+                     
+            def save_eval_results(task, eval_results):
+                with open(f'eval_{args.sacred_id}.jsonl', 'a') as fh:
+                    json.dump({**task, **eval_results}, fh)
+                    fh.write('\n')
 
             if params["predict_steps"] > 0:
                 logger.info("Running prediction...")
@@ -200,6 +205,7 @@ def main(args):
                     input_fn=partial(input_fn, eval=True),
                     steps=params["eval_steps"])
                 logger.info(f"Eval results: {eval_results}")
+                save_eval_results('validation', eval_results)
 
             for task in eval_tasks:
                 logger.info(f"Starting evaluation task '{task}'")
@@ -211,6 +217,8 @@ def main(args):
                     steps=task_info["n_steps"],
                     name=task)
                 logger.info(f"Eval task '{task}' results: {eval_results}")
+                save_eval_results(task, eval_results)
+                
         return
     else:
         # Else, just train
