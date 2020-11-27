@@ -185,7 +185,8 @@ def main(args):
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
                                   params["train_steps"])
 
-            estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
+            if current_step != 0:
+                estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
             current_step = next_checkpoint
                      
             def save_eval_results(task, eval_results):
