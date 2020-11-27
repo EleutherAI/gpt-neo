@@ -13,6 +13,7 @@ from data.encoders import fetch_encoder
 from configs import fetch_model_params
 from tasks import task_descriptors
 import argparse
+import json
 
 
 def parse_args():
