@@ -190,7 +190,7 @@ def main(args):
                      
             def save_eval_results(task, eval_results):
                 with open(f'eval_{args.sacred_id}.jsonl', 'a') as fh:
-                    json.dump({'task': task, **eval_results}, fh)
+                    json.dump({'task': task, 'current_step': current_step, **eval_results}, fh)
                     fh.write('\n')
 
             if params["predict_steps"] > 0:
