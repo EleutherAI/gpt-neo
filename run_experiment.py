@@ -14,6 +14,7 @@ from configs import fetch_model_params
 import socket
 import subprocess
 import queue
+import sys
 
 
 parser = argparse.ArgumentParser()
@@ -150,6 +151,7 @@ def get_run_data(port):
 @ex.main
 def main(_run):
     print('Starting run', _run._id)
+    print('experiment main invoked with argv:', sys.argv)
     print('WARNING: please remember to remove old metric log files from the model directory.')
 
     os.makedirs('run_configs', exist_ok=True)
