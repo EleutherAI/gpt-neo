@@ -203,13 +203,13 @@ def main(_run):
                 with open(f'eval_{_run._id}.jsonl') as fh:
                     for line in fh:
                         ob = json.loads(line)
-                        val_step = ob['current_step']
+                        val_step = ob['global_step']
                         val_task = ob['task']
                         for metr in ob.keys():
                             k = 'fs.' + val_task + '.' + metr
-                            if metr in ['task', 'current_step']: continue
+                            if metr in ['task', 'global_step']: continue
                             if val_step <= curr_step.get(k, -1): continue
-                            _run.log_scalar(k, ts, val_step)
+                            _run.log_scalar(k, ob['metr'], val_step)
 
             if time.time() - last_tb_log_time > args.heartbeat_timeout:
                 # the run hasn't logged in a while, so we restart it
