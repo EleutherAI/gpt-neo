@@ -191,7 +191,7 @@ def main(args):
             if not first:
                 estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
                 current_step = next_checkpoint
-                first = False
+            first = False
                      
             def save_eval_results(task, eval_results):
                 def as_python(x):
