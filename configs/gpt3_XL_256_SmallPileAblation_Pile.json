@@ -34,5 +34,5 @@
     "gradient_clipping": 1.0,
     "tokens_per_mb_per_replica": 2048,
     "precision": "bfloat16",
-    "eval_tasks": ["lambada", "wikitext2", "wikitext103"]
+    "eval_tasks": ["lambada", "wikitext103"]
 }
