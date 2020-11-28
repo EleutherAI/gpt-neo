@@ -130,7 +130,7 @@ def lambada_input(params):
     dataset = dataset.repeat()
     return dataset
 
-def wikitext_create_tokens_data(params, path, version="wikitext2"):
+def wikitext_create_tokens_data(params, path):
     assert version.lower() in ["wikitext2", "wikitext103"]
     wikitext2_src = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-raw-v1.zip"
     wikitext103_src = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-raw-v1.zip"
@@ -151,30 +151,30 @@ def wikitext_create_tokens_data(params, path, version="wikitext2"):
         json.dump(arrays, f)
         return arrays
 
-def wikitext_read_or_create_tokens_data(params, path="wikitext.json"):
+def wikitext_read_or_create_tokens_data(params, path="wikitext.json", version):
     # if you tell me where the file should go, i will helpfully create it for you
     if not os.path.exists(path):
-        return wikitext_create_tokens_data(params, path)
+        return wikitext_create_tokens_data(params, path, version)
     with open(path) as f:
         return json.load(f)
 
-def wikitext_init(params):
+def wikitext_init(params, version):
     wikitext_path = params.get("wikitext_path", "wikitext.json")
-    tokens_data = wikitext_read_or_create_tokens_data(params, wikitext_path)
+    tokens_data = wikitext_read_or_create_tokens_data(params, wikitext_path, version)
     bins_array = bin_pack(params, tokens_data)
     params['wikitext_path'] = wikitext_path
     params['wikitext_n_steps'] = len(bins_array)//params['eval_batch_size']
 
-def wikitext_get_task_info(params):
+def wikitext_get_task_info(params, version):
     return {
         'n_steps': params['wikitext_n_steps'],
     }
 
-def wikitext_input(params):
+def wikitext_input(params, version):
     eos_token = 50256 if params['n_vocab'] >= 50257 else 0
     n_ctx = params['n_ctx']
     wt_path = params['wikitext_path']
-    tokens_data = wikitext_read_or_create_tokens_data(params, wt_path)
+    tokens_data = wikitext_read_or_create_tokens_data(params, wt_path, version)
     bins_array = bin_pack(params, tokens_data)
     dataset = tf.data.Dataset.from_tensor_slices(bins_array)
     def _get_output(bin):
@@ -200,9 +200,14 @@ task_descriptors = {
         'get_task_info_fn': lambada_get_task_info,
         'input_fn': lambada_input,
     },
-    'wikitext': {
-        'init_fn': wikitext_init,
-        'get_task_info_fn': wikitext_get_task_info,
-        'input_fn': wikitext_input,
-    }
+    'wikitext2': {
+        'init_fn': partial(wikitext_init, version='wikitext2'),
+        'get_task_info_fn': partial(wikitext_get_task_info, version='wikitext2'),
+        'input_fn': partial(wikitext_input, version='wikitext2'),
+    },
+    'wikitext103': {
+        'init_fn': partial(wikitext_init, version='wikitext103'),
+        'get_task_info_fn': partial(wikitext_get_task_info, version='wikitext103'),
+        'input_fn': partial(wikitext_input, version='wikitext103'),
+    },
 }
