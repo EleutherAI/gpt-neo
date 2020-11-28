@@ -209,7 +209,7 @@ def main(_run):
                             k = 'fs.' + val_task + '.' + metr
                             if metr in ['task', 'global_step']: continue
                             if val_step <= curr_step.get(k, -1): continue
-                            _run.log_scalar(k, ob['metr'], val_step)
+                            _run.log_scalar(k, ob[metr], val_step)
 
             if time.time() - last_tb_log_time > args.heartbeat_timeout:
                 # the run hasn't logged in a while, so we restart it
