@@ -191,6 +191,11 @@ def main(args):
             current_step = next_checkpoint
                      
             def save_eval_results(task, eval_results):
+                def as_python(x):
+                     if isinstance(x, numpy.generic):
+                        return x.item()
+                     return x
+                eval_results = {k: as_python(v) for k, v in eval_results.items()}
                 with open(f'eval_{args.sacred_id}.jsonl', 'a') as fh:
                     json.dump({'task': task, 'current_step': current_step, **eval_results}, fh)
                     fh.write('\n')
