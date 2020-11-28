@@ -6,6 +6,7 @@ import ftfy
 from data.encoders import fetch_encoder, encode
 import tensorflow as tf
 import re
+from functools import partial
 
 lambada_src_uri = 'https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl'
 normalization = 'NFKC'
