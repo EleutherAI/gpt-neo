@@ -131,7 +131,7 @@ def lambada_input(params):
     dataset = dataset.repeat()
     return dataset
 
-def wikitext_create_tokens_data(params, path):
+def wikitext_create_tokens_data(params, path, version):
     assert version.lower() in ["wikitext2", "wikitext103"]
     wikitext2_src = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-2-raw-v1.zip"
     wikitext103_src = "https://s3.amazonaws.com/research.metamind.io/wikitext/wikitext-103-raw-v1.zip"
