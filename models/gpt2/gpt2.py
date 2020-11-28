@@ -267,18 +267,39 @@ def get_activation_fn(params):
         return mtf.gelu
     elif activation_fn == "relu":
         return mtf.relu
+    elif activation_fn == "sigmoid":
+        return mtf.sigmoid
+    elif activation_fn == "tanh":
+        return mtf.tanh
     elif activation_fn == "selu": # https://arxiv.org/abs/1706.02515
         return mtf.selu
     elif activation_fn == "elu": # https://arxiv.org/abs/1511.07289
         return mtf.elu
+    
+    # swish activations
     elif activation_fn == "swish": # https://arxiv.org/abs/1710.05941
         return mtf.swish
+    
+    # https://arxiv.org/abs/1710.05941, https://arxiv.org/abs/1901.02671
+    elif activation_fn == "maxsig": 
+        return lambda x: mtf.max(x, mtf.sigmoid(x))
+    elif activation_fn == "cosid": 
+        return lambda x: mtf.cos(x) - x
+    elif activation_fn == "minsin": 
+        return lambda x: mtf.min(x, mtf.sin(x))
+    elif activation_fn == "maxtanh": 
+        return lambda x: mtf.max(x, mtf.tanh(x))
+    
     elif activation_fn == "softplus":
         return mtf.softplus
     elif activation_fn == "mish": # https://arxiv.org/abs/1908.08681
         return lambda x: x * mtf.tanh(mtf.softplus(x))
     elif activation_fn == "tanhexp": # https://arxiv.org/abs/2003.09855
         return lambda x: x * mtf.tanh(mtf.exp(x))
+    elif activation_fn == "lisht": # https://arxiv.org/abs/1901.05894
+        return lambda x: x * mtf.tanh(x)
+    elif activation_fn == "seagull": # https://arxiv.org/abs/2011.11713
+        return lambda x: mtf.log(1 + x ** 2)
     else:
         raise ValueError('unknown activation function "activation_fn" in config')
 
