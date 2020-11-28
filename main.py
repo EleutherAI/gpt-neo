@@ -14,6 +14,7 @@ from configs import fetch_model_params
 from tasks import task_descriptors
 import argparse
 import json
+import numpy
 
 
 def parse_args():
