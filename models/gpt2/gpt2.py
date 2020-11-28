@@ -261,10 +261,20 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
         return a
 
 
+def get_activation_fn(params):
+    activation_fn = params.get("activation_fn", "gelu")
+    if activation_fn == "gelu":
+        return mtf.gelu
+    elif activation_fn == "relu":
+        return mtf.relu
+    else:
+        raise ValueError('unknown activation function "activation_fn" in config')
+
 def mlp(x, scope, n_state, *, variable_dtype, params):
+    activation_fn = get_activation_fn(params)
     with tf.variable_scope(scope):
         nx = x.shape[-1]
-        h = mtf.gelu(linear(x, "c_fc", n_state, variable_dtype=variable_dtype, params=params))
+        h = activation_fn(linear(x, "c_fc", n_state, variable_dtype=variable_dtype, params=params))
         h2 = linear(h, "c_proj", nx, variable_dtype=variable_dtype, params=params, scale=True)
         if params["mode"] == "train" and params["res_dropout"] > 0:
             h2 = mtf.dropout(h2, rate=params["res_dropout"], name="mlp_dropout")
@@ -272,12 +282,13 @@ def mlp(x, scope, n_state, *, variable_dtype, params):
 
 
 def mlp_glu(x, scope, n_state, *, variable_dtype, params):
+    activation_fn = get_activation_fn(params)
     with tf.variable_scope(scope):
         nx = x.shape[-1]
         h = linear(x, "c_fc", n_state, params=params)
 
         h, gate = mtf.split(h, h.shape[-1], 2)
-        h *= mtf.gelu(gate)
+        h *= activation_fn(gate)
 
         h2 = linear(h, "c_proj", nx, variable_dtype=variable_dtype, params=params, scale=True)
         if params["mode"] == "train" and params["res_dropout"] > 0:
