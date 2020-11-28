@@ -18,7 +18,7 @@
     "res_dropout": 0,
     "eval_batch_size": 512,
     "predict_batch_size": 1,
-    "iterations": 500,
+    "iterations": 1000,
     "n_embd": 2048,
     "datasets": [["cc100en_40G_ablation", 25, "documents_random", 1.0]],
     "model_path": "gs://neo-models/GPT3_SmallPileAblation_small_CC100",
