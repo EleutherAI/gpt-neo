@@ -282,13 +282,13 @@ def get_activation_fn(params):
     
     # https://arxiv.org/abs/1710.05941, https://arxiv.org/abs/1901.02671
     elif activation_fn == "maxsig": 
-        return lambda x: mtf.max(x, mtf.sigmoid(x))
+        return lambda x: mtf.maximum(x, mtf.sigmoid(x))
     elif activation_fn == "cosid": 
         return lambda x: mtf.cos(x) - x
     elif activation_fn == "minsin": 
-        return lambda x: mtf.min(x, mtf.sin(x))
+        return lambda x: mtf.minimum(x, mtf.sin(x))
     elif activation_fn == "maxtanh": 
-        return lambda x: mtf.max(x, mtf.tanh(x))
+        return lambda x: mtf.maximum(x, mtf.tanh(x))
     
     elif activation_fn == "softplus":
         return mtf.softplus
@@ -300,6 +300,8 @@ def get_activation_fn(params):
         return lambda x: x * mtf.tanh(x)
     elif activation_fn == "seagull": # https://arxiv.org/abs/2011.11713
         return lambda x: mtf.log(1 + x ** 2)
+    elif activation_fn == "snake": # https://arxiv.org/abs/2006.08195
+        return lambda x: x + mtf.sin(x) ** 2
     else:
         raise ValueError('unknown activation function "activation_fn" in config')
 
