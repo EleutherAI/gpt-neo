@@ -263,10 +263,22 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
 def get_activation_fn(params):
     activation_fn = params.get("activation_fn", "gelu")
-    if activation_fn == "gelu":
+    if activation_fn == "gelu": # https://arxiv.org/abs/1606.08415
         return mtf.gelu
     elif activation_fn == "relu":
         return mtf.relu
+    elif activation_fn == "selu": # https://arxiv.org/abs/1706.02515
+        return mtf.selu
+    elif activation_fn == "elu": # https://arxiv.org/abs/1511.07289
+        return mtf.elu
+    elif activation_fn == "swish": # https://arxiv.org/abs/1710.05941
+        return mtf.swish
+    elif activation_fn == "softplus":
+        return mtf.softplus
+    elif activation_fn == "mish": # https://arxiv.org/abs/1908.08681
+        return lambda x: x * mtf.tanh(mtf.softplus(x))
+    elif activation_fn == "tanhexp": # https://arxiv.org/abs/2003.09855
+        return lambda x: x * mtf.tanh(mtf.exp(x))
     else:
         raise ValueError('unknown activation function "activation_fn" in config')
 
