@@ -151,7 +151,7 @@ def wikitext_create_tokens_data(params, path):
         json.dump(arrays, f)
         return arrays
 
-def wikitext_read_or_create_tokens_data(params, path="wikitext.json", version):
+def wikitext_read_or_create_tokens_data(params, path, version):
     # if you tell me where the file should go, i will helpfully create it for you
     if not os.path.exists(path):
         return wikitext_create_tokens_data(params, path, version)
@@ -159,7 +159,7 @@ def wikitext_read_or_create_tokens_data(params, path="wikitext.json", version):
         return json.load(f)
 
 def wikitext_init(params, version):
-    wikitext_path = params.get("wikitext_path", "wikitext.json")
+    wikitext_path = params.get("wikitext_path", version + ".json")
     tokens_data = wikitext_read_or_create_tokens_data(params, wikitext_path, version)
     bins_array = bin_pack(params, tokens_data)
     params['wikitext_path'] = wikitext_path
