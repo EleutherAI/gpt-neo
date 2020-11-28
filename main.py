@@ -182,14 +182,16 @@ def main(args):
 
 
     elif has_predict_or_eval_steps_or_eval_tasks:
+        first = True
         # Eval and train - stop and predict and/or eval every checkpoint
         while current_step < params["train_steps"]:
             next_checkpoint = min(current_step + args.steps_per_checkpoint,
                                   params["train_steps"])
 
-            if current_step != 0:
+            if not first:
                 estimator.train(input_fn=partial(input_fn, eval=False), max_steps=next_checkpoint)
-            current_step = next_checkpoint
+                current_step = next_checkpoint
+                first = False
                      
             def save_eval_results(task, eval_results):
                 def as_python(x):
