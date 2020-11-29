@@ -195,20 +195,26 @@ class EncodedConcatenatedFiles(object):
 def create_file(params):
     idx, fns = params
     s = args.name + "_" + str(idx) + ".tfrecords"
-    if os.path.exists(os.path.join(args.log_dir,
-                                   s)):  # Hack-y, if file of same name is in log dir, sign that the file is complete, so skip
+
+    # Hack-y, if file of same name is in log dir, sign that the file is complete, so skip
+    if os.path.exists(os.path.join(args.log_dir, s)):
         return 0
-    if os.path.exists(os.path.join(args.output_dir, s)):  # Unfinished file, remove
+
+    # Unfinished file, remove
+    if os.path.exists(os.path.join(args.output_dir, s)):
         os.remove(os.path.join(args.output_dir, s))
 
     with tf.io.TFRecordWriter(os.path.join(args.output_dir, s)) as writer:
+
         def _write_to_file(data, i):
             # Helper function to avoid code duplication, writes the data as an example to the file and increments i
             # hash = fn.split("/")[-1].split(".")[0]
+
             feature = {
                 # "hash": _bytes_feature(hash.encode()),
                 "text": _int64_feature(data)
             }
+
             tf_example = tf.train.Example(features=tf.train.Features(feature=feature))
             writer.write(tf_example.SerializeToString())
             i += 1
@@ -216,6 +222,7 @@ def create_file(params):
         i = 0  # In document mode: Good files, in chunk mode: Number of chunks
         if args.mode == "documents":
             def _archive_to_files(f):
+
                 # Generator that yields the contents of the files in an archive
                 g = Reader(f).stream_data()
                 for s in g:
@@ -241,14 +248,22 @@ def create_file(params):
 
     # File complete
     if args.mode == "documents":
-        with open(os.path.join(args.log_dir, s), "w") as f:  # Create mark that file is finished in logdir
-            f.write("{} / {}".format(i, len(fns)))  # How many files were good
+
+        # Create mark that file is finished in logdir
+        with open(os.path.join(args.log_dir, s), "w") as f:
+            f.write("{} / {}".format(i, len(fns)))
+
+        # How many files were good
         with open(os.path.join(args.log_dir, "good_files.log"), "a") as f:
             f.write("{}: {} / {}".format(idx, i, len(fns)))
 
     elif args.mode == "chunks":
-        with open(os.path.join(args.log_dir, s), "w") as f:  # Create mark that file is finished in logdir
-            f.write("{}".format(i))  # How many chunks
+
+        # Create mark that file is finished in logdir
+        with open(os.path.join(args.log_dir, s), "w") as f:
+            f.write("{}".format(i))
+
+        # How many chunks
         with open(os.path.join(args.log_dir, "chunks.log"), "a") as f:
             f.write("{}: {}".format(idx, i))
 
@@ -264,11 +279,16 @@ if __name__ == "__main__":
     else:
         enc = Tokenizer.from_file(args.encoder_path)
 
-    args.separator = json.loads(args.separator)  # Encode the separator to list
+    # Encode the separator to list
+    args.separator = json.loads(args.separator)
     files = glob.glob(os.path.join(args.base_dir, "*"))  # TODO make this more flexible maybe?
     files = [f for f in files if not os.path.isdir(f)]
-    file_chunks = chunks(files, args.files_per)  # Assign files_per file to a tfrecord file each
-    args.chunk_size = args.chunk_size + 1  # Chunks need to be 1 token longer so there's a target for the last token
+
+    # Assign files_per file to a tfrecord file each
+    file_chunks = chunks(files, args.files_per)
+
+    # Chunks need to be 1 token longer so there's a target for the last token
+    args.chunk_size = args.chunk_size + 1
 
     print("Got {} files, divided into {} chunks.".format(str(len(files)), str(len(file_chunks))))
 

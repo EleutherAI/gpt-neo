@@ -112,5 +112,12 @@ test_*
 test/
 .vscode
 
+#Video
+*.mkv
+*.mp4
+*.ogg
+*.webm
+*flv
+*.vtt
 
 run_configs/
