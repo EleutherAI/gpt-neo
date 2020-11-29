@@ -20,7 +20,7 @@
     "eval_batch_size": 512,
     "predict_batch_size": 1,
     "iterations": 500,
-    "n_embd": 5140,
+    "n_embd": 5120,
     "datasets": [["pile", 25, "documents_random", 1.0]],
     "model_path": "gs://neo-models/GPT3_13B_Pile",
     "n_ctx": 2048,
