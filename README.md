@@ -1,4 +1,4 @@
-# GPT Neo
+# AViTraGe
 
 🎉 1T or bust my dudes 🎉
 
