@@ -117,7 +117,9 @@ test/
 *.mp4
 *.ogg
 *.webm
+*.avi
 *flv
 *.vtt
+*.tfrecord
 
 run_configs/

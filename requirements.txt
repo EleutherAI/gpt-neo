@@ -16,3 +16,4 @@ absl-py
 ftfy
 opencv-python
 Pillow
+youtube-dl
