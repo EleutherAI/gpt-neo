@@ -3,6 +3,7 @@ import ntpath
 import glob
 import os
 
+from google.cloud import storage
 import tensorflow as tf
 import numpy as np
 import youtube_dl
@@ -70,7 +71,7 @@ def frame_decoder(proto):
 
 
 def worker(work: list,
-           save_dir: str,
+           save_dir,
            target_fps: int = 0,
            target_resolution: tuple = None,
            download: bool = True,
@@ -80,7 +81,7 @@ def worker(work: list,
     '''
     :param work: List with path to existing videos (if so download need to be True (default))
     or list with youtube video IDs (if so download need to be False).
-    :param save_dir: Directory where the finished TF.record's are saved.
+    :param save_dir: Directory where the finished TF.record's are saved or google blob to upload TF.record.
     :param target_fps: The fps from the TF.record, if 0 original download fps will be kept (default).
     :param target_resolution: Tuple with (width, height) resolution.
     If None original download resolution will be kept (default).
@@ -93,6 +94,14 @@ def worker(work: list,
 
     This function will download youtube videos and proses them and save than as TF.record files.
     '''
+
+    # Check if TF.record are uploaded to google cloud storage.
+    if type(save_dir) is storage.Blob:
+        cloud_storage = True
+        buffer_save_dir = download_buffer_dir
+    else:
+        cloud_storage = False
+        buffer_save_dir = save_dir
 
     # Check if video needs to be downloaded.
     if download:
@@ -135,7 +144,7 @@ def worker(work: list,
         fps_split = diveision_zero(round(fps_raw), target_fps)
 
         # Create TF Record Writer
-        _save_name = save_dir + ntpath.basename(wor) + '.tfrecord'
+        _save_name = buffer_save_dir + ntpath.basename(wor) + '.tfrecord'
         with tf.io.TFRecordWriter(_save_name) as tf_writer:
             while success:
 
@@ -168,6 +177,10 @@ def worker(work: list,
         # Remove video file if it was downloaded.
         if download:
             os.remove(wor)
+
+        if cloud_storage:
+            save_dir.upload_from_filename(_save_name)
+            os.remove(_save_name)
 
 
 if __name__ == '__main__':
