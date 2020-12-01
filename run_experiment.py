@@ -15,6 +15,7 @@ import socket
 import subprocess
 import queue
 import sys
+import signal
 
 
 parser = argparse.ArgumentParser()
