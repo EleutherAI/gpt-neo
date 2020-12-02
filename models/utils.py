@@ -36,6 +36,14 @@ def entmax(x, alpha = 1.3, dim = None, n_iter = 2, ensure_sum_one = True):
 
     return p_m
 
+def sample_categorical(x, dim = None):
+    dim = x.shape[-1] if dim is None else dim
+
+    cdf = mtf.cumsum(x, dim)
+    rand_uniform = mtf.random_uniform(x.mesh, x.shape - dim, minval = 0, maxval = 1)
+    mask = mtf.cast(mtf.greater(cdf, rand_uniform), tf.int32)
+    return mtf.argmax(mask, dim)
+
 def biasmask_attn_weights(mesh, nd, ns, variable_dtype):
     # The old mask_attn_weights applied directly to the QK;
     # this returns a bias that the attention code from mtf adds to the attention matrix.

@@ -11,7 +11,7 @@ from mesh_tensorflow import placement_mesh_impl
 
 from inputs import mlm_sample_text
 from models.gpt2 import gpt2
-from models.utils import biasmask_attn_weights, entmax
+from models.utils import biasmask_attn_weights, entmax, sample_categorical
 
 from sample import sample_autoregressive
 
@@ -128,7 +128,7 @@ def test_sampling():
     with not_raises(Exception):
         samples = sample_autoregressive(
             inputs, other_features=other_features, params=params, variable_dtype=mtf.VariableDType(),
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
+            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"], sampling_use_entmax=True)
 
         mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
         lowering = mtf.Lowering(graph, {mesh: mesh_impl})
@@ -170,7 +170,8 @@ def test_entmax():
     length = mtf.Dimension("tensor_length", 8)
     tensor = mtf.range(mesh, length, tf.float32)
     output = entmax(tensor)
+    sample = sample_categorical(output, length)
 
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
-    output = lowering.export_to_tf_tensor(output)
+    sample = lowering.export_to_tf_tensor(sample)

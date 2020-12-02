@@ -40,6 +40,7 @@ def parse_args():
     parser.add_argument("--check_dataset", action="store_true",
                         help="If set, outputs sample from the dataset and quits.")
     parser.add_argument("--sacred_id", type=str, default="nosacred", help="Sacred run id.")
+    parser.add_argument("--entmax_sampling", action="store_true", help="(experimental) use entmax sampling")
     args = parser.parse_args()
     assert args.model is not None, "Model must be set"
     return args
@@ -164,6 +165,9 @@ def main(args):
         logger.info("Predictions generated")
         enc = fetch_encoder(params)
         handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
+
+        # Set sampling parameters
+        params["sampling_use_entmax"] = args.entmax_sampling
         return
 
 

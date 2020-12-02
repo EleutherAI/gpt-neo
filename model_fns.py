@@ -93,7 +93,7 @@ def model_fn(features, labels, mode, params):
 
         mtf_samples = sample_autoregressive(
             inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
+            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"], sampling_use_entmax=params['sampling_use_entmax'])
 
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
