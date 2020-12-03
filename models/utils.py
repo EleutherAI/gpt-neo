@@ -57,6 +57,32 @@ def entmax(x, alpha = 1.3, dim = None, n_iter = 50):
         [x]
     )
 
+def entmax_cross_entropy_with_logits(logits, targets, vocab_dim, z_loss=0.0):
+    if targets.dtype.is_integer:
+        # hard targets
+        if (set(targets.shape.dims) != set(logits.shape.dims).difference([vocab_dim])):
+            raise ValueError(
+                "softmax_cross_entropy_with_logits with hard targets "
+                "dims in targets=%s should be dims in logits=%s other than "
+                "vocab_dim=%s" % (targets, logits, vocab_dim))
+        targets = mtf.one_hot(targets, vocab_dim, dtype=logits.dtype)
+    elif set(targets.shape.dims) != set(logits.shape.dims):
+        raise ValueError(
+            "softmax_cross_entropy_with_logits with soft targets "
+            "dims in targets=%s should be dims in logits=%s"% (targets, logits))
+
+    if vocab_dim not in logits.shape.dims:
+        raise ValueError("vocab_dim must be in logits.shape.dims")
+
+    log_entmax = mtf.log(entmax(logits, dim = vocab_dim))
+
+    loss = mtf.negative(
+        mtf.reduce_sum(log_entmax * targets, reduced_dim = vocab_dim))
+
+    if z_loss != 0:
+        loss += z_loss * mtf.square(log_z)
+    return loss
+
 def sample_categorical(x, dim = None):
     dim = x.shape[-1] if dim is None else dim
 
