@@ -1,7 +1,21 @@
 import tensorflow as tf
 import mesh_tensorflow as mtf
+from functools import partial
 
-def entmax(x, alpha = 1.3, dim = None, n_iter = 2, ensure_sum_one = True):
+def entmax_backward(explicit_inputs, all_inputs, forward_operations, outputs, output_grads, alpha = 1.3, dim = None, n_iter = 50):
+    x = explicit_inputs
+    y = outputs
+    dY = output_grads
+
+    gppr = mtf.where(mtf.greater(y, 0), mtf.pow(y, (2 - alpha)), mtf.zeros_like(y))
+    dX = dY * gppr
+
+    q = mtf.reduce_sum(dX, reduced_dim = dim) / mtf.reduce_sum(gppr, reduced_dim = dim)
+    dX = dX - q * gppr
+
+    return dX
+
+def entmax_forward(x, alpha = 1.3, dim = None, n_iter = 50):
     assert alpha > 1 and alpha < 2, 'alpha must be between 1 and 2'
 
     _gp = lambda x, alpha: x ** (alpha - 1)
@@ -31,10 +45,17 @@ def entmax(x, alpha = 1.3, dim = None, n_iter = 2, ensure_sum_one = True):
         mask = mtf.greater_equal((f_m * f_lo), 0)
         tau_lo = mtf.where(mask, tau_m, tau_lo)
 
-    if ensure_sum_one:
-        p_m = p_m / mtf.reduce_sum(p_m, reduced_dim = dim)
-
+    p_m = p_m / mtf.reduce_sum(p_m, reduced_dim = dim)
     return p_m
+
+def entmax(x, alpha = 1.3, dim = None, n_iter = 50):
+    kwargs = dict(alpha = alpha, dim = dim, n_iter = n_iter)
+
+    return mtf.custom_gradient(
+        partial(entmax_forward, **kwargs),
+        partial(entmax_backward, **kwargs),
+        [x]
+    )
 
 def sample_categorical(x, dim = None):
     dim = x.shape[-1] if dim is None else dim

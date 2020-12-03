@@ -175,3 +175,4 @@ def test_entmax():
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
     sample = lowering.export_to_tf_tensor(sample)
+    print(sample)
