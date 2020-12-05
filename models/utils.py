@@ -3,9 +3,9 @@ import mesh_tensorflow as mtf
 from functools import partial
 
 def entmax_backward(explicit_inputs, all_inputs, forward_operations, outputs, output_grads, alpha = 1.3, dim = None, n_iter = 50):
-    x = explicit_inputs
-    y = outputs
-    dY = output_grads
+    x, = explicit_inputs
+    y, = outputs
+    dY, = output_grads
 
     gppr = mtf.where(mtf.greater(y, 0), mtf.pow(y, (2 - alpha)), mtf.zeros_like(y))
     dX = dY * gppr
@@ -13,7 +13,7 @@ def entmax_backward(explicit_inputs, all_inputs, forward_operations, outputs, ou
     q = mtf.reduce_sum(dX, reduced_dim = dim) / mtf.reduce_sum(gppr, reduced_dim = dim)
     dX = dX - q * gppr
 
-    return dX
+    return dX,
 
 def entmax_forward(x, alpha = 1.3, dim = None, n_iter = 50):
     assert alpha > 1 and alpha < 2, 'alpha must be between 1 and 2'

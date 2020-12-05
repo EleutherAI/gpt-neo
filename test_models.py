@@ -170,9 +170,10 @@ def test_entmax():
     length = mtf.Dimension("tensor_length", 8)
     tensor = mtf.range(mesh, length, tf.float32)
     output = entmax(tensor)
+    grad = mtf.gradients([output], [tensor])[0]
     sample = sample_categorical(output, length)
 
     mesh_impl = placement_mesh_impl.PlacementMeshImpl(shape=[], layout={}, devices=[""])
     lowering = mtf.Lowering(graph, {mesh: mesh_impl})
     sample = lowering.export_to_tf_tensor(sample)
-    print(sample)
+    grad = lowering.export_to_tf_tensor(grad)
