@@ -123,3 +123,4 @@ test/
 *.tfrecord
 
 run_configs/
+/data/channel_video_id_list.json
