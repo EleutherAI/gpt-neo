@@ -4,25 +4,23 @@ from functools import partial
 from data.encoders import encode
 import os
 import requests
+from google.cloud import storage
 
 def generic_text(params, eval=False, sample_text_fn=None):
     sequence_length = params['n_ctx']
     shards = params.get('shards', 16)
     buffer = params.get('buffer', 1024)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
-
-    if not os.path.exists('out.tensor'):
-        with open("out.tensor", 'wb') as f:
-            f.write(requests.get(
-                "https://storage.googleapis.com/text-datasets/out.tensor").content)
-
-    array = torch.load('out.tensor').numpy()
-    data = tf.data.Dataset.from_tensor_slices(array)
-    data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length,
+    
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([itm.name for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
+                                   buffer_size=64,
+                                   num_parallel_reads=16)
+    data = data.window(size=sequence_length + 1,
+                       stride=1,
+                       shift=sequence_length,
                        drop_remainder=True)
     data = data.flat_map(lambda x: x.batch(sequence_length + 1))
-    dataset_shards = [data.shard(shards, i)
-                      for i in range(shards)]
+    dataset_shards = [data.shard(shards, i) for i in range(shards)]
     data = dataset_shards[0]
     for ds in dataset_shards[1:]:
         data = data.concatenate(ds)
