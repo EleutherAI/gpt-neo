@@ -1,4 +1,0 @@
-- Reinstate chunks mode
-- Add number of examples per tfrecord feature to dataset_config
-- use deterministic input, turn off parallel_interleave
-- keep checkpoint of files consumed
