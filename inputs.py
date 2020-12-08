@@ -4,6 +4,7 @@ from functools import partial
 from data.encoders import encode
 import os
 import requests
+from data.video2tfrecord import frame_decoder
 from google.cloud import storage
 
 def generic_text(params, eval=False, sample_text_fn=None):
@@ -15,13 +16,16 @@ def generic_text(params, eval=False, sample_text_fn=None):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([itm.name for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
                                    buffer_size=64,
                                    num_parallel_reads=16)
+
     data = data.window(size=sequence_length + 1,
                        stride=1,
                        shift=sequence_length,
                        drop_remainder=True)
+
     data = data.flat_map(lambda x: x.batch(sequence_length + 1))
     dataset_shards = [data.shard(shards, i) for i in range(shards)]
     data = dataset_shards[0]
+
     for ds in dataset_shards[1:]:
         data = data.concatenate(ds)
 
@@ -29,14 +33,22 @@ def generic_text(params, eval=False, sample_text_fn=None):
     data = data.batch(batch_size, drop_remainder=True)
 
     def prepare(x):
+
+        x.map(frame_decoder)
+
         x = tf.reshape(x, (batch_size, sequence_length + 1))
+
         vals1 = x[:, :sequence_length]
         vals2 = x[:, 1:sequence_length + 1]
+
         vals1 = tf.reshape(vals1, (batch_size, sequence_length))
         vals2 = tf.reshape(vals2, (batch_size, sequence_length))
+
         vals1 = tf.cast(vals1, dtype=tf.int32)
         vals2 = tf.cast(vals2, dtype=tf.int32)
+
         return vals1, vals2
+
     data = data.map(prepare)
     return data
 
@@ -113,9 +125,7 @@ def mlm_sample_text(params, x, random_documents = False):
     masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
     return masked_features, labels
 
-
-def pred_input(params, logger, enc=None,
-               path_to_prompt=""):
+def pred_input(params, logger, enc=None, path_to_prompt=""):
 
     unicorns = "In a shocking finding, scientists discovered a herd of unicorns living in a remote, " \
                "previously unexplored valley, in the Andes Mountains. Even more surprising to the " \
@@ -137,7 +147,6 @@ def pred_input(params, logger, enc=None,
 
     dataset = dataset.map(_dummy_labels)
     return dataset
-
 
 def handle_pred_output(predictions, logger, enc, params, out_name="test"):
     with tf.gfile.Open(f"{out_name}.txt", "a") as f:
