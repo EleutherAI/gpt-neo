@@ -58,6 +58,8 @@ def model_fn(features, labels, mode, params):
     for key, x in features_dict.items():
         if x is not None:
             feature_shape = mtf.Shape(batch_dims + [length_dim])
+            if type(features_dict[key]) == dict:
+                features_dict[key] = features_dict[key]["feature"]
             x = tf.cast(features_dict[key], tf.int32)
             x = tf.reshape(x, feature_shape.to_integer_list)
             mtf_features[key] = mtf.import_fully_replicated(
@@ -91,9 +93,17 @@ def model_fn(features, labels, mode, params):
         if params["remove_partial_sequences"] is None:
             params["remove_partial_sequences"] = False
 
-        mtf_samples = sample_autoregressive(
-            inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-            remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
+        export = params.get("export", False)
+
+        if not export:
+            mtf_samples = sample_autoregressive(
+                inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
+                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
+
+        else:
+            with mtf.utils.outside_all_rewrites():
+                with tf.variable_scope('gpt2'):
+                    mtf_samples, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
 
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
