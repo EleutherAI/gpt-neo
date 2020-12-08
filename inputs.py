@@ -358,5 +358,3 @@ def sequential_input(params, global_step=None, eval=False):
     dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
     return dataset.repeat()
     
-
-
