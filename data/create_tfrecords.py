@@ -33,7 +33,7 @@ parser.add_argument("--use_gpt2_tokenizer", action="store_false", help="Use GPT2
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
 parser.add_argument("--separator", nargs="+", type=int, default=[0], help="separator to place between files in chunk mode")
-parser.add_argument("--chunk_size", type=int, default=2049, help="How big a chunk should be in chunk mode. Choose one more than the desired size."
+parser.add_argument("--chunk_size", type=int, default=2049, help="How big a chunk should be in chunk mode. Choose one more than the desired size.")
 parser.add_argument("--write_dataset_config", action="store_true", help="Write the dataset config file on completion")
 parser.add_argument("--processes", type=int, default=0, help="Number of processes to use. Defaults to cpu count.")
 
