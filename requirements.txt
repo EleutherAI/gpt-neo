@@ -2,11 +2,13 @@ google-api-python-client
 jsonlines
 lm_dataformat
 mesh-tensorflow==0.1.16
-numpy
+numpy==1.19.0
 oauth2client
 ortools
 pytest
 sacred
+attrs>=18.1.0
+google-auth==1.21.1
 tensorflow>=1.15.2,<2.0
 tensorflow-datasets==3.2.1
 tokenizers==0.9.3
