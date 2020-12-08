@@ -7,7 +7,8 @@ import re
 import logging
 from itertools import cycle
 
-def generic_text(params, eval=False, sample_text_fn=None):
+def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
+    logging.warning("DEPRECATION WARNING: generic_text will be phased out in future versions.")
     i = 0 if not eval else 1
 
     weights = []

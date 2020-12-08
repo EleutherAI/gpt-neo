@@ -7,7 +7,7 @@ from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, \
     check_dataset
-from inputs import sequential_input, pred_input, handle_pred_output, mlm_sample_text
+from inputs import sequential_input, pred_input, handle_pred_output, mlm_sample_text, generic_text
 from model_fns import model_fn
 from data.encoders import fetch_encoder
 from configs import fetch_model_params
@@ -53,7 +53,11 @@ def main(args):
     params = fetch_model_params(args.model)
 
     # Fetch appropriate input functions
-    input_fn = sequential_input
+    input_fn = params.get("input_fn", "sequential_input")
+    if input_fn == "sequential_input":
+        input_fn = sequential_input
+    elif input_fn == "generic_text":
+        input_fn = generic_text
     pred_input_fn = pred_input
     handle_pred_output_fn = handle_pred_output
 
