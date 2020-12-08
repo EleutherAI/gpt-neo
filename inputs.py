@@ -5,6 +5,7 @@ from data.encoders import encode
 import random
 import re
 import logging
+from itertools import cycle
 
 def generic_text(params, eval=False, sample_text_fn=None):
     i = 0 if not eval else 1
@@ -269,11 +270,11 @@ def _get_number_of_documents_by_iteration(filename):
         count += 1
     return count
 
-def _get_skip_index(all_files, global_step):
+def _get_skip_index(all_files, n_batches):
     prev_cumsum = 0
     cumsum = 0
     global_n_documents = None
-    for count, f in enumerate(all_files):
+    for count, f in cycle(enumerate(all_files)):
         prev_cumsum = cumsum
         if _get_number_of_documents(f) is not None:
             cumsum += _get_number_of_documents(f)
@@ -282,11 +283,11 @@ def _get_skip_index(all_files, global_step):
             cumsum += global_n_documents
         else:
             cumsum += global_n_documents
-        if cumsum == global_step:
+        if cumsum == n_batches:
             remainder = 0
             skip_idx = count + 1
-        elif cumsum > global_step:
-            remainder = global_step - prev_cumsum
+        elif cumsum > n_batches:
+            remainder = n_batches - prev_cumsum
             skip_idx = count
             break
     return skip_idx, remainder
@@ -298,7 +299,7 @@ def _parse_function(example_proto):
     parsed_features = tf.parse_single_example(example_proto, features)
     return tf.sparse.to_dense(parsed_features["text"], parsed_features["text"].dense_shape[0])
 
-def sequential_input(params, eval=False, shuffle_buffer=None, shuffle_parsed=False):
+def sequential_input(params, global_step=None, eval=False):
     """
     Input fn that reads tfrecords encoded with a fixed chunk size (== n_ctx + 1), and that either:
 
@@ -318,49 +319,40 @@ def sequential_input(params, eval=False, shuffle_buffer=None, shuffle_parsed=Fal
     If training is starting and stopping often, as with TPU pre-emption, reading the whole dataset sequentially appears to improve model 
     performance, as it results in less repeated data.
     """
+    if not eval:
+        assert global_step is not None
+    logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated. Please ensure your batch size stays constant throughout training.")
 
     filenames = []
-
-    # TODO:
-    # - add eval mode where no skipping happens, everything should just be random
-    # - figure out if shuffling breaks everything or not
-    # - add weights
-    # - fix _get_skip_idx for > 1 epoch
-
-    for dataset in params["datasets"]: # iterate through each dataset and read params
-        dataset_id, stitch, datatype, weight = dataset
-        assert dataset_id in params['dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
-        dataset_config = params['dataset_configs'][dataset_id]
+    for dataset_config in params['dataset_configs'].values(): # iterate through each dataset and read params
         path_key = 'path' if not eval else 'eval_path'
         path = dataset_config[path_key]
         filenames.extend(tf.io.gfile.glob(path)) # then glob all files that fit the pattern specified in dataset_configs
-
-    path = "/home/connor/sid/fix_inputs/tfrecords/*.tfrecords"
-    filenames.extend(tf.io.gfile.glob(path)) # then glob all files that fit the pattern specified in dataset_configs
+    
     filenames = sorted(filenames)
     seed = params.get('seed', 1) # shuffle deterministically
     random.seed(seed)
     random.shuffle(filenames)
-
-    # skip forward first in the filenames list, then skip the remaining amount in the parsed tfrecords files
-    skip_idx, remainder = _get_skip_index(filenames, global_step=150) # TODO: fix for > 1 epoch
-    skip_idx *= params["train_batch_size"] # TODO: double check this and add logging warning that changing batch size mid run will affect training
+    
     dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat() # repeat filenames to infinity
 
-    test = dataset.apply(tf.data.TFRecordDataset)
-    dataset = dataset.skip(skip_idx)
-    dataset = dataset.apply(tf.data.TFRecordDataset)
-    dataset = dataset.skip(remainder)
+    if not eval:
+        # skip forward first in the filenames list, then skip the remaining amount in the parsed tfrecords files
+        skip_idx, remainder = _get_skip_index(filenames, n_batches=global_step * params["train_batch_size"]) # TODO: fix for > 1 epoch
+        dataset = dataset.skip(skip_idx) # skip to skip idx
 
+        # read tfrecord examples and skip remainder
+        dataset = dataset.apply(tf.data.TFRecordDataset)
+        dataset = dataset.skip(remainder)
+    else:
+        # shuffle filenames if in eval mode
+        dataset = dataset.shuffle(len(filenames))
+        dataset = dataset.apply(tf.data.TFRecordDataset)
+
+        
     # parse the tokenized data from the tfrecord files and shuffle
     dataset = dataset.map(_parse_function, num_parallel_calls=1)
     dataset = dataset.map(partial(autoregressive_sample_text, params), num_parallel_calls=1)
-
-    if shuffle_parsed:
-        # since we're skipping the filenames, i'm not sure if shuffling will work here. It should work *well enough* if we read > shuffle_buffer every pre-emption, but... ehhhh
-        if shuffle_buffer is None:
-            shuffle_buffer = _get_number_of_documents(filenames[0]) * 2 # if a shuffle buffer isn't set, set it to two times the number of files per tfrecord
-        dataset = dataset.shuffle(shuffle_buffer, seed=seed)
     
     # batch data and repeat to infinity
     dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
@@ -368,8 +360,3 @@ def sequential_input(params, eval=False, shuffle_buffer=None, shuffle_parsed=Fal
     
 
 
-
-
-
-
-sequential_input({"train_batch_size": 2, "iterations": 2, "n_ctx": 2048})

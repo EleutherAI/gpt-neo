@@ -202,9 +202,12 @@ def loss_denominator(targets, num_microbatches):
     ret = float(targets.shape.size) * num_microbatches
     return float(ret)
 
-def check_dataset(input_fn, params):
+def check_dataset(input_fn, params, global_step=None):
     tf.enable_eager_execution()
-    dataset = input_fn(params)
+    if global_step is not None:
+        dataset = input_fn(params, global_step=global_step)
+    else:
+        dataset = input_fn(params)
     dataset_iter = dataset.make_one_shot_iterator()
     tensor, _ = next(dataset_iter)
     enc = fetch_encoder(params)
