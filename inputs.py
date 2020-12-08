@@ -12,7 +12,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
     shards = params.get('shards', 16)
     buffer = params.get('buffer', 1024)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
-    
+
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([itm.name for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
                                    buffer_size=64,
                                    num_parallel_reads=16)
@@ -34,7 +34,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
 
     def prepare(x):
 
-        x.map(frame_decoder)
+        print(x.shape())
 
         x = tf.reshape(x, (batch_size, sequence_length + 1))
 
@@ -49,7 +49,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
 
         return vals1, vals2
 
-    data = data.map(prepare)
+    data = data.map([frame_decoder, prepare])
     return data
 
 
