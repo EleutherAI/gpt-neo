@@ -366,10 +366,3 @@ def sequential_input(params, eval=False, shuffle_buffer=None, shuffle_parsed=Fal
     dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
     return dataset.repeat()
     
-
-
-
-
-
-
-sequential_input({"train_batch_size": 2, "iterations": 2, "n_ctx": 2048})
