@@ -19,3 +19,4 @@ ftfy
 opencv-python
 Pillow
 youtube-dl
+google-cloud-storage
