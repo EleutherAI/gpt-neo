@@ -2,7 +2,6 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from functools import partial
 from data.encoders import encode
-import torch
 import os
 import requests
 
