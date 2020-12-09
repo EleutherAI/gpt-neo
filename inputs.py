@@ -10,7 +10,7 @@ from google.cloud import storage
 def generic_text(params, eval=False, sample_text_fn=None):
     sequence_length = params['n_ctx']
     shards = params.get('shards', 16)
-    buffer = params.get('buffer', 1024)
+    buffer_size = params.get('buffer', 1024)
     frame_height = params.get('frame_height', 176)
     frame_width = params.get('frame_width', 320)
     color_channels = params.get('color_channels', 3)
