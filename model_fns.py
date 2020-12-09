@@ -146,6 +146,8 @@ def model_fn(features, labels, mode, params):
     # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
 
+    lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
+                            
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
 
