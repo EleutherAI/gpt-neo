@@ -318,7 +318,7 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
                 mult = 1
             if attention_type != "none":
                 summed_a = None
-                for idx, dim in enumerate([sequence_dim, width, height]):
+                for idx, dim in enumerate([width, height, sequence_dim]):
                     original_shape = list(x.shape)
                     current_shape = original_shape.copy()
                     if idx + 1 != 3:
@@ -415,44 +415,49 @@ def axial_positional_emb(embd_dim, mesh, params, variable_dtype):
 def model(mtf_features, other_features, params, mesh, variable_dtype, context=None):
     """A GPT style model implemented in mesh tensorflow."""
 
-    x, batch_dim, width, height, sequence_dim, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
+    patch_size = params.get('patch_size', 1)
+    x, batch_dim, sequence_dim, width, height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
 
-    if is_incremental_inference(context):
-        # reshape inputs if in inference mode
-        x = mtf.gather(x, context.position - 1, sequence_dim)
-        x = mtf.reshape(x, [batch_dim])
-
-    use_axial_pos_emb = params["axial_pos_emb"] != None
-    if not use_axial_pos_emb:
-        # Use standard position encoding
-        wpe = mtf.get_variable(mesh, "wpe", mtf.Shape([embed_sequence_dim, embd_dim]),
-                               initializer=tf.random_normal_initializer(stddev=0.01),
-                               master_dtype=variable_dtype.master_dtype,
-                               slice_dtype=variable_dtype.slice_dtype,
-                               activation_dtype=variable_dtype.activation_dtype)
-    else:
-        wpe = axial_positional_emb(embd_dim, mesh, params, variable_dtype)
-
-    # Text encoding
-    wte = mtf.get_variable(mesh, "wte", mtf.Shape([vocab_dim, embd_dim]),
-                           initializer=tf.random_normal_initializer(stddev=0.02),
-                           master_dtype=variable_dtype.master_dtype,
-                           slice_dtype=variable_dtype.slice_dtype,
-                           activation_dtype=variable_dtype.activation_dtype)
-
+    use_axial_pos_emb = False
+    
     with tf.variable_scope("token_embd"):
-        # Text embedding
-        h = mtf.gather(wte, x, vocab_dim)
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            h = mtf.dropout(h, rate=params["embed_dropout"], name="wte_dropout")
+        model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(1, 3 * patch_size, 3 * patch_size), strides=(1, patch_size, patch_size))
+    h = model_input
+    
+    time_position_embedding = mtf.get_variable(mesh, "time_position_embedding", mtf.Shape([sequence_dim, embd_dim]),
+               initializer=tf.random_normal_initializer(stddev=0.01),
+               master_dtype=variable_dtype.master_dtype,
+               slice_dtype=variable_dtype.slice_dtype,
+               activation_dtype=variable_dtype.activation_dtype)
 
-    with tf.variable_scope("pos_embd"):
-        # Positional embedding
-        position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (
-                context.position - 1)
-        pos_emb = mtf.gather(wpe, position_indices, wpe.shape[0])
+    width_position_embedding = mtf.get_variable(mesh, "width_position_embedding", mtf.Shape([width, embd_dim]),
+               initializer=tf.random_normal_initializer(stddev=0.01),
+               master_dtype=variable_dtype.master_dtype,
+               slice_dtype=variable_dtype.slice_dtype,
+               activation_dtype=variable_dtype.activation_dtype)
+
+    height_position_embedding = mtf.get_variable(mesh, "height_position_embedding", mtf.Shape([height, embd_dim]),
+               initializer=tf.random_normal_initializer(stddev=0.01),
+               master_dtype=variable_dtype.master_dtype,
+               slice_dtype=variable_dtype.slice_dtype,
+               activation_dtype=variable_dtype.activation_dtype)
+
+    with tf.variable_scope("pos_embd_time"):
+        pos_emb = mtf.gather(time_position_embedding, mtf.range(mesh, sequence_dim, tf.int64), time_position_embedding.shape[0])
         if params["embed_dropout"] > 0 and params["mode"] == "train":
-            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"], name="wte_dropout")
+            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"])
+        h += pos_emb
+
+    with tf.variable_scope("pos_embd_width"):
+        pos_emb = mtf.gather(width_position_embedding, mtf.range(mesh, width, tf.int64), width_position_embedding.shape[0])
+        if params["embed_dropout"] > 0 and params["mode"] == "train":
+            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"])
+        h += pos_emb
+
+    with tf.variable_scope("pos_embd_height"):
+        pos_emb = mtf.gather(height_position_embedding, mtf.range(mesh, height, tf.int64), height_position_embedding.shape[0])
+        if params["embed_dropout"] > 0 and params["mode"] == "train":
+            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"])
         h += pos_emb
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
@@ -475,40 +480,18 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
 
-    no_weight_tie_emb = params["no_weight_tie"] == True
-    if no_weight_tie_emb:
-        with tf.variable_scope("wte_final_linear"):
-            logits = linear(h, "linear_out", vocab_dim, variable_dtype=variable_dtype, params=params)
-    else:
-        # Layer normalize & affine transform
-        h = layer_norm(h, "ln_f", variable_dtype=variable_dtype, params=params)
-        seq_dim = sequence_dim if not is_incremental_inference(context) else mtf.Dimension("sequence", 1)
-        with tf.variable_scope("wte_final_einsum"):
-            # Equivalent to tf.matmul
-            logits = mtf.einsum([h, wte], output_shape=[batch_dim, seq_dim, vocab_dim])
-
+    output = mtf.layers.conv3d(h, mtf.Dimension("pre_pixel_shuffle", 3 * patch_size ** 2), (1, 3, 3))
+    output = mtf.reshape(output, [batch_dim, sequence_dim, width, height, color_channels])
+    
     if params["mode"] == "train":
-        labels = mtf_features["labels"]
-        z_loss = params.get("z_loss", 1e-4)
+        labels = mtf_features["labels"]  # TODO: 
         # Go to full precision for the logits 
-        logits = mtf.cast(logits, tf.float32)
-
-        with tf.variable_scope("xentropy_final"):
-            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels,
-                                                                      vocab_dim=logits.shape[-1], z_loss=z_loss)
-
-        # For non-autoregressive models (masked language modeling training)
-        # Make sure labels with padding tokens are not counted in the loss
-        if not params["causal"]:
-            padding_id = params.get("padding_id", 0)
-            loss_batch = mtf.where(mtf.not_equal(labels, padding_id), loss_batch, mtf.zeros_like(loss_batch))
-
+        output = mtf.cast(output, tf.float32)
+        
         with tf.variable_scope("reduce_mean_final"):
-            loss = mtf.reduce_mean(loss_batch)
+            loss = mtf.reduce_mean(mtf.abs(output - labels))
 
         loss += aux_losses  # Add on auxiliary losses (currently only used for MoE)
-        loss /= params["num_microbatches"]
-        # Convert to train dtype
         loss = mtf.cast(loss, variable_dtype.slice_dtype)
     else:
         loss = None
