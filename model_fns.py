@@ -49,13 +49,14 @@ def model_fn(features, labels, mode, params):
     batch_size = get_batch_size(params)
     
     model_input = next(iter(features_dict.values()))
-    batch_dim = mtf.Dimension("batch", model_input.shape[0])
-    sequence  = mtf.Dimension("sequence", model_input.shape[1])
-    width  = mtf.Dimension("width", model_input.shape[2])
-    height  = mtf.Dimension("height", model_input.shape[3])
+    model_input_shape = model_input.get_shape().as_list()
+    batch_dim = mtf.Dimension("batch", model_input_shape[0])
+    sequence  = mtf.Dimension("sequence", model_input_shape[1])
+    width  = mtf.Dimension("width", model_input_shape[2])
+    height  = mtf.Dimension("height", model_input_shape[3])
     batch_dims = [batch_dim, sequence, width, height]
     feature_length = sequence_length_dict["inputs"]
-    length_dim = mtf.Dimension("color_channels",  model_input.shape[3])
+    length_dim = mtf.Dimension("color_channels",  model_input_shape[4])
 
     mtf_features = {}
     for key, x in features_dict.items():
