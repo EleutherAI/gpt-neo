@@ -103,22 +103,21 @@ def model_fn(features, labels, mode, params):
         def serialized_fn(mtf_features):
             if params["model"] == "GPT":
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype)
-                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
+                    logits, loss = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype)
+                return {"logits": logits, "loss": loss}
             else:
                 raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
         # Serialize the training step - Gradients are accumulated locally and reduced once.
         var_grads, output_dict = mtf.serialize_training_step(mtf_features, serialized_fn, batch_dim, num_microbatches)
         loss = output_dict["loss"]
-        loss_batch = output_dict["loss_batch"]
         logits = output_dict["logits"]
     else:
         # If we're not splitting into microbatches, return logits & loss as is
         if params["model"] == "GPT":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
+                    logits, loss = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
         else:
             raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
