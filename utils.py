@@ -235,7 +235,7 @@ def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
             f"\nRe-initialize graph with selected layout & mesh shape")
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
 
-def create_host_call(model_dir, tf_max_logits, labels):
+def create_host_call(model_dir, labels):
     """Construct a host_call writing scalar summaries.
 
     Borrowed from t2t.
@@ -249,7 +249,6 @@ def create_host_call(model_dir, tf_max_logits, labels):
     graph = tf.get_default_graph()
     # A list of (name, lowered tensor) tuples
     summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
-    summaries = [['accuracy', tf.cast(tf.math.equal(tf_max_logits, labels), tf.float32)]] + summaries
 
     def maybe_cast(tensor):
         if tensor.shape.is_compatible_with([]):
