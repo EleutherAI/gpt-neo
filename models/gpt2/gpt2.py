@@ -424,9 +424,9 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(1, 3 * patch_size, 3 * patch_size), strides=(1, patch_size, patch_size))
         
     h = model_input
-    h += mtf.range(mesh, sequence_dim, tf.float32) / sequence_dim / 2
-    h += mtf.range(mesh, width, tf.float32) / width / 2
-    h += mtf.range(mesh, height, tf.float32) / height / 2
+    h += mtf.range(mesh, sequence_dim, tf.float32) / sequence_dim.size / 2
+    h += mtf.range(mesh, width, tf.float32) / width.size / 2
+    h += mtf.range(mesh, height, tf.float32) / height.size / 2
     h -= 1.5
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
