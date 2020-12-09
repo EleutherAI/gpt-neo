@@ -62,7 +62,6 @@ def model_fn(features, labels, mode, params):
     for key, x in features_dict.items():
         if x is not None:
             feature_shape = mtf.Shape(batch_dims + [length_dim])
-            x = tf.cast(], tf.int32)
             mtf_features[key] = mtf.import_fully_replicated(
                 mesh, features_dict[key], feature_shape, name=key)
 
