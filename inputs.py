@@ -10,46 +10,51 @@ from google.cloud import storage
 def generic_text(params, eval=False, sample_text_fn=None):
     sequence_length = params['n_ctx']
     shards = params.get('shards', 16)
-    buffer = params.get('buffer', 1024)
+    #buffer = params.get('buffer', 1024)
+    buffer_size = params.get('buffer_size', 4)
+    frame_height = params.get('frame_height', 176)
+    frame_width = params.get('frame_width', 320)
+    color_channels = params.get('color_channels', 3)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
+
 
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([itm.name for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
                                    buffer_size=64,
                                    num_parallel_reads=16)
 
-    data = data.window(size=sequence_length + 1,
-                       stride=1,
-                       shift=sequence_length,
-                       drop_remainder=True)
 
+    data = data.map(frame_decoder)
+
+    data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
     data = data.flat_map(lambda x: x.batch(sequence_length + 1))
+
     dataset_shards = [data.shard(shards, i) for i in range(shards)]
     data = dataset_shards[0]
-
     for ds in dataset_shards[1:]:
         data = data.concatenate(ds)
 
-    data = data.shuffle(buffer)
+    data = data.shuffle(buffer_size)
     data = data.batch(batch_size, drop_remainder=True)
 
     def prepare(x):
+        # input tensor (batch_size, sequence_length, frame_height, frame_width, color_channels)
 
-        print(x.shape())
-
-        x = tf.reshape(x, (batch_size, sequence_length + 1))
+        x = x / 255
+        x = tf.reshape(x, (batch_size, sequence_length + 1, frame_height, frame_width, color_channels))
 
         vals1 = x[:, :sequence_length]
         vals2 = x[:, 1:sequence_length + 1]
 
-        vals1 = tf.reshape(vals1, (batch_size, sequence_length))
-        vals2 = tf.reshape(vals2, (batch_size, sequence_length))
+        vals1 = tf.reshape(vals1, (batch_size, sequence_length, frame_height, frame_width, color_channels))
+        vals2 = tf.reshape(vals2, (batch_size, sequence_length, frame_height, frame_width, color_channels))
 
-        vals1 = tf.cast(vals1, dtype=tf.int32)
-        vals2 = tf.cast(vals2, dtype=tf.int32)
+        vals1 = tf.cast(vals1, dtype=tf.float32)
+        vals2 = tf.cast(vals2, dtype=tf.float32)
 
         return vals1, vals2
 
-    data = data.map([frame_decoder, prepare])
+    data = data.map(prepare)
+
     return data
 
 
@@ -169,3 +174,16 @@ def handle_pred_output(predictions, logger, enc, params, out_name="test"):
             logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
             logger.info(text)
             logger.info("\n" + "=" * 80 + "\n")
+
+
+if __name__ == '__main__':
+    dataset = generic_text({'n_ctx': 256, 'train_batch_size': 32})
+
+    iterator = dataset.make_one_shot_iterator()
+    next_frame_data = iterator.get_next()
+
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
+
+        frame_data_1, frame_data_2 = sess.run(next_frame_data)
+        print(frame_data_1.shape, frame_data_2.shape)
