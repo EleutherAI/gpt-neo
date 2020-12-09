@@ -318,7 +318,7 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
                 mult = 1
             if attention_type != "none":
                 summed_a = None
-                for idx, dim in enumerate([width, height, sequence_dim]):
+                for idx, dim in enumerate([sequence_dim, width, height]):
                     original_shape = list(x.shape)
                     current_shape = original_shape.copy()
                     if idx + 1 != 3:
