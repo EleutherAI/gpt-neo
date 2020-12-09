@@ -17,7 +17,7 @@ def generic_text(params, eval=False, sample_text_fn=None):
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
 
-    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([itm.name for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([f'gs://{itm.name}' for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
                                    buffer_size=64,
                                    num_parallel_reads=16)
 
