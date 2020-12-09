@@ -331,7 +331,7 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
 
                     a = attn(res_x, "attn", nx, attention_type=attention_type,
                              params=params, bias=bias if idx == 0 else None,
-                             dim_seq=dim, memory_length_dim=memory_length_dim,
+                             dim_seq=dim, memory_length_dim=mtf.Dimension('memory_length_dim', dim.size),
                              variable_dtype=variable_dtype, context=context)
                     a = mtf.reshape(a, current_shape)
                     a = mtf.transpose(a, original_shape)
