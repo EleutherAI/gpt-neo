@@ -318,16 +318,16 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
                 mult = 1
             if attention_type != "none":
                 summed_a = None
+                original_shape = list(x.shape)
                 for idx, dim in enumerate([sequence_dim, width, height]):
-                    original_shape = list(x.shape)
                     current_shape = original_shape.copy()
                     if idx + 1 != 3:
                         current_shape[3], current_shape[idx + 1] = current_shape[idx + 1], current_shape[3]
-                        x = mtf.transpose(x, current_shape)
+                        inp = mtf.transpose(x, current_shape)
                     batch = mtf.Dimension("big_batch",
                                           current_shape[0].size * current_shape[1].size * current_shape[2].size)
-                    x = mtf.reshape(x, [batch, current_shape[3], current_shape[4]])
-                    res_x = prenorm(x, "norm_1", variable_dtype=variable_dtype, params=params)
+                    inp = mtf.reshape(inp, [batch, current_shape[3], current_shape[4]])
+                    res_x = prenorm(inp, "norm_1", variable_dtype=variable_dtype, params=params)
 
                     a = attn(res_x, "attn", nx, attention_type=attention_type,
                              params=params, bias=bias if idx == 0 else None,
