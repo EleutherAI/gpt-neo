@@ -422,43 +422,12 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
     
     with tf.variable_scope("token_embd"):
         model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(1, 3 * patch_size, 3 * patch_size), strides=(1, patch_size, patch_size))
+        
     h = model_input
-    
-    time_position_embedding = mtf.get_variable(mesh, "time_position_embedding", mtf.Shape([sequence_dim, embd_dim]),
-               initializer=tf.random_normal_initializer(stddev=0.01),
-               master_dtype=variable_dtype.master_dtype,
-               slice_dtype=variable_dtype.slice_dtype,
-               activation_dtype=variable_dtype.activation_dtype)
-
-    width_position_embedding = mtf.get_variable(mesh, "width_position_embedding", mtf.Shape([width, embd_dim]),
-               initializer=tf.random_normal_initializer(stddev=0.01),
-               master_dtype=variable_dtype.master_dtype,
-               slice_dtype=variable_dtype.slice_dtype,
-               activation_dtype=variable_dtype.activation_dtype)
-
-    height_position_embedding = mtf.get_variable(mesh, "height_position_embedding", mtf.Shape([height, embd_dim]),
-               initializer=tf.random_normal_initializer(stddev=0.01),
-               master_dtype=variable_dtype.master_dtype,
-               slice_dtype=variable_dtype.slice_dtype,
-               activation_dtype=variable_dtype.activation_dtype)
-
-    with tf.variable_scope("pos_embd_time"):
-        pos_emb = mtf.gather(time_position_embedding, mtf.range(mesh, sequence_dim, tf.int64), time_position_embedding.shape[0])
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"])
-        h += pos_emb
-
-    with tf.variable_scope("pos_embd_width"):
-        pos_emb = mtf.gather(width_position_embedding, mtf.range(mesh, width, tf.int64), width_position_embedding.shape[0])
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"])
-        h += pos_emb
-
-    with tf.variable_scope("pos_embd_height"):
-        pos_emb = mtf.gather(height_position_embedding, mtf.range(mesh, height, tf.int64), height_position_embedding.shape[0])
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"])
-        h += pos_emb
+    h += mtf.range(mesh, sequence_dim, tf.int64) / sequence_dim / 2
+    h += mtf.range(mesh, width, tf.int64) / width / 2
+    h += mtf.range(mesh, height, tf.int64) / height / 2
+    h -= 1.5
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
 
