@@ -7,7 +7,7 @@ from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, \
     check_dataset
-from inputs import generic_text, pred_input, handle_pred_output, mlm_sample_text
+from inputs import generic_data
 from model_fns import model_fn
 from configs import fetch_model_params
 from tasks import task_descriptors
@@ -48,13 +48,7 @@ def main(args):
     params = fetch_model_params(args.model)
 
     # Fetch appropriate input functions
-    input_fn = generic_text
-    pred_input_fn = pred_input
-    handle_pred_output_fn = handle_pred_output
-
-    if params["mlm_training"]:
-        mlm_sample_text_fn = partial(mlm_sample_text, params)
-        input_fn = partial(generic_text, sample_text_fn=mlm_sample_text_fn)
+    input_fn = generic_data
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
