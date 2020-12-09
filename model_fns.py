@@ -146,17 +146,11 @@ def model_fn(features, labels, mode, params):
     # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
 
-    max_logits = mtf.argmax(logits, vocab_dim)
-    fully_replicated_max_logits = mtf.anonymize(max_logits)
-    # 'lowers' mtf tensors into a tf graph - this enables us to export results as tf tensors
-    lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
-
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
-    tf_max_logits = lowering.export_to_tf_tensor(fully_replicated_max_logits)
 
     # Use our patched version until mtf updates theirs
-    host_call = create_host_call(params['model_path'], tf_max_logits, labels)
+    host_call = create_host_call(params['model_path'], labels)
     mtf.utils.remove_summaries()
 
     # Creates train_op
