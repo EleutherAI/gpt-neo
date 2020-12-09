@@ -467,5 +467,5 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         loss_batch = None
 
     # Cast back to checkpoint dtype
-    logits = mtf.cast(logits, variable_dtype.master_dtype)
-    return logits, loss, loss_batch
+    output = mtf.cast(output, variable_dtype.master_dtype)
+    return output, loss, loss_batch
