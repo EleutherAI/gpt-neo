@@ -15,6 +15,7 @@ import socket
 import subprocess
 import queue
 import sys
+import signal
 
 
 parser = argparse.ArgumentParser()
@@ -83,6 +84,9 @@ def train_thread(args, tpu, id, q):
             pass
 
     print('exited training!')
+    if proc.returncode == 0:
+        print('exited gracefully')
+        os.kill(os.getpid(), signal.SIGINT)
     
     if args.no_delete_tpu:
         print('recreate done, exiting train_thread - not killing tpu!')
@@ -151,7 +155,7 @@ def get_run_data(port):
 @ex.main
 def main(_run):
     print('Starting run', _run._id)
-    print('experiment main invoked with argv:', sys.argv)
+    print('experiment main invoked with argv:', " ".join(sys.argv))
     print('WARNING: please remember to remove old metric log files from the model directory.')
 
     os.makedirs('run_configs', exist_ok=True)
@@ -210,6 +214,7 @@ def main(_run):
                             if metr in ['task', 'global_step']: continue
                             if val_step <= curr_step.get(k, -1): continue
                             _run.log_scalar(k, ob[metr], val_step)
+                            curr_step[k] = val_step
 
             if time.time() - last_tb_log_time > args.heartbeat_timeout:
                 # the run hasn't logged in a while, so we restart it
