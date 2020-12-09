@@ -467,4 +467,4 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
     # Cast back to checkpoint dtype
     output = mtf.cast(output, variable_dtype.master_dtype)
-    return output, loss, loss
+    return output, loss
