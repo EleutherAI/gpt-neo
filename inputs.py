@@ -7,39 +7,29 @@ import requests
 from data.video2tfrecord import frame_decoder
 from google.cloud import storage
 
+def tf_record_dataset(name, sequence_length):
+    return (tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([f'gs://{name}']),
+                                    buffer_size=1,
+                                    num_parallel_reads=1).map(frame_decoder)
+                                                         .window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
+                                                         .flat_map(lambda x: x.batch(sequence_length + 1)))
+
 def generic_text(params, eval=False, sample_text_fn=None):
     sequence_length = params['n_ctx']
-    shards = params.get('shards', 16)
-    buffer_size = params.get('buffer', 1024)
+    shards = params.get('shards', 1)
+    buffer_size = params.get('buffer', 1)
     frame_height = params.get('frame_height', 176)
     frame_width = params.get('frame_width', 320)
     color_channels = params.get('color_channels', 3)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
-
-    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([f'gs://{itm.name}' for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]),
-                                   buffer_size=64,
-                                   num_parallel_reads=16)
-
-
-    data = data.map(frame_decoder)
-
-    data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
-    data = data.flat_map(lambda x: x.batch(sequence_length + 1))
-
-    dataset_shards = [data.shard(shards, i) for i in range(shards)]
-    data = dataset_shards[0]
-    for ds in dataset_shards[1:]:
-        data = data.concatenate(ds)
-
-    data = data.shuffle(buffer_size)
-    data = data.batch(batch_size, drop_remainder=True)
-
+    @tf.function
     def prepare(x):
         # input tensor (batch_size, sequence_length, frame_height, frame_width, color_channels)
-
-        x = x / 255
-        x = tf.reshape(x, (batch_size, sequence_length + 1, frame_height, frame_width, color_channels))
+#        x = tf.reshape(x, (batch_size, sequence_length + 1, frame_height, frame_width, color_channels))
+#        x = tf.cast(x, tf.float32)
+#        x = x / 255.
+#        print(x.shape)
 
         vals1 = x[:, :sequence_length]
         vals2 = x[:, 1:sequence_length + 1]
@@ -49,12 +39,12 @@ def generic_text(params, eval=False, sample_text_fn=None):
 
         vals1 = tf.cast(vals1, dtype=tf.float32)
         vals2 = tf.cast(vals2, dtype=tf.float32)
-
         return vals1, vals2
 
-    data = data.map(prepare)
 
-    return data
+    data = [tf_record_dataset(itm.name, sequence_length) for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]
+    dataset = tf.data.experimental.sample_from_datasets(data).shuffle(buffer_size).batch(batch_size, drop_remainder=True).map(prepare)
+    return dataset
 
 
 def autoregressive_sample_text(params, x):
