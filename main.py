@@ -98,6 +98,8 @@ def main(args):
     params["predict"] = args.predict
     params['model'] = params.get("model", "GPT") # Default model selection to GPT since it's the only option for now
     params["export"] = args.export
+    # Set sampling parameters
+    params["sampling_use_entmax"] = args.entmax_sampling
 
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
@@ -172,9 +174,6 @@ def main(args):
         logger.info("Predictions generated")
         enc = fetch_encoder(params)
         handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
-
-        # Set sampling parameters
-        params["sampling_use_entmax"] = args.entmax_sampling
         return
 
 
