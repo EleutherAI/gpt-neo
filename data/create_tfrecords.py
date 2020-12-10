@@ -204,8 +204,6 @@ def create_tfrecords_mp(files, args):
 if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True) # make output dir if it doesn't exist
     files = get_files(args.input_dir)
-    logging.warning(f"Make sure that chunk size ({args.chunk_size}) = your model's context size *PLUS ONE* - \
-                    You need an extra token as a label and the script does not increment this internally.")
     args.chunk_size += 1 # we shift the data by 1 to the right for targets, so increment the chunk size here
     args.processes = 2
     if args.processes == 0:
