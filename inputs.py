@@ -11,10 +11,10 @@ from google.cloud import storage
 def tf_record_dataset(name, sequence_length):
 
     #data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([f'gs://{name}']), buffer_size=1, num_parallel_reads=1)
-    #data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(name), buffer_size=1, num_parallel_reads=1)
-    data = tf.data.Dataset.from_tensor_slices(np.random.randint(0, 255, (1800, 17, 32, 3)))
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(name), buffer_size=1, num_parallel_reads=1)
+    #data = tf.data.Dataset.from_tensor_slices(np.random.randint(0, 255, (1800, 17, 32, 3)))
 
-    #data = data.map(frame_decoder)
+    data = data.map(frame_decoder)
     data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
     data = data.flat_map(lambda x: x.batch(sequence_length + 1, drop_remainder=True))
     data = data.repeat()
