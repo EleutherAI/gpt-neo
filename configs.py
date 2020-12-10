@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
 from collections import defaultdict
-import logging
 
 DATASETS = {}
 
