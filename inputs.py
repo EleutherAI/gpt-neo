@@ -6,6 +6,7 @@ import random
 import re
 import logging
 from itertools import cycle
+from utils import natural_sort
 
 def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
     logging.warning("DEPRECATION WARNING: generic_text will be phased out in future versions.")
@@ -330,10 +331,12 @@ def sequential_input(params, global_step=None, eval=False):
         path = dataset_config[path_key]
         filenames.extend(tf.io.gfile.glob(path)) # then glob all files that fit the pattern specified in dataset_configs
     
-    filenames = sorted(filenames)
-    seed = params.get('seed', 1) # shuffle deterministically
-    random.seed(seed)
-    random.shuffle(filenames)
+    filenames = natural_sort(filenames)
+    shuffle_filenames = params.get("shuffle_input_filenames", True)
+    if shuffle_filenames:
+        seed = params.get('seed', 1) # shuffle deterministically
+        random.seed(seed)
+        random.shuffle(filenames)
     
     dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat() # repeat filenames to infinity
 

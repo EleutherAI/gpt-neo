@@ -9,7 +9,7 @@ import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 import mesh_tensorflow as mtf
 from data.encoders import fetch_encoder
-
+import re
 
 def setup_logging(args):
     Path("logs").mkdir(exist_ok=True)
@@ -283,3 +283,9 @@ def create_host_call(model_dir):
 
     global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
     return host_call_fn, [global_step_t] + reshaped_tensors
+
+
+def natural_sort(l): 
+    convert = lambda text: int(text) if text.isdigit() else text.lower() 
+    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
+    return sorted(l, key = alphanum_key)
