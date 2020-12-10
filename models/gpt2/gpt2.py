@@ -416,13 +416,16 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
     """A GPT style model implemented in mesh tensorflow."""
 
     patch_size = params.get('patch_size', 1)
-    x, batch_dim, sequence_dim, width, height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
+    x, batch_dim, sequence_dim, original_width, original_height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
 
     use_axial_pos_emb = False
-    
+
     with tf.variable_scope("token_embd"):
         model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(1, 3 * patch_size, 3 * patch_size), strides=(1, patch_size, patch_size))
-        
+
+    width = model_input.shape[2]
+    height = model_input.shape[3]
+
     h = model_input
     h += mtf.range(mesh, sequence_dim, tf.float32) / (sequence_dim.size * 2.)
     h += mtf.range(mesh, width, tf.float32) / (width.size * 2.)
@@ -450,13 +453,13 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         aux_losses += loss
 
     output = mtf.layers.conv3d(h, mtf.Dimension("pre_pixel_shuffle", 3 * patch_size ** 2), (1, 3, 3))
-    output = mtf.reshape(output, [batch_dim, sequence_dim, width, height, color_channels])
-    
+    output = mtf.reshape(output, [batch_dim, sequence_dim, original_width, original_height, color_channels])
+
     if params["mode"] == "train":
-        labels = mtf_features["labels"]  # TODO: 
-        # Go to full precision for the logits 
+        labels = mtf_features["labels"]  # TODO:
+        # Go to full precision for the logits
         output = mtf.cast(output, tf.float32)
-        
+
         with tf.variable_scope("reduce_mean_final"):
             loss = mtf.reduce_mean(mtf.abs(output - labels))
 
