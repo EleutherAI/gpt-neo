@@ -10,11 +10,11 @@ from google.cloud import storage
 
 def tf_record_dataset(name, sequence_length):
 
-    #data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([f'gs://{name}']), buffer_size=1, num_parallel_reads=1)
-    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(name), buffer_size=1, num_parallel_reads=1)
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2**20, num_parallel_reads=1)
+    #data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(name), buffer_size=1, num_parallel_reads=1)
     #data = tf.data.Dataset.from_tensor_slices(np.random.randint(0, 255, (1800, 17, 32, 3)))
 
-    data = data.map(frame_decoder)
+    data = data.map(frame_decoder).repeat()
     data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
     data = data.flat_map(lambda x: x.batch(sequence_length + 1, drop_remainder=True))
     data = data.repeat()
@@ -24,14 +24,16 @@ def tf_record_dataset(name, sequence_length):
 def generic_data(params, eval=False):
     sequence_length = params['n_ctx']
     buffer_size = params.get('buffer_size', 1)
-    frame_height = params.get('frame_height', 176)
-    frame_width = params.get('frame_width', 320)
+    frame_height = params.get('frame_height', 180) #176
+    frame_width = params.get('frame_width', 320) #320
+    bucket_name = params.get('bucket_name', 'text-datasets')
     #frame_height = params.get('frame_height', 17)
     #frame_width = params.get('frame_width', 32)
     color_channels = params.get('color_channels', 3)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
-    data = [tf_record_dataset(itm.name, sequence_length) for itm in storage.client.Client().list_blobs('text-datasets', prefix='datasets/video')]
+    data = [tf_record_dataset(f'gs://{bucket_name}/datasets/video/test.tfrecord', sequence_length)]
+    #data = [tf_record_dataset(f'gs://{bucket_name}/{itm.name}', sequence_length) for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')]
     #data = [tf_record_dataset(itm, sequence_length) for itm in test_data]
 
     dataset = tf.data.experimental.sample_from_datasets(data)
@@ -54,7 +56,7 @@ def generic_data(params, eval=False):
         vals2 = tf.cast(vals2, dtype=tf.float32)
         return vals1, vals2
 
-    dataset = dataset.map(prepare)
+    dataset = dataset.map(prepare).repeat()
 
     return dataset
 
