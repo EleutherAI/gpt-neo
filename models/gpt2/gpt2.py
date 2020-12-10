@@ -416,13 +416,15 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
     """A GPT style model implemented in mesh tensorflow."""
 
     patch_size = params.get('patch_size', 1)
-    x, batch_dim, sequence_dim, original_width, original_height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
+    time_patch = params.get('time_patch', 1)
+    x, batch_dim, original_sequence_dim, original_width, original_height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
 
     use_axial_pos_emb = False
 
     with tf.variable_scope("token_embd"):
-        model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(1, 3 * patch_size, 3 * patch_size), strides=(1, patch_size, patch_size))
+        model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(time_patch, 3 * patch_size, 3 * patch_size), strides=(time_patch, patch_size, patch_size))
 
+    sequence_dim = model_input.shape[1]
     width = model_input.shape[2]
     height = model_input.shape[3]
 
@@ -452,8 +454,8 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
 
-    output = mtf.layers.conv3d(h, mtf.Dimension("pre_pixel_shuffle", 3 * patch_size ** 2), (1, 3, 3))
-    output = mtf.reshape(output, [batch_dim, sequence_dim, original_width, original_height, color_channels])
+    output = mtf.layers.conv3d(h, mtf.Dimension("pre_pixel_shuffle", 3 * patch_size ** 2 * time_patch), (1, 3, 3))
+    output = mtf.reshape(output, [batch_dim, original_sequence_dim, original_width, original_height, color_channels])
 
     if params["mode"] == "train":
         labels = mtf_features["labels"]  # TODO:

@@ -1,4 +1,5 @@
 {
+    "time_patch": 4,
     "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
     "n_head": 8,
@@ -29,7 +30,7 @@
     "shuffle": false,
     "residual": true,
     "model_path": "gs://text-datasets/gpt-neo-models/video-ctx=64-layer=6-heads=8-local=256-no-shuffle-res-feat=256-batch=1",
-    "n_ctx": 64,
+    "n_ctx": 256,
     "n_layer": 6,
     "scale_by_depth": true,
     "scale_by_in": false,
