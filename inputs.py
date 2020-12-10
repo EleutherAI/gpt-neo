@@ -24,10 +24,10 @@ def tf_record_dataset(name, sequence_length):
 def generic_data(params, eval=False):
     sequence_length = params['n_ctx']
     buffer_size = params.get('buffer_size', 1)
-    #frame_height = params.get('frame_height', 176)
-    #frame_width = params.get('frame_width', 320)
-    frame_height = params.get('frame_height', 17)
-    frame_width = params.get('frame_width', 32)
+    frame_height = params.get('frame_height', 176)
+    frame_width = params.get('frame_width', 320)
+    #frame_height = params.get('frame_height', 17)
+    #frame_width = params.get('frame_width', 32)
     color_channels = params.get('color_channels', 3)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 

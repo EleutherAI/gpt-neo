@@ -70,7 +70,8 @@ def frame_decoder(proto):
 
     # Decode.
     sample = tf.parse_single_example(proto, features)
-    frame = tf.image.decode_image(sample['frame'])
+    #frame = tf.image.decode_image(sample['frame'])
+    frame = tf.io.decode_jpeg(sample['frame'], channels=3)
 
     return frame
 
