@@ -8,15 +8,12 @@ import requests
 from data.video2tfrecord import frame_decoder
 from google.cloud import storage
 
-def tf_record_dataset(name, sequence_length):
+def tf_record_dataset(name, sequence_length, time_delay):
 
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2**20, num_parallel_reads=1)
-    #data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(name), buffer_size=1, num_parallel_reads=1)
-    #data = tf.data.Dataset.from_tensor_slices(np.random.randint(0, 255, (1800, 17, 32, 3)))
-
     data = data.map(frame_decoder).repeat()
-    data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
-    data = data.flat_map(lambda x: x.batch(sequence_length + 1, drop_remainder=True))
+    data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
+    data = data.flat_map(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True))
     data = data.repeat()
 
     return data
@@ -27,12 +24,11 @@ def generic_data(params, eval=False):
     frame_height = params.get('frame_height', 180) #176
     frame_width = params.get('frame_width', 320) #320
     bucket_name = params.get('bucket_name', 'text-datasets')
-    #frame_height = params.get('frame_height', 17)
-    #frame_width = params.get('frame_width', 32)
+    time_patch = params.get('time_patch', 1)
     color_channels = params.get('color_channels', 3)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
-    data = [tf_record_dataset(f'gs://{bucket_name}/datasets/video/test.tfrecord', sequence_length)]
+    data = [tf_record_dataset(f'gs://{bucket_name}/datasets/video/test.tfrecord', sequence_length, time_patch)]
     #data = [tf_record_dataset(f'gs://{bucket_name}/{itm.name}', sequence_length) for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')]
     #data = [tf_record_dataset(itm, sequence_length) for itm in test_data]
 
@@ -42,12 +38,12 @@ def generic_data(params, eval=False):
 
     def prepare(x):
         # input tensor (batch_size, sequence_length, frame_height, frame_width, color_channels)
-        x = tf.reshape(x, (batch_size, sequence_length + 1, frame_height, frame_width, color_channels))
+        x = tf.reshape(x, (batch_size, sequence_length + time_patch, frame_height, frame_width, color_channels))
         x = tf.cast(x, tf.float32)
         x = x / 255.
 
         vals1 = x[:, :sequence_length]
-        vals2 = x[:, 1:sequence_length + 1]
+        vals2 = x[:, time_patch:sequence_length + time_patch]
 
         vals1 = tf.reshape(vals1, (batch_size, sequence_length, frame_height, frame_width, color_channels))
         vals2 = tf.reshape(vals2, (batch_size, sequence_length, frame_height, frame_width, color_channels))
