@@ -16,9 +16,10 @@ def tf_record_dataset(name, sequence_length):
     data = tf.data.Dataset.from_tensor_slices(np.random.randint(0, 255, (18000, 17, 32, 3)))
 
     data = data.window(size=sequence_length + 1, stride=1, shift=sequence_length, drop_remainder=True)
-    data = data.flat_map(lambda x: x.batch(sequence_length + 1))
+    data = data.flat_map(lambda x: x.batch(sequence_length + 1, drop_remainder=True))
+    data = data.repeat()
 
-    return (data)
+    return data
 
 def generic_data(params, eval=False):
     sequence_length = params['n_ctx']
