@@ -14,7 +14,12 @@ def fetch_model_params(model):
     with open(model_path) as f:
         params = json.load(f)
 
-    dataset_ids = [d[0] for d in params.get("datasets", [])]
+    dataset_ids = []
+    for d in params.get("datasets"):
+        if isinstance(d, list):
+            dataset_ids.append(d[0])
+        else:
+            dataset_ids.append(d)
     no_datasets = params.get("no_dataset", False)
     assert no_datasets or len(dataset_ids) > 0, "You must specify at least one dataset id in the model config"
 

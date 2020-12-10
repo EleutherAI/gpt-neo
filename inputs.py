@@ -2,12 +2,15 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from functools import partial
 from data.encoders import encode
+import random
+import re
+import logging
+from itertools import cycle
+from utils import natural_sort
 
-def generic_text(params, eval=False, sample_text_fn=None):
+def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
+    logging.warning("DEPRECATION WARNING: generic_text will be phased out in future versions.")
     i = 0 if not eval else 1
-    print('##############################')
-    print(params["datasets"])
-    print('##############################')
 
     weights = []
     datasets = []
@@ -253,3 +256,109 @@ def handle_pred_output(predictions, logger, enc, params, out_name="test"):
             logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
             logger.info(text)
             logger.info("\n" + "=" * 80 + "\n")
+
+def _get_number_of_documents(filename):
+    # extracts number of files from a filename formatted "<name>_<num_documents>.tfrecords."
+    # if no pattern is matched, returns None
+    match = re.search("_(\d{1,}).tfrecords$", filename)
+    return int(match.group(1)) if match is not None else match
+
+def _get_number_of_documents_by_iteration(filename):
+    # extracts number of files from a tfrecord document in the event it doesn't have metadata in the filename
+    # this could be very slow.
+    logging.warning("inputs/sequential_input() found no metadata found in filename - iterating through first tfrecord to find global length")
+    count = 0
+    for item in tf.io.tf_record_iterator(filename):
+        count += 1
+    return count
+
+def _get_skip_index(all_files, n_batches):
+    prev_cumsum = 0
+    cumsum = 0
+    global_n_documents = None
+    for count, f in cycle(enumerate(all_files)):
+        prev_cumsum = cumsum
+        if _get_number_of_documents(f) is not None:
+            cumsum += _get_number_of_documents(f)
+        elif global_n_documents is None:
+            global_n_documents = _get_number_of_documents_by_iteration(f)
+            cumsum += global_n_documents
+        else:
+            cumsum += global_n_documents
+        if cumsum == n_batches:
+            remainder = 0
+            skip_idx = count + 1
+        elif cumsum > n_batches:
+            remainder = n_batches - prev_cumsum
+            skip_idx = count
+            break
+    return skip_idx, remainder
+
+def _parse_function(example_proto):
+    features = {
+        "text": tf.VarLenFeature(tf.int64)
+    }
+    parsed_features = tf.parse_single_example(example_proto, features)
+    return tf.sparse.to_dense(parsed_features["text"], parsed_features["text"].dense_shape[0])
+
+def sequential_input(params, global_step=None, eval=False):
+    """
+    Input fn that reads tfrecords encoded with a fixed chunk size (== n_ctx + 1), and that either:
+
+        - has the number of documents for each tfrecord file encoded in the title in the format
+          <name>_<n_documents>.tfrecords.
+
+          OR 
+
+        - has a fixed number of documents per tfrecord file.
+
+    If the glob pattern above isn't matched, we assume that each document has the same number of samples as the first tfrecord read. 
+    If this isn't the case, it may result in errors, or some samples being missed.
+
+    This means we can calculate the number of samples we've seen so far using the global step, 
+    and can use dataset.skip() to iterate through the list of filenames, as opposed to the whole dataset, which is incredibly inefficient.
+
+    If training is starting and stopping often, as with TPU pre-emption, reading the whole dataset sequentially appears to improve model 
+    performance, as it results in less repeated data.
+    """
+    if not eval:
+        assert global_step is not None
+    logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated. Please ensure your batch size stays constant throughout training.")
+
+    filenames = []
+    for dataset_config in params['dataset_configs'].values(): # iterate through each dataset and read params
+        path_key = 'path' if not eval else 'eval_path'
+        path = dataset_config[path_key]
+        filenames.extend(tf.io.gfile.glob(path)) # then glob all files that fit the pattern specified in dataset_configs
+    
+    filenames = natural_sort(filenames)
+    shuffle_filenames = params.get("shuffle_input_filenames", True)
+    if shuffle_filenames:
+        seed = params.get('seed', 1) # shuffle deterministically
+        random.seed(seed)
+        random.shuffle(filenames)
+    
+    dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat() # repeat filenames to infinity
+
+    if not eval:
+        # skip forward first in the filenames list, then skip the remaining amount in the parsed tfrecords files
+        skip_idx, remainder = _get_skip_index(filenames, n_batches=global_step * params["train_batch_size"]) # TODO: fix for > 1 epoch
+        dataset = dataset.skip(skip_idx) # skip to skip idx
+
+        # read tfrecord examples and skip remainder
+        dataset = dataset.apply(tf.data.TFRecordDataset)
+        dataset = dataset.skip(remainder)
+    else:
+        # shuffle filenames if in eval mode
+        dataset = dataset.shuffle(len(filenames))
+        dataset = dataset.apply(tf.data.TFRecordDataset)
+
+        
+    # parse the tokenized data from the tfrecord files and shuffle
+    dataset = dataset.map(_parse_function, num_parallel_calls=1)
+    dataset = dataset.map(partial(autoregressive_sample_text, params), num_parallel_calls=1)
+    
+    # batch data and repeat to infinity
+    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
+    return dataset.repeat()
+    
