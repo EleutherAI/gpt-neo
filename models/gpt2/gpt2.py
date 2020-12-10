@@ -3,7 +3,7 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import math
 import mesh_tensorflow.transformer as mtf_transformer
-from models.utils import parse_inputs
+from models.utils import parse_inputs, entmax_cross_entropy_with_logits
 
 # --------------------------------------------------------------------------------
 # LAYERS:
@@ -523,9 +523,12 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         # Go to full precision for the logits 
         logits = mtf.cast(logits, tf.float32)
 
+        use_entmax_loss = params.get("entmax_loss", False)
+        loss_fn = mtf.layers.softmax_cross_entropy_with_logits if not use_entmax_loss else entmax_cross_entropy_with_logits
+
         with tf.variable_scope("xentropy_final"):
-            loss_batch = mtf.layers.softmax_cross_entropy_with_logits(logits=logits, targets=labels,
-                                                                      vocab_dim=logits.shape[-1], z_loss=z_loss)
+            loss_batch = loss_fn(logits=logits, targets=labels,
+                                 vocab_dim=logits.shape[-1], z_loss=z_loss)
 
         # For non-autoregressive models (masked language modeling training)
         # Make sure labels with padding tokens are not counted in the loss

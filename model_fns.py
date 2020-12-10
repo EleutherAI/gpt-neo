@@ -98,7 +98,7 @@ def model_fn(features, labels, mode, params):
         if not export:
             mtf_samples = sample_autoregressive(
                 inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"])
+                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"], sampling_use_entmax=params['sampling_use_entmax'])
 
         else:
             with mtf.utils.outside_all_rewrites():

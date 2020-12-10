@@ -2,6 +2,7 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import mesh_tensorflow.transformer as mtf_transformer
 
+from models.utils import entmax, sample_categorical
 from models.gpt2 import gpt2
 
 def sample_autoregressive(partial_sequences,
@@ -20,6 +21,7 @@ def sample_autoregressive(partial_sequences,
                           never_end=False,
                           remove_partial_sequences=False,
                           sampling_keep_top_k=-1,
+                          sampling_use_entmax = False,
                           bos_id=50256,
                           ):
     """Sample randomly one token at a time.
@@ -168,21 +170,24 @@ def sample_autoregressive(partial_sequences,
         with tf.variable_scope("gpt2", reuse=tf.AUTO_REUSE):
             logits, _, _ = gpt2.model({"inputs": ids}, other_features, params, inputs.mesh, variable_dtype=variable_dtype, context = context)
 
-        # By default, do top_k sampling of 0.9
-        if sampling_keep_top_k == -2:
-            sampling_keep_top_k = int(logits.shape[-1].size * 0.1)
+        if not sampling_use_entmax:
+            # By default, do top_k sampling of 0.9
+            if sampling_keep_top_k == -2:
+                sampling_keep_top_k = int(logits.shape[-1].size * 0.1)
 
-        if sampling_keep_top_k != -1:
-            if sampling_keep_top_k <= 0:
-                raise ValueError("sampling_keep_top_k must either be -1 or positive.")
-            k_largest = mtf.nth_largest_element(
-                logits, n=sampling_keep_top_k,
-                reduced_dim=other_features["vocab_dim"])
-            logits = mtf.where(mtf.less_equal(logits, k_largest),
-                               mtf.ones_like(logits) * -1e6, logits)
+            if sampling_keep_top_k != -1:
+                if sampling_keep_top_k <= 0:
+                    raise ValueError("sampling_keep_top_k must either be -1 or positive.")
+                k_largest = mtf.nth_largest_element(
+                    logits, n=sampling_keep_top_k,
+                    reduced_dim=other_features["vocab_dim"])
+                logits = mtf.where(mtf.less_equal(logits, k_largest),
+                                   mtf.ones_like(logits) * -1e6, logits)
 
-        ids_this_step = mtf.sample_with_temperature(
-            logits, other_features["vocab_dim"], temperature)
+            ids_this_step = mtf.sample_with_temperature(
+                logits, other_features["vocab_dim"], temperature)
+        else:
+            ids_this_step = sample_categorical(entmax(logits))
 
         if slow_sampling:
             ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
