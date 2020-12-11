@@ -15,8 +15,7 @@ def tf_record_dataset(name, sequence_length, time_delay, deterministic):
     data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                           block_length=1,
-                           deterministic=deterministic)
+                           block_length=1)
     data = data.repeat()
 
     return data
@@ -36,10 +35,9 @@ def generic_data(params, eval=False):
     data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, deterministic), 
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                           block_length=1,
-                           deterministic=deterministic)
-    dataset = dataset.shuffle(buffer_size)
-    dataset = dataset.batch(batch_size)
+                           block_length=1)
+    data = data.shuffle(buffer_size)
+    data = data.batch(batch_size)
 
     def prepare(x):
         # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
@@ -57,9 +55,9 @@ def generic_data(params, eval=False):
         vals2 = tf.cast(vals2, dtype=tf.float32)
         return vals1, vals2
 
-    dataset = dataset.map(prepare).repeat()
+    data = data.map(prepare).repeat()
 
-    return dataset
+    return data
 
 
 
