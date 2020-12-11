@@ -420,9 +420,9 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
     x, batch_dim, original_sequence_dim, original_width, original_height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(mtf_features, other_features)
 
     use_axial_pos_emb = False
-
     with tf.variable_scope("token_embd"):
-        model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(time_patch, 3 * patch_size, 3 * patch_size), strides=(time_patch, patch_size, patch_size))
+        model_input = mtf.layers.conv3d(x, output_dim=embd_dim, filter_size=(time_patch, 3 * patch_size, 3 * patch_size), strides=(time_patch, patch_size, patch_size), padding='SAME')
+    print(model_input.shape)
 
     sequence_dim = model_input.shape[1]
     width = model_input.shape[2]
@@ -456,11 +456,11 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
 
     output = mtf.layers.conv3d(h, mtf.Dimension("pre_pixel_shuffle", 3 * patch_size ** 2 * time_patch), (1, 3, 3))
     output = mtf.reshape(output, [batch_dim, original_sequence_dim, original_width, original_height, color_channels])
+    output = mtf.cast(output, tf.float32)
 
     if params["mode"] == "train":
         labels = mtf_features["labels"]  # TODO:
         # Go to full precision for the logits
-        output = mtf.cast(output, tf.float32)
 
         with tf.variable_scope("reduce_mean_final"):
             loss = mtf.reduce_mean(mtf.abs(output - labels))
