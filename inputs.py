@@ -28,7 +28,8 @@ def generic_data(params, eval=False):
     bucket_name = params.get('bucket_name', 'text-datasets')
     time_patch = params.get('time_patch', 1)
     color_channels = params.get('color_channels', 3)
-    deterministic = params.get('deterministic', False)
+    patch_size = params.get('patch_size', 1)
+    time_patch = params.get('time_patch', 1)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
     data = tf.data.Dataset.from_tensor_slices([f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')])
@@ -40,12 +41,12 @@ def generic_data(params, eval=False):
 
     def prepare(x):
         # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
-        x = tf.reshape(x, (batch_size, sequence_length + time_patch, frame_height, frame_width, color_channels))
+        x = tf.reshape(x, (batch_size, sequence_length // time_patch + 1, frame_height // patch_size, frame_width // patch_size, color_channels * time_patch * patch_size ** 2))
         x = tf.cast(x, tf.float32)
         x = x / 255.
 
-        vals1 = x[:, :sequence_length]
-        vals2 = x[:, time_patch:sequence_length + time_patch]
+        vals1 = x[:, :sequence_length // time_patch]
+        vals2 = x[:, 1:sequence_length // time_patch + 1]
 
         return vals1, vals2
 
