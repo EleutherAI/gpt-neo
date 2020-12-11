@@ -52,6 +52,9 @@ def generic_data(params, eval=False):
 
     data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.repeat()
+    
+    if buffer_size > 0:
+        data = data.prefetch(buffer_size)
 
     return data
 
