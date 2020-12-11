@@ -8,12 +8,15 @@ import requests
 from data.video2tfrecord import frame_decoder
 from google.cloud import storage
 
-def tf_record_dataset(name, sequence_length, time_delay):
-
+def tf_record_dataset(name, sequence_length, time_delay, deterministic):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2**20, num_parallel_reads=1)
     data = data.map(frame_decoder).repeat()
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
-    data = data.flat_map(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True))
+    data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
+                           cycle_length=tf.data.experimental.AUTOTUNE,
+                           num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                           block_length=1,
+                           deterministic=deterministic)
     data = data.repeat()
 
     return data
@@ -21,23 +24,25 @@ def tf_record_dataset(name, sequence_length, time_delay):
 def generic_data(params, eval=False):
     sequence_length = params['n_ctx']
     buffer_size = params.get('buffer_size', 1)
-    frame_height = params.get('frame_height', 180) #176
-    frame_width = params.get('frame_width', 320) #320
+    frame_height = params.get('frame_height', 176)
+    frame_width = params.get('frame_width', 320)
     bucket_name = params.get('bucket_name', 'text-datasets')
     time_patch = params.get('time_patch', 1)
     color_channels = params.get('color_channels', 3)
+    deterministic = params.get('deterministic', False)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
-    data = [tf_record_dataset(f'gs://{bucket_name}/datasets/video/test.tfrecord', sequence_length, time_patch)]
-    #data = [tf_record_dataset(f'gs://{bucket_name}/{itm.name}', sequence_length) for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')]
-    #data = [tf_record_dataset(itm, sequence_length) for itm in test_data]
-
-    dataset = tf.data.experimental.sample_from_datasets(data)
+    data = tf.data.Dataset.from_tensor_slices([f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')])
+    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, deterministic), 
+                           cycle_length=tf.data.experimental.AUTOTUNE,
+                           num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                           block_length=1,
+                           deterministic=deterministic)
     dataset = dataset.shuffle(buffer_size)
     dataset = dataset.batch(batch_size)
 
     def prepare(x):
-        # input tensor (batch_size, sequence_length, frame_height, frame_width, color_channels)
+        # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
         x = tf.reshape(x, (batch_size, sequence_length + time_patch, frame_height, frame_width, color_channels))
         x = tf.cast(x, tf.float32)
         x = x / 255.
