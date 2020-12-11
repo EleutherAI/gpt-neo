@@ -134,8 +134,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype):
 
     for layer in range(params["n_layer"]):
         # attn blocks
-        share_parameters = params["share_parameters"] is not None and params["share_parameters"] is True
-        block_scope = f"h{layer}" if not share_parameters else ""
+        block_scope = f"h{layer}"
 
         block_fn = block(params=params, scope=block_scope, layer_num=layer,
                          bias=other_features["attn_bias"],
@@ -145,8 +144,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype):
                          variable_dtype=variable_dtype)
 
         # If true and in train mode, enable gradient checkpointing
-        recompute_grad = params["recompute_grad"] and params["mode"] == "train"
-        h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
+        h, loss = mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
 
     output = h
