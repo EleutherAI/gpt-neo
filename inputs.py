@@ -8,7 +8,7 @@ import requests
 from data.video2tfrecord import frame_decoder
 from google.cloud import storage
 
-def tf_record_dataset(name, sequence_length, time_delay, deterministic):
+def tf_record_dataset(name, sequence_length, time_delay):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2**20, num_parallel_reads=1)
     data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
@@ -33,7 +33,7 @@ def generic_data(params, eval=False):
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
     data = tf.data.Dataset.from_tensor_slices([f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')])
-    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, deterministic), 
+    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch),
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
