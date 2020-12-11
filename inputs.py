@@ -31,8 +31,9 @@ def generic_data(params, eval=False):
     patch_size = params.get('patch_size', 1)
     time_patch = params.get('time_patch', 1)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
+    prefix = params.get('prefix', 'datasets/video')
 
-    data = tf.data.Dataset.from_tensor_slices([f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')])
+    data = tf.data.Dataset.from_tensor_slices([f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)])
     data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch),
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
