@@ -5,7 +5,7 @@ import mesh_tensorflow as mtf
 import mesh_tensorflow.transformer as mtf_transformer
 import tensorflow.compat.v1 as tf
 
-from models.utils import parse_inputs
+from models.utils import parse_inputs, biasmask_attn_weights
 
 # --------------------------------------------------------------------------------
 # LAYERS:
@@ -34,71 +34,51 @@ def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scal
                              )
         return c
 
-
-def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype):
-    # X Shape: [dim_batch, sequence_length, dim_embd]
-    print(x.shape)
-    x_shape, dim_batch, sequence_length, dim_embd, mesh = x.shape, *x.shape, x.mesh
-
-    n_embd = params["n_embd"]
-
-    dim_heads = mtf.Dimension("heads", params["n_head"])
-    key_dim = mtf.Dimension("features_per_head", n_embd // params["n_head"])
-
-    with tf.variable_scope(scope):
-        # Compute attention inputs
-        mtfparams = mtf.transformer.attention.attention_params_simple(x.mesh,
-                                                                      io_dim=dim_embd,
-                                                                      kv_dim=key_dim,
-                                                                      heads_dim=dim_heads,
-                                                                      variable_dtype=variable_dtype
-                                                                      )
-        q = mtfparams.compute_q(x)
-        k = mtfparams.compute_k(x)
-        v = mtfparams.compute_v(x)
-
-        with tf.variable_scope("attention"):
-            logits = mtf.layers.us_einsum([q, k], reduced_dims=[key_dim])
-            if bias is not None:
-                logits += mtf.broadcast(bias, [dim_batch, dim_heads, bias.shape[-2], bias.shape[-1]])
-            weights = mtf.softmax(logits, memory_length_dim)
-            a = mtf.einsum([weights, v], q.shape)
-
-        with tf.variable_scope("compute_output"):
-            a = mtfparams.compute_output(a, x_shape)
-
-        return a
-
-
 def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_length_dim, variable_dtype):
     use_moe = params["moe_layers"] is not None and layer_num in params["moe_layers"]
     use_mlp = params.get('use_mlp', True)
 
     def fn(x):
+        x_shape = x.shape
+        dim_embd = x.shape[4]
+
         with tf.variable_scope(scope):
-            nx = x.shape[-1]  # Grab last dimension from input
-
-            attention_type = params["attention_types"][layer_num]
-
             summed_a = None
-            original_shape = list(x.shape)
+
             for idx, dim in enumerate([sequence_dim, width, height]):
-                current_shape = original_shape.copy()
-                if idx + 1 != 3:
-                    current_shape[3], current_shape[idx + 1] = current_shape[idx + 1], current_shape[3]
-                    inp = mtf.transpose(x, current_shape)
-                batch = mtf.Dimension("big_batch",
-                                      current_shape[0].size * current_shape[1].size * current_shape[2].size)
-                inp = mtf.reshape(inp, [batch, current_shape[3], current_shape[4]])
-                a = attn(inp, "attn", nx, attention_type=attention_type,
-                         params=params, bias=bias if idx == 0 else None,
-                         dim_seq=dim, memory_length_dim=dim,
-                         variable_dtype=variable_dtype)
-                a = mtf.reshape(a, current_shape)
-                a = mtf.transpose(a, original_shape)
+                tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+
+                dim_heads = mtf.Dimension("heads", params["n_head"])
+                key_dim = mtf.Dimension("features_per_head", dim_embd.size // params["n_head"])
+
+                with tf.variable_scope(f"attn{dim.name}"):
+                    # Compute attention inputs
+                    mtfparams = mtf.transformer.attention.attention_params_simple(x.mesh,
+                                                                                  io_dim=dim_embd,
+                                                                                  kv_dim=key_dim,
+                                                                                  heads_dim=dim_heads,
+                                                                                  variable_dtype=variable_dtype
+                                                                                  )
+                    q = mtfparams.compute_q(x)
+                    k = mtfparams.compute_k(x)
+                    v = mtfparams.compute_v(x)
+                    k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
+                    v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
+
+                    with tf.variable_scope("attention"):
+                        logits = mtf.einsum([q, k], q.shape - key_dim + tmp_dim)
+                        if idx == 0:
+                            logits += mtf.broadcast(biasmask_attn_weights(x.mesh, dim, tmp_dim, variable_dtype),
+                                                    logits.shape)
+                        weights = mtf.softmax(logits, dim)
+                        a = mtf.einsum([weights, v], q.shape)
+
+                    with tf.variable_scope("compute_output"):
+                        a = mtfparams.compute_output(a, x_shape)
+
                 summed_a = a if summed_a is None else (summed_a + a)
 
-            x = x + rezero(a, "norm_rezero_1", dtype=variable_dtype)
+            x = x + rezero(summed_a, "norm_rezero_1", dtype=variable_dtype)
 
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
@@ -134,34 +114,6 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
     return fn
 
 
-def axial_positional_emb(embd_dim, mesh, params, variable_dtype):
-    # Use axial position encoding
-    axial_dim_1, axial_dim_2 = params["axial_pos_emb"]
-
-    axial_dim = mtf.Dimension("axial_dim", axial_dim_1 * axial_dim_2)
-    dim_axials = [mtf.Dimension(f"axial_dim_{i}", t) for i, t in enumerate((axial_dim_1, axial_dim_2))]
-
-    axial_wpe_1 = mtf.get_variable(mesh, "axial_wpe_1", mtf.Shape([dim_axials[0], embd_dim]),
-                                   initializer=tf.random_normal_initializer(stddev=0.01),
-                                   master_dtype=variable_dtype.master_dtype,
-                                   slice_dtype=variable_dtype.slice_dtype,
-                                   activation_dtype=variable_dtype.activation_dtype)
-
-    axial_wpe_2 = mtf.get_variable(mesh, "axial_wpe_2", mtf.Shape([dim_axials[1], embd_dim]),
-                                   initializer=tf.random_normal_initializer(stddev=0.01),
-                                   master_dtype=variable_dtype.master_dtype,
-                                   slice_dtype=variable_dtype.slice_dtype,
-                                   activation_dtype=variable_dtype.activation_dtype)
-
-    axial_wpe_1, axial_wpe_2 = map(lambda t: mtf.broadcast(t, [dim_axials[0], dim_axials[1], embd_dim]),
-                                   (axial_wpe_1, axial_wpe_2))
-    wpe = (axial_wpe_1 + axial_wpe_2) / 2
-
-    wpe = mtf.reshape(wpe, [axial_dim, embd_dim])
-
-    return wpe
-
-
 # --------------------------------------------------------------------------------
 # MODEL:
 
@@ -179,6 +131,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype):
     h -= 1.5
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
+    h = linear(h, "input_projection", embd_dim, variable_dtype=tf.float32, params=params, scale=True)
 
     for layer in range(params["n_layer"]):
         # attn blocks
@@ -193,7 +146,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype):
                          variable_dtype=variable_dtype)
 
         # If true and in train mode, enable gradient checkpointing
-        recompute_grad = params["recompute_grad"] and (params["mode"] == "train") == True
+        recompute_grad = params["recompute_grad"] and params["mode"] == "train"
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
 
@@ -214,3 +167,4 @@ def model(mtf_features, other_features, params, mesh, variable_dtype):
     # Cast back to checkpoint dtype
     output = mtf.cast(output, variable_dtype.master_dtype)
     return output, loss
+
