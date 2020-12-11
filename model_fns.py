@@ -117,7 +117,7 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
+                    logits, loss = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype)
         else:
             raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
