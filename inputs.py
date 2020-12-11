@@ -13,8 +13,8 @@ def tf_record_dataset(name, sequence_length, time_delay, deterministic):
     data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
     data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
-                           cycle_length=tf.data.experimental.AUTOTUNE,
-                           num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                           cycle_length=1,
+                           num_parallel_calls=1,
                            block_length=1)
     data = data.repeat()
 
