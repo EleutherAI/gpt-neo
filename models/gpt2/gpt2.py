@@ -39,7 +39,6 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
     use_mlp = params.get('use_mlp', True)
 
     def fn(x):
-        x_shape = x.shape
         dim_embd = x.shape[4]
 
         with tf.variable_scope(scope):
@@ -68,13 +67,13 @@ def block(params, scope, layer_num, bias, width, height, sequence_dim, memory_le
                     with tf.variable_scope("attention"):
                         logits = mtf.einsum([q, k], q.shape - key_dim + tmp_dim)
                         if idx == 0:
-                            logits += mtf.broadcast(biasmask_attn_weights(x.mesh, dim, tmp_dim, variable_dtype),
+                            logits += mtf.broadcast(biasmask_attn_weights(x.mesh, tmp_dim, dim, variable_dtype),
                                                     logits.shape)
                         weights = mtf.softmax(logits, dim)
                         a = mtf.einsum([weights, v], q.shape)
 
                     with tf.variable_scope("compute_output"):
-                        a = mtfparams.compute_output(a, x_shape)
+                        a = mtfparams.compute_output(a, x.shape)
 
                 summed_a = a if summed_a is None else (summed_a + a)
 
