@@ -10,7 +10,7 @@ from google.cloud import storage
 
 def tf_record_dataset(name, sequence_length, time_delay, deterministic):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2**20, num_parallel_reads=1)
-    data = data.map(frame_decoder).repeat()
+    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
     data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
                            cycle_length=tf.data.experimental.AUTOTUNE,
@@ -55,7 +55,7 @@ def generic_data(params, eval=False):
         vals2 = tf.cast(vals2, dtype=tf.float32)
         return vals1, vals2
 
-    data = data.map(prepare).repeat()
+    data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
 
     return data
 
