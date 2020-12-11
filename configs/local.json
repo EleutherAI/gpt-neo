@@ -1,6 +1,6 @@
 {
     "time_patch": 1,
-    "n_ctx": 1,
+    "n_ctx": 4,
 
     "patch_size": 16,
     "frame_width": 2048,
@@ -10,6 +10,8 @@
     "n_embd": 256,
     "n_layer": 12,
     "attention_types": [[["local"],12]],
+
+    "buffer_size": 4,
 
     "lr": 0.0006,
     "train_batch_size": 1,
