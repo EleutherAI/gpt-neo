@@ -1,4 +1,4 @@
-import numpy as np
+#import numpy as np
 import tensorflow.compat.v1 as tf
 from functools import partial
 from data.encoders import encode
@@ -36,7 +36,6 @@ def generic_data(params, eval=False):
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
-    data = data.shuffle(buffer_size)
     data = data.batch(batch_size)
 
     def prepare(x):
@@ -48,14 +47,10 @@ def generic_data(params, eval=False):
         vals1 = x[:, :sequence_length]
         vals2 = x[:, time_patch:sequence_length + time_patch]
 
-        vals1 = tf.reshape(vals1, (batch_size, sequence_length, frame_height, frame_width, color_channels))
-        vals2 = tf.reshape(vals2, (batch_size, sequence_length, frame_height, frame_width, color_channels))
-
-        vals1 = tf.cast(vals1, dtype=tf.float32)
-        vals2 = tf.cast(vals2, dtype=tf.float32)
         return vals1, vals2
 
-    data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
+    data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    data = data.repeat()
 
     return data
 
