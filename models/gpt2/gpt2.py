@@ -121,9 +121,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype):
     x, batch_dim, sequence_dim, width, height, color_channels, embd_dim, vocab_dim, embed_sequence_dim = parse_inputs(
             mtf_features, other_features)
 
-    model_input = x
-
-    h = model_input
+    h = x
     h += mtf.range(mesh, sequence_dim, tf.float32) / (sequence_dim.size * 2.)
     h += mtf.range(mesh, width, tf.float32) / (width.size * 2.)
     h += mtf.range(mesh, height, tf.float32) / (height.size * 2.)
