@@ -30,11 +30,14 @@ def parse_inputs(mtf_features, other_features):
 
     batch_dim = x.shape[0]
     sequence_dim = x.shape[1]
+    width = x.shape[2]
+    height = x.shape[3]
+    color_channels = x.shape[4]
     embd_dim = other_features["embd_dim"]
     vocab_dim = other_features["vocab_dim"]
     embed_sequence_dim = other_features["embed_sequence_dim"]
 
-    return x, batch_dim, sequence_dim, embd_dim, vocab_dim, embed_sequence_dim
+    return x, batch_dim, sequence_dim, width, height, color_channels, embd_dim, vocab_dim, embed_sequence_dim
 
 def rezero(x, scope, dtype):
     with tf.variable_scope(scope):
