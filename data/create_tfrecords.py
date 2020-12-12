@@ -30,7 +30,7 @@ parser.add_argument("--output_dir", type=str, default="./tfrecords", help="Where
 parser.add_argument("--encoder_path", type=str, help="Path to encoder files, or leave unspecified to use GPT2 tokenizer")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
-parser.add_argument("--separator", nargs="+", type=int, default=[0], help="separator to place between files in chunk mode")
+parser.add_argument("--separator", nargs="+", type=int, default=[50256], help="separator to place between files in chunk mode")
 parser.add_argument("--chunk_size", type=int, default=2048, help="How big a chunk should be in chunk mode. "
                                                                  "Should equal your model's context size")
 parser.add_argument("--write_dataset_config", action="store_true", help="Write the dataset config file on completion")
