@@ -1,6 +1,6 @@
 {
-    "time_patch": 1,
-    "n_ctx": 4,
+    "time_patch": 2,
+    "n_ctx": 32,
 
     "patch_size": 16,
     "frame_width": 2048,
@@ -11,17 +11,17 @@
     "n_layer": 12,
     "attention_types": [[["local"],12]],
 
-    "buffer_size": 4,
+    "buffer_size": 8,
 
-    "lr": 0.0006,
+    "lr": 0.00005,
     "train_batch_size": 1,
     "recompute_grad": true,
 
-    "mesh_shape": "x:1,y:8",
-    "layout": "batch:x,heads:y",
+    "mesh_shape": "x:1,y:8,z:4",
+    "layout": "batch:x,heads:y,embd:z",
     "prefix": "datasets/full_hd_video",
 
-    "model_path": "gs://text-datasets/video-transformer/ctx=256-layer=12-heads=8-feat=256",
+    "model_path": "gs://text-datasets/video-transformer/ctx=32-layer=12-heads=8-feat=256",
 
     "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
@@ -35,7 +35,7 @@
     "ada_epsilon1": 1e-30,
     "ada_epsilon2": 1e-3,
     "opt_name": "adam",
-    "weight_decay": 0.01,
+    "weight_decay": 0.1,
     "attn_dropout": 0,
     "train_steps": 572300,
     "eval_steps": 0,
