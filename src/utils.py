@@ -1,13 +1,19 @@
-import re
-from urllib.parse import urlparse
 from shutil import rmtree
 import logging
-import os
-from pathlib import Path
+import os.path
+import json
 import sys
-import tensorflow.compat.v1 as tf
+import re
+import os
+
+from transformers import GPT2TokenizerFast
+from collections import defaultdict
 import tensorflow.compat.v2 as tf2
+import tensorflow.compat.v1 as tf
+from urllib.parse import urlparse
+from tokenizers import Tokenizer
 import mesh_tensorflow as mtf
+from pathlib import Path
 
 
 def setup_logging(args):
@@ -22,10 +28,6 @@ def setup_logging(args):
     logger = logging.getLogger("tensorflow")
     logger.handlers = handlers
     return logger
-
-
-def get_batch_size(params):
-    return params[f"{params['mode']}_batch_size"]
 
 
 def add_mode_to_params(params, mode):
@@ -126,7 +128,6 @@ def save_config(params_dict, logdir):
     tf.reset_default_graph()
     print('Done!')
 
-
 def expand_attention_types_params(params_list):
     newlist = []
     for item in params_list:
@@ -171,6 +172,24 @@ def print_dim_names(graph):
         print(dim_name)
     print('\n')
 
+def fetch_encoder(params):
+    no_dataset = params.get('no_dataset', False)
+    if no_dataset:
+        return None
+
+    dataset = next(iter(params['dataset_configs'].values())) # Get the first value from the dict
+    path = dataset["tokenizer_path"]
+    is_pretrained = dataset.get("tokenizer_is_pretrained", False)
+
+    if is_pretrained:
+        tok = GPT2TokenizerFast.from_pretrained(path)
+
+        # Will add a padding token id of 50257 at run-time
+        tok.add_special_tokens({'pad_token': '<|padding|>'})
+        return tok
+
+    return Tokenizer.from_file(path)
+
 
 def get_graph_info(graph):
     """
@@ -184,49 +203,30 @@ def get_graph_info(graph):
     print_dim_names(graph)
 
 
-def loss_denominator(targets, num_microbatches):
-    """Denominator applied to losses.
-
-    This is usually the size of the targets tensor (omitting ensemble
-    dimensions).  Alternatively, it is an override value passed to the
-    class constructor.
-
-    Args:
-      targets: a mtf.Tensor
-      num_microbatches: an integer - greater than one if the step has been
-        serialized into multiple microbatches to save memory.
-    Returns:
-      a float
-    """
-    ret = float(targets.shape.size) * num_microbatches
-    return float(ret)
-
-def check_dataset(input_fn):
+def check_dataset(input_fn, params, global_step=None):
     tf.enable_eager_execution()
-    dataset = input_fn(params)
+    if global_step is not None:
+        dataset = input_fn(params, global_step=global_step)
+    else:
+        dataset = input_fn(params)
     dataset_iter = dataset.make_one_shot_iterator()
     tensor, _ = next(dataset_iter)
     enc = fetch_encoder(params)
 
     for p in tensor[:1]:
         txt = enc.decode(p)
-    #txt = enc.decode(tensor)
-    max_id = tf.reduce_max(tensor)
-    min_id = tf.reduce_min(tensor)
 
-    print(tensor)
-    print(tensor.shape)
     print('-' * 50)
-    print(txt[:500], '\n...\n', txt[-500:])
+    print(txt[:500], '\n\n...\n\n', txt[-500:])
     print('-' * 50)
-    print('min token id: ', min_id)
-    print('max token id: ', max_id)
     exit()
+
 
 def auto_layout(graph, mesh_shape, logits, loss):
     layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
     print(f"Auto-selected layout:\n{layout_rules}\nRe-initialize graph with selected layout")
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
+
 
 def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores,
@@ -234,6 +234,7 @@ def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     print(f"Num cores:\n{num_cores}\nAuto-selected layout:\n{layout_rules}\nAuto-selected mesh shape:\n{mesh_shape}" \
             f"\nRe-initialize graph with selected layout & mesh shape")
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
+
 
 def create_host_call(model_dir, labels):
     """Construct a host_call writing scalar summaries.
@@ -287,3 +288,24 @@ def create_host_call(model_dir, labels):
 
     global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
     return host_call_fn, [global_step_t] + reshaped_tensors
+
+
+def fetch_model_params(model):
+    model_path = model if model.endswith(".json") else f"configs/{model}.json"
+    with open(model_path) as f:
+        params = json.load(f)
+
+    dataset_ids = [d[0] for d in params.get("datasets", [])]
+    no_datasets = params.get("no_dataset", False)
+
+    datasets = {}
+
+    params["dataset_configs"] = datasets
+
+    # Set some other parameter defaults
+    params["mlm_training"] = params.get("mlm_training") == True
+    params["causal"] = not params["mlm_training"]
+
+    # Set all other parameter values to default to None
+    params = defaultdict(lambda: None, params)
+    return params

@@ -1,26 +1,34 @@
-#import numpy as np
-import tensorflow.compat.v1 as tf
-from functools import partial
-from data.encoders import encode
-import os
-import random
 import requests
-from data.video2tfrecord import frame_decoder
-from google.cloud import storage
+import random
+import os
 
-def tf_record_dataset(name, sequence_length, time_delay):
-    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2**20, num_parallel_reads=1)
-    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
+from video2tfrecord import frame_decoder
+import tensorflow.compat.v1 as tf
+from google.cloud import storage
+import collections
+import numpy as np
+
+
+def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
+
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 20, num_parallel_reads=1)
+    data = data.map(frame_decoder, num_parallel_calls=1)
+    data = data.repeat()
+
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
+
     data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
                            cycle_length=1,
                            num_parallel_calls=1,
                            block_length=1)
+
     data = data.repeat()
 
     return data
 
-def generic_data(params, eval=False):
+
+def generic_data(params: collections.defaultdict, eval: bool = False):
+
     sequence_length = params['n_ctx']
     buffer_size = params.get('buffer_size', 1)
     frame_height = params.get('frame_height', 176)
@@ -29,35 +37,43 @@ def generic_data(params, eval=False):
     time_patch = params.get('time_patch', 1)
     color_channels = params.get('color_channels', 3)
     patch_size = params.get('patch_size', 1)
-    time_patch = params.get('time_patch', 1)
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
+    prefix = params.get('prefix', 'datasets/video')
 
-    data = tf.data.Dataset.from_tensor_slices([f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix='datasets/video')])
+    path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
+
+    data = tf.data.Dataset.from_tensor_slices(path)
     data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch),
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
+
     data = data.batch(batch_size)
 
-    def prepare(x):
+    def prepare(x: tf.Tensor):
         # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
-        x = tf.reshape(x, (batch_size, sequence_length // time_patch + 1, frame_height // patch_size, frame_width // patch_size, color_channels * time_patch * patch_size ** 2))
+
+        time_patch_size = sequence_length // time_patch
+        frame_height_patch = frame_height // patch_size
+        frame_width_patch = frame_width // patch_size
+        channel_color_size = color_channels * time_patch * patch_size ** 2
+
+        x = tf.reshape(x, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch, channel_color_size))
         x = tf.cast(x, tf.float32)
         x = x / 255.
 
-        vals1 = x[:, :sequence_length // time_patch]
-        vals2 = x[:, 1:sequence_length // time_patch + 1]
+        vals1 = x[:, :time_patch_size]
+        vals2 = x[:, 1:time_patch_size + 1]
 
         return vals1, vals2
 
     data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.repeat()
-    
+
     if buffer_size > 0:
         data = data.prefetch(buffer_size)
 
     return data
-
 
 
 if __name__ == '__main__':
@@ -68,12 +84,12 @@ if __name__ == '__main__':
     dataset = generic_data({'n_ctx': 256, 'train_batch_size': 32})
 
     iterator = dataset.make_one_shot_iterator()
-    #iterator = dataset.make_initializable_iterator()
+    # iterator = dataset.make_initializable_iterator()
     next_frame_data = iterator.get_next()
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
-        #sess.run(iterator.initializer)
+        # sess.run(iterator.initializer)
 
         while True:
             frame_data_1, frame_data_2 = sess.run(next_frame_data)

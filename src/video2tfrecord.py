@@ -226,6 +226,8 @@ def worker(work: list,
     This function will download youtube videos and proses them and save than as TF.record files.
     '''
 
+    total_len = 0
+
     # Check if TF.record are uploaded to google cloud storage.
     if type(save_dir) is storage.Blob:
         cloud_storage = True
@@ -260,7 +262,7 @@ def worker(work: list,
 
             # Change ID string to video path, this will be needed so we can creat TF.record from the download.
             wor = os.path.join(download_buffer_dir, (wor + '.*'))
-            wor = glob.glob(wor)[0]
+            wor = [w for w in glob.glob(wor) if '.vtt' not in w][0]
             wor = os.path.join(download_buffer_dir, wor)
 
         # Setup CV2 video reader.
@@ -304,6 +306,7 @@ def worker(work: list,
 
         # Release video capture.
         video_cap.release()
+        total_len  = total_len + frame_count
 
         # Remove video file if it was downloaded.
         if download and not keep_buffer_download:
@@ -313,8 +316,11 @@ def worker(work: list,
             save_dir.upload_from_filename(_save_name)
             os.remove(_save_name)
 
+    print('TOTAL EXAMPELS:', total_len)
+
 
 if __name__ == '__main__':
+    '''
     parser = argparse.ArgumentParser()
 
     enc = GPT2Tokenizer.from_pretrained('gpt2')
@@ -325,7 +331,7 @@ if __name__ == '__main__':
 
     text, words, stamp = decode_vtt(vtt)
     bpe_list = encode_with_word_split(enc, words, text)
-
+    '''
 
     '''
     duffer = []
@@ -345,17 +351,31 @@ if __name__ == '__main__':
     '''
 
 
-
-
-
     '''
-    id = json.load(open('channel_video_id_list.json'))
+    content = os.listdir('/buffer/')
+    content = ['/buffer/' + c for c in content if '.vtt' not in c]
+    print(len(content), content)
+    worker(content, '/video_only/', target_fps=1, target_resolution=(320, 176), keep_buffer_download=True,
+           download_buffer_dir='/buffer/', use_subtitles=False, download=False)
+    '''
 
 
-    split_id = split_equal(id, 2)
+
+
+    #id = json.load(open('channel_video_id_list.json'))
+
+    content = os.listdir('/buffer/')
+    content = ['/buffer/' + c for c in content if '.vtt' not in c]
+    print(len(content), content)
+
+    split_id = split_equal(content, 40)
+    split_sum = 0
 
     for s in split_id:
-        print(s)
+        print(len(s), s)
+        split_sum = split_sum + len(s)
+
+    print('total split sum:', split_sum)
 
     work = []
 
@@ -364,8 +384,8 @@ if __name__ == '__main__':
                                                          '/video_only/',
                                                          1,
                                                          (320, 176),
-                                                         True,
-                                                         True,
+                                                         False,
+                                                         False,
                                                          True,
                                                          '/buffer/',))
 
@@ -374,7 +394,7 @@ if __name__ == '__main__':
 
     for w in work:
         w.join()
-    '''
+
 
 
     #worker(id, '/video_only/', target_fps=1, target_resolution=(320, 176), keep_buffer_download=True, download_buffer_dir='/buffer/', use_subtitles=True)
@@ -395,7 +415,7 @@ if __name__ == '__main__':
 
         while success:
             if frame_count % fps == 0 or frame_count == 0:
-                frame = cv2.resize(frame, (426, 240))
+                frame = cv2.resize(frame, 320, 176)
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
                 frame = cv2.imencode('.jpg', frame)[1].tostring()
                 proto = frame_encoder(frame)
@@ -405,8 +425,8 @@ if __name__ == '__main__':
             frame_count += 1
             
     video_cap.release()
-
-
+    '''
+    '''
 
     dataset = tf.data.TFRecordDataset(['/opt/project/test.tfrecord'])
     dataset = dataset.map(frame_decoder)
