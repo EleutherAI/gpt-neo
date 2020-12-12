@@ -1,6 +1,8 @@
 from functools import partial
 import argparse
 
+import mesh_tensorflow as mtf
+
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from utils import expand_attention_types_params
@@ -11,7 +13,6 @@ from utils import setup_logging
 from utils import check_dataset
 from inputs import generic_data
 from utils import save_config
-import mesh_tensorflow as mtf
 from utils import yes_or_no
 from train import model_fn
 
