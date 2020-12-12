@@ -11,7 +11,7 @@ import numpy as np
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
 
-    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 20, num_parallel_reads=1)
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
     data = data.map(frame_decoder, num_parallel_calls=1)
     data = data.repeat()
 
@@ -40,6 +40,11 @@ def generic_data(params: collections.defaultdict, eval: bool = False):
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
     prefix = params.get('prefix', 'datasets/video')
 
+    time_patch_size = sequence_length // time_patch
+    frame_height_patch = frame_height // patch_size
+    frame_width_patch = frame_width // patch_size
+    channel_color_size = color_channels * time_patch * patch_size ** 2
+
     path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
 
     data = tf.data.Dataset.from_tensor_slices(path)
@@ -52,25 +57,26 @@ def generic_data(params: collections.defaultdict, eval: bool = False):
 
     def prepare(x: tf.Tensor):
         # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
-
-        time_patch_size = sequence_length // time_patch
-        frame_height_patch = frame_height // patch_size
-        frame_width_patch = frame_width // patch_size
-        channel_color_size = color_channels * time_patch * patch_size ** 2
-
         x = tf.reshape(x, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch, channel_color_size))
         x = tf.cast(x, tf.float32)
         x = x / 255.
 
-        vals1 = x[:, :time_patch_size]
-        vals2 = x[:, 1:time_patch_size + 1]
+        src = x[:, :time_patch_size]
+        tgt = x[:, 1:time_patch_size + 1]
 
-        return vals1, vals2
+        src += tf.reshape(tf.range(time_patch_size, dtype=tf.float32) / (time_patch_size * 2.), (1, time_patch_size, 1, 1, 1))
+        src += tf.reshape(tf.range(frame_height_patch, dtype=tf.float32) / (frame_height_patch * 2.), (1, 1, frame_height_patch, 1, 1))
+        src += tf.reshape(tf.range(frame_width_patch, dtype=tf.float32) / (frame_width_patch * 2.), (1, 1, 1, frame_width_patch, 1))
+        src -= 1.5
+
+        return src, tgt
+
 
     data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.repeat()
 
     if buffer_size > 0:
+        print(f"Buffering {buffer_size} elements")
         data = data.prefetch(buffer_size)
 
     return data
