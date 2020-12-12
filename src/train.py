@@ -2,9 +2,9 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 import mesh_tensorflow.transformer as mtf_transformer
-from src.optimizers import get_optimizer
-from src.utils import (create_host_call, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size, auto_layout, auto_layout_and_mesh_shape)
-from src import model
+from optimizers import get_optimizer
+from utils import (create_host_call, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size, auto_layout, auto_layout_and_mesh_shape)
+import model
 
 def model_fn(features, labels, mode, params):
     # Get global step

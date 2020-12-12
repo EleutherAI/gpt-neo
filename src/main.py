@@ -5,11 +5,11 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from src.utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, \
+from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, \
     check_dataset
-from src.inputs import generic_data
-from src.train import model_fn
-from src.utils import fetch_model_params
+from inputs import generic_data
+from train import model_fn
+from utils import fetch_model_params
 import argparse
 
 

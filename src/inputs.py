@@ -4,7 +4,7 @@ from functools import partial
 import os
 import random
 import requests
-from src.video2tfrecord import frame_decoder
+from video2tfrecord import frame_decoder
 from google.cloud import storage
 
 
