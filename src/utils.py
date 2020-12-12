@@ -1,22 +1,19 @@
-import re
-from urllib.parse import urlparse
 from shutil import rmtree
 import logging
-import os
-from pathlib import Path
-import sys
-import tensorflow.compat.v1 as tf
-import tensorflow.compat.v2 as tf2
-import mesh_tensorflow as mtf
 import os.path
 import json
-import requests
-import numpy as np
-import ftfy
-from tokenizers import Tokenizer
+import sys
+import re
+import os
+
 from transformers import GPT2TokenizerFast
 from collections import defaultdict
-import tensorflow as tf
+import tensorflow.compat.v2 as tf2
+import tensorflow.compat.v1 as tf
+from urllib.parse import urlparse
+from tokenizers import Tokenizer
+import mesh_tensorflow as mtf
+from pathlib import Path
 
 
 def setup_logging(args):
@@ -32,8 +29,6 @@ def setup_logging(args):
     logger.handlers = handlers
     return logger
 
-def get_batch_size(params):
-    return params[f"{params['mode']}_batch_size"]
 
 def add_mode_to_params(params, mode):
     if mode == tf.estimator.ModeKeys.PREDICT:
@@ -45,6 +40,7 @@ def add_mode_to_params(params, mode):
     else:
         raise ValueError(f"Invalid mode {mode}")
     return params
+
 
 def simd_mesh_setup(params, mesh_shape, layout_rules):
     """Constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
@@ -67,6 +63,7 @@ def simd_mesh_setup(params, mesh_shape, layout_rules):
 
     return var_placer, mesh_impl
 
+
 def remove_batch_from_layout(layout):
     """
     The tf-mesh layout splits across batch size, remove it.
@@ -84,6 +81,7 @@ def remove_batch_from_layout(layout):
             ret_layout += f"{i},"
     return ret_layout[:-1]
 
+
 def yes_or_no(question):
     while True:
         reply = str(input(question+' (y/n): ')).lower().strip()
@@ -92,12 +90,14 @@ def yes_or_no(question):
         if reply[:1] == 'n':
             return False
 
+
 def remove_gs_or_filepath(path):
     parsed_url = urlparse(path)
     if parsed_url.scheme == "gs":
         os.system(f"gsutil rm -rf {path}")
         return
     rmtree(path)
+
 
 def save_config(params_dict, logdir):
     print(f"Saving config to {logdir}")
@@ -135,6 +135,7 @@ def expand_attention_types_params(params_list):
             newlist.extend(item[0])
     return newlist
 
+
 def get_n_trainable_vars(graph):
     """
     Gets number of trainable vars in a MTF model.
@@ -150,6 +151,7 @@ def get_n_trainable_vars(graph):
           variable_parameters *= dim.size
       total_parameters += variable_parameters
     print(f"\n\nN TRAINABLE VARS:\n{total_parameters:,}\n\n")
+
 
 def print_dim_names(graph):
     """
@@ -188,6 +190,7 @@ def fetch_encoder(params):
 
     return Tokenizer.from_file(path)
 
+
 def get_graph_info(graph):
     """
     Wrapper fn that calculates number of trainable vars in an MTF graph & prints all dim_names to file
@@ -198,6 +201,7 @@ def get_graph_info(graph):
     """
     get_n_trainable_vars(graph)
     print_dim_names(graph)
+
 
 def check_dataset(input_fn, params, global_step=None):
     tf.enable_eager_execution()
@@ -217,10 +221,12 @@ def check_dataset(input_fn, params, global_step=None):
     print('-' * 50)
     exit()
 
+
 def auto_layout(graph, mesh_shape, logits, loss):
     layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
     print(f"Auto-selected layout:\n{layout_rules}\nRe-initialize graph with selected layout")
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
+
 
 def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores,
@@ -228,6 +234,7 @@ def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     print(f"Num cores:\n{num_cores}\nAuto-selected layout:\n{layout_rules}\nAuto-selected mesh shape:\n{mesh_shape}" \
             f"\nRe-initialize graph with selected layout & mesh shape")
     quit() # TODO: It should be easy to just reinitialize everything with selected layout
+
 
 def create_host_call(model_dir, labels):
     """Construct a host_call writing scalar summaries.
@@ -281,6 +288,7 @@ def create_host_call(model_dir, labels):
 
     global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
     return host_call_fn, [global_step_t] + reshaped_tensors
+
 
 def fetch_model_params(model):
     model_path = model if model.endswith(".json") else f"configs/{model}.json"
