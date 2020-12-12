@@ -22,13 +22,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--mode", type=str, choices=["chunks", "documents"], default="documents",
                     help="Whether a tfrecord example is a constant sized chunk or a full document")
 parser.add_argument("--input_dir", type=str, help="Path to where your files are located. Files ending in .zst are treated as \
-                    archives, all others as raw text.", default="/home/connor/sid/fix_inputs/GPTNeo/data/test")
+                    archives, all others as raw text.")
 parser.add_argument("--files_per", type=int, default=100, help="Text files per tfrecord")
 parser.add_argument("--name", type=str, default="openwebtext",
                     help="Name of output files will be name_i.tfrecords where i is the number of the file")
 parser.add_argument("--output_dir", type=str, default="./tfrecords", help="Where to put tfrecords")
-parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenizer.json", help="Path to encoder files")
-parser.add_argument("--use_gpt2_tokenizer", action="store_false", help="Use GPT2 tokenizer as encoder")
+parser.add_argument("--encoder_path", type=str, help="Path to encoder files, or leave unspecified to use GPT2 tokenizer")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
 parser.add_argument("--separator", nargs="+", type=int, default=[0], help="separator to place between files in chunk mode")
@@ -62,7 +61,7 @@ def write_to_file(writer, data):
     writer.write(tf_example.SerializeToString())
 
 def get_tokenizer(args):
-    if args.use_gpt2_tokenizer:
+    if args.encoder_path is None:
         return GPT2TokenizerFast.from_pretrained('gpt2')
     else:
         return Tokenizer.from_file(args.encoder_path)
