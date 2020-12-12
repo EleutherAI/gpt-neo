@@ -1,18 +1,25 @@
 {
-    "time_patch": 4,
-    "patch_size": 2,
+    "time_patch": 1,
+    "n_ctx": 4,
 
-    "n_ctx": 64,
+    "patch_size": 16,
+    "frame_width": 2048,
+    "frame_height": 1152,
+
     "n_head": 8,
     "n_embd": 256,
     "n_layer": 12,
     "attention_types": [[["local"],12]],
 
+    "buffer_size": 4,
+
     "lr": 0.0006,
     "train_batch_size": 1,
+    "recompute_grad": true,
 
     "mesh_shape": "x:1,y:8",
-    "layout": "batch:x,vocab:y,intermediate_expanded:y,heads:y",
+    "layout": "batch:x,heads:y",
+    "prefix": "datasets/full_hd_video",
 
     "model_path": "gs://text-datasets/video-transformer/ctx=256-layer=12-heads=8-feat=256",
 

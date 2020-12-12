@@ -1,17 +1,20 @@
-"""GPT-like model in Mesh-Tensorflow"""
-
 from functools import partial
-import mesh_tensorflow as mtf
-import tensorflow.compat.v1 as tf
-from tensorflow.python.tpu import tpu_config, tpu_estimator
-from tensorflow_estimator.python.estimator import estimator as estimator_lib
-from utils import save_config, expand_attention_types_params, yes_or_no, remove_gs_or_filepath, setup_logging, \
-    check_dataset
-from inputs import generic_data
-from model_fns import model_fn
-from configs import fetch_model_params
-from tasks import task_descriptors
 import argparse
+
+import mesh_tensorflow as mtf
+
+from tensorflow_estimator.python.estimator import estimator as estimator_lib
+from tensorflow.python.tpu import tpu_config, tpu_estimator
+from utils import expand_attention_types_params
+from utils import remove_gs_or_filepath
+from utils import fetch_model_params
+import tensorflow.compat.v1 as tf
+from utils import setup_logging
+from utils import check_dataset
+from inputs import generic_data
+from utils import save_config
+from utils import yes_or_no
+from train import model_fn
 
 
 def parse_args():
@@ -40,7 +43,8 @@ def parse_args():
     return args
 
 
-def main(args):
+def main(args: argparse.Namespace):
+
     # Setup logging
     logger = setup_logging(args)
 
@@ -52,7 +56,7 @@ def main(args):
 
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
-        check_dataset(input_fn)
+        check_dataset(input_fn, params)
 
     # Confirm deletion of checkpoint files if --new flag is set
     if args.new:
@@ -60,9 +64,6 @@ def main(args):
             remove_gs_or_filepath(params["model_path"])
         else:
             exit()
-
-    # Save config to logdir for experiment management
-    # save_config(params, params["model_path"])
 
     # Add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
@@ -77,7 +78,7 @@ def main(args):
     assert len(params["attention_types"]) == params["n_layer"]  # Assert that the length of expanded list = num layers
     params["predict_batch_size"] = params.get("predict_batch_size", 1)  # Default to 1
     params["predict"] = args.predict
-    params['model'] = params.get("model", "GPT") # Default model selection to GPT since it's the only option for now
+    params['model'] = params.get("model", "GPT")  # Default model selection to GPT since it's the only option for now
 
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
@@ -85,12 +86,12 @@ def main(args):
 
     logger.info(f"params = {params}")
 
-
     # Set up TPUs and Estimator
     if args.tpu == "colab":
         tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver() if params["use_tpu"] else None
     else:
-        tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
+        tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params[
+            "use_tpu"] else None
 
     tf.tpu.experimental.initialize_tpu_system(tpu_cluster_resolver)
 
@@ -124,7 +125,6 @@ def main(args):
             train_batch_size=params["train_batch_size"],
             predict_batch_size=params["predict_batch_size"],
             params=task_params)
-
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info(f"Current step {current_step}")
