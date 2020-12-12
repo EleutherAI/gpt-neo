@@ -27,7 +27,6 @@ parser.add_argument("--files_per", type=int, default=100, help="Text files per t
 parser.add_argument("--name", type=str, default="openwebtext",
                     help="Name of output files will be name_i.tfrecords where i is the number of the file")
 parser.add_argument("--output_dir", type=str, default="./tfrecords", help="Where to put tfrecords")
-parser.add_argument("--log_dir", type=str, default="logs", help="Where to put logs")
 parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenizer.json", help="Path to encoder files")
 parser.add_argument("--use_gpt2_tokenizer", action="store_false", help="Use GPT2 tokenizer as encoder")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
