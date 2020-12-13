@@ -1,16 +1,12 @@
-import requests
-import random
-import os
+import collections
 
-from video2tfrecord import frame_decoder
 import tensorflow.compat.v1 as tf
 from google.cloud import storage
-import collections
-import numpy as np
+
+from .video2tfrecord import frame_decoder
 
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
-
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
     data = data.map(frame_decoder, num_parallel_calls=1)
     data = data.repeat()
@@ -28,7 +24,6 @@ def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
 
 
 def generic_data(params: collections.defaultdict, eval: bool = False):
-
     sequence_length = params['n_ctx']
     buffer_size = params.get('buffer_size', 1)
     frame_height = params.get('frame_height', 176)
@@ -64,13 +59,15 @@ def generic_data(params: collections.defaultdict, eval: bool = False):
         src = x[:, :time_patch_size]
         tgt = x[:, 1:time_patch_size + 1]
 
-        src += tf.reshape(tf.range(time_patch_size, dtype=tf.float32) / (time_patch_size * 2.), (1, time_patch_size, 1, 1, 1))
-        src += tf.reshape(tf.range(frame_height_patch, dtype=tf.float32) / (frame_height_patch * 2.), (1, 1, frame_height_patch, 1, 1))
-        src += tf.reshape(tf.range(frame_width_patch, dtype=tf.float32) / (frame_width_patch * 2.), (1, 1, 1, frame_width_patch, 1))
+        src += tf.reshape(tf.range(time_patch_size, dtype=tf.float32) / (time_patch_size * 2.),
+                          (1, time_patch_size, 1, 1, 1))
+        src += tf.reshape(tf.range(frame_height_patch, dtype=tf.float32) / (frame_height_patch * 2.),
+                          (1, 1, frame_height_patch, 1, 1))
+        src += tf.reshape(tf.range(frame_width_patch, dtype=tf.float32) / (frame_width_patch * 2.),
+                          (1, 1, 1, frame_width_patch, 1))
         src -= 1.5
 
         return src, tgt
-
 
     data = data.map(prepare, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.repeat()

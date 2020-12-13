@@ -1,31 +1,30 @@
-import multiprocessing
-import argparse
 import datetime
-import ntpath
 import glob
-import json
-import re
+import multiprocessing
+import ntpath
 import os
 
-from transformers import GPT2Tokenizer
-from google.cloud import storage
-import tensorflow as tf
-import numpy as np
-import youtube_dl
 import cv2
+import numpy as np
+import tensorflow as tf
+import youtube_dl
+from google.cloud import storage
+from transformers import GPT2Tokenizer
 
 
 def _int64_feature(value):
     """Returns an int64_list."""
     return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
 
+
 def _bytes_feature(value):
     """Returns an bytes_list."""
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
+
 def diveision_zero(x, y):
     '''
-    x / y
+    block_input / y
     Helper function to divide number by zero.
     IF divided by zero zero will be return.
     '''
@@ -34,6 +33,7 @@ def diveision_zero(x, y):
         return x / y
     except ZeroDivisionError:
         return 0
+
 
 def frame_encoder(frame):
     '''
@@ -44,8 +44,8 @@ def frame_encoder(frame):
 
     # Encoding Key.
     feature = {
-        'frame': _bytes_feature(frame)
-    }
+            'frame': _bytes_feature(frame)
+            }
 
     # Encode
     proto = tf.train.Example(features=tf.train.Features(feature=feature))
@@ -54,6 +54,7 @@ def frame_encoder(frame):
     proto = proto.SerializeToString()
 
     return proto
+
 
 def frame_decoder(proto):
     '''
@@ -65,18 +66,18 @@ def frame_decoder(proto):
 
     # Decoding Key.
     features = {
-        'frame': tf.FixedLenFeature([], tf.string)
-    }
+            'frame': tf.FixedLenFeature([], tf.string)
+            }
 
     # Decode.
     sample = tf.parse_single_example(proto, features)
-    #frame = tf.image.decode_image(sample['frame'])
+    # frame = tf.image.decode_image(sample['frame'])
     frame = tf.io.decode_jpeg(sample['frame'], channels=3)
 
     return frame
 
-def split_equal(id: list, num: int):
 
+def split_equal(id: list, num: int):
     id_split = [[] for i in range(num)]
 
     for i in id:
@@ -86,6 +87,7 @@ def split_equal(id: list, num: int):
         id_split[pos].append(i)
 
     return id_split
+
 
 def decode_vtt(content: str):
     '''
@@ -131,7 +133,8 @@ def decode_vtt(content: str):
             stam = stam[:-1] + stam[-1].split('.')
 
             # Converting time stamp string in to second based float.
-            stam = datetime.timedelta(hours=int(stam[0]), minutes=int(stam[1]), seconds=int(stam[2]), milliseconds=int(stam[3]))
+            stam = datetime.timedelta(hours=int(stam[0]), minutes=int(stam[1]), seconds=int(stam[2]),
+                                      milliseconds=int(stam[3]))
             stam = stam.total_seconds()
 
             # add word string and second based float to output list.
@@ -144,6 +147,7 @@ def decode_vtt(content: str):
                 words[-1] = words[-1] + " " + c.replace('</c>', '').replace('<', '').lstrip().rstrip()
 
     return ' '.join(words), words, stamp
+
 
 def encode_with_word_split(enc: GPT2Tokenizer, words: list, text: str):
     '''
@@ -200,6 +204,7 @@ def encode_with_word_split(enc: GPT2Tokenizer, words: list, text: str):
 
     return bpe_list
 
+
 def worker(work: list,
            save_dir,
            target_fps: int = 0,
@@ -246,7 +251,7 @@ def worker(work: list,
             ydl_opts['writesubtitles'] = str(use_subtitles)
             ydl_opts['writeautomaticsub'] = str(use_subtitles)
             ydl_opts['subtitlesformat'] = 'vtt'
-            #ydl_opts['subtitleslangs'] = ['en']
+            # ydl_opts['subtitleslangs'] = ['en']
 
         # Creat Youtube Downloader.
         youtube_downloader = youtube_dl.YoutubeDL(ydl_opts)
@@ -256,7 +261,6 @@ def worker(work: list,
 
         # Check if video needs to be downloaded.
         if download:
-
             # Download video.
             youtube_downloader.download([youtube_base + wor])
 
@@ -306,7 +310,7 @@ def worker(work: list,
 
         # Release video capture.
         video_cap.release()
-        total_len  = total_len + frame_count
+        total_len = total_len + frame_count
 
         # Remove video file if it was downloaded.
         if download and not keep_buffer_download:
@@ -350,7 +354,6 @@ if __name__ == '__main__':
         print(enc.decode(duffer[i]), duffer[i], i)
     '''
 
-
     '''
     content = os.listdir('/buffer/')
     content = ['/buffer/' + c for c in content if '.vtt' not in c]
@@ -359,10 +362,7 @@ if __name__ == '__main__':
            download_buffer_dir='/buffer/', use_subtitles=False, download=False)
     '''
 
-
-
-
-    #id = json.load(open('channel_video_id_list.json'))
+    # id = json.load(open('channel_video_id_list.json'))
 
     content = os.listdir('/buffer/')
     content = ['/buffer/' + c for c in content if '.vtt' not in c]
@@ -395,14 +395,7 @@ if __name__ == '__main__':
     for w in work:
         w.join()
 
-
-
-    #worker(id, '/video_only/', target_fps=1, target_resolution=(320, 176), keep_buffer_download=True, download_buffer_dir='/buffer/', use_subtitles=True)
-
-
-
-
-
+    # worker(id, '/video_only/', target_fps=1, target_resolution=(320, 176), keep_buffer_download=True, download_buffer_dir='/buffer/', use_subtitles=True)
 
     '''
     video_cap = cv2.VideoCapture('/opt/project/7vPNcnYWQ4.mp4')
