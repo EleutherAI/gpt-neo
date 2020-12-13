@@ -11,7 +11,9 @@ class ModelParameter(dict):
         self.patch_size = 16
         self.frame_width = 2048
         self.frame_height = 1152
-        self.frame_height = 1152
+        self.bucket_name = "text-datasets"
+        self.color_channels = 3
+        self.prefix = "datasets/video"
         self.n_head = 8
         self.n_embd = 256
         self.n_layer = 64

@@ -1,8 +1,7 @@
-import collections
-
 import tensorflow.compat.v1 as tf
 from google.cloud import storage
 
+from .dataclass import ModelParameter
 from .video2tfrecord import frame_decoder
 
 
@@ -23,17 +22,17 @@ def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
     return data
 
 
-def generic_data(params: collections.defaultdict, eval: bool = False):
-    sequence_length = params['n_ctx']
-    buffer_size = params.get('buffer_size', 1)
-    frame_height = params.get('frame_height', 176)
-    frame_width = params.get('frame_width', 320)
-    bucket_name = params.get('bucket_name', 'text-datasets')
-    time_patch = params.get('time_patch', 1)
-    color_channels = params.get('color_channels', 3)
-    patch_size = params.get('patch_size', 1)
-    batch_size = params['eval_batch_size' if eval else 'train_batch_size']
-    prefix = params.get('prefix', 'datasets/video')
+def generic_data(params: ModelParameter, eval: bool = False):
+    sequence_length = params.n_ctx
+    buffer_size = params.buffer_size
+    frame_height = params.frame_height
+    frame_width = params.frame_width
+    bucket_name = params.bucket_name
+    time_patch = params.time_patch
+    color_channels = params.color_channels
+    patch_size = params.patch_size
+    batch_size = params.eval_batch_size if eval else params.train_batch_size
+    prefix = params.prefix
 
     time_patch_size = sequence_length // time_patch
     frame_height_patch = frame_height // patch_size
