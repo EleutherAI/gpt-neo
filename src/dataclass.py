@@ -1,5 +1,6 @@
-class ModelParameter:
+class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
+        super().__init__()
         if isinstance(config, dict):
             config.update(config_kwargs)
         else:
