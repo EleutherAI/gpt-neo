@@ -8,8 +8,8 @@
 
     "n_head": 8,
     "n_embd": 256,
-    "n_layer": 12,
-    "attention_types": [[["local"],12]],
+    "n_layer": 64,
+    "attention_types": [[["local"],64]],
 
     "buffer_size": 8,
 
@@ -17,11 +17,11 @@
     "train_batch_size": 1,
     "recompute_grad": true,
 
-    "mesh_shape": "x:1,y:8,z:4",
-    "layout": "batch:x,heads:y,embd:z",
+    "mesh_shape": "x:1,y:1,z:1,h:32",
+    "layout": "batch:x,heads:y,embd:z,height:h",
     "prefix": "datasets/full_hd_video",
 
-    "model_path": "gs://text-datasets/video-transformer/ctx=32-layer=12-heads=8-feat=256",
+    "model_path": "gs://text-datasets/video-transformer/ctx=32-layer=64-heads=8-feat=256",
 
     "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
