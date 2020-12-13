@@ -6,33 +6,30 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def rezero(x: tf.Tensor, dtype: mtf.VariableDType):
+def rezero(block_input: tf.Tensor, dtype: mtf.VariableDType):
     with tf.variable_scope(f'rezero_{random.getrandbits(64):x}'):
-        g = mtf.get_variable(x.mesh, "g", [], initializer=tf.constant_initializer(0), dtype=dtype)
-        x = x * g
-    return x
+        g = mtf.get_variable(block_input.mesh, "g", [], initializer=tf.constant_initializer(0), dtype=dtype)
+        block_input = block_input * g
+    return block_input
 
 
-def generic_feed_forward(x: mtf.Tensor,
+def generic_feed_forward(block_input: mtf.Tensor,
                          reduced_dims: typing.List[mtf.Dimension],
                          new_dimensions: typing.List[mtf.Dimension],
                          variable_dtype: typing.Union[mtf.VariableDType, tf.DType] = tf.float32,
                          dropout_rate: float = 0):
     with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
-        x = mtf.layers.dense(x, new_dims=new_dimensions, reduced_dims=reduced_dims, use_bias=True,
-                             kernel_initializer=tf.orthogonal_initializer(),
-                             variable_dtype=variable_dtype, name="dense0")
+        block_input = mtf.layers.dense(block_input, new_dims=new_dimensions, reduced_dims=reduced_dims, use_bias=True,
+                                       kernel_initializer=tf.orthogonal_initializer(),
+                                       variable_dtype=variable_dtype, name="dense0")
         if dropout_rate > 0:
-            x = mtf.dropout(x, 1 - dropout_rate)
-        x = mtf.gelu(x)
-        x = mtf.layers.dense(x, new_dims=new_dimensions, reduced_dims=new_dimensions, use_bias=True,
-                             kernel_initializer=tf.orthogonal_initializer(),
-                             variable_dtype=variable_dtype, name="dense1")
-    return x
+            block_input = mtf.dropout(block_input, 1 - dropout_rate)
+        block_input = mtf.gelu(block_input)
+        block_input = mtf.layers.dense(block_input, new_dims=new_dimensions, reduced_dims=new_dimensions, use_bias=True,
+                                       kernel_initializer=tf.orthogonal_initializer(),
+                                       variable_dtype=variable_dtype, name="dense1")
+    return block_input
 
-
-# --------------------------------------------------------------------------------
-# MODEL:
 
 def model(mtf_features: dict, other_features: dict, params: collections.defaultdict, mesh: mtf.Mesh,
           variable_dtype: mtf.VariableDType):
@@ -48,14 +45,14 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
     dim_heads = mtf.Dimension("heads", params["n_head"])
     key_dim = mtf.Dimension("features_per_head", embd_dim.size // params["n_head"])
 
-    h = generic_feed_forward(x, x.shape[-1:], [dim_heads, key_dim], tf.float32, dropout_rate)
+    output = generic_feed_forward(x, x.shape[-1:], [dim_heads, key_dim], tf.float32, dropout_rate)
 
     def _feed_forward(x):
         return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], tf.float32, dropout_rate)
 
     for layer in range(params["n_layer"]):
         def _block_fn(block_input):
-            with tf.variable_scope(f"h{layer}"):
+            with tf.variable_scope(f"attention_block{layer}"):
                 summed_a = None
 
                 for idx, dim in enumerate([sequence_dim, width, height]):
@@ -89,17 +86,11 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
 
                 return block_input
 
-        h = mtf.recompute_grad(_block_fn, [h])
-    h = generic_feed_forward(h, [dim_heads, key_dim], h.shape[-1:], tf.float32, dropout_rate)
-    h = mtf.reshape(h, original_shape)
-    output = mtf.cast(h, tf.float32)
+        output = mtf.recompute_grad(_block_fn, [output])
+    output = generic_feed_forward(output, [dim_heads, key_dim], original_shape.shape[-1:], tf.float32, dropout_rate)
+    output = mtf.reshape(output, original_shape)
 
     with tf.variable_scope("reduce_mean_final"):
         loss = mtf.reduce_mean(mtf.abs(output - mtf_features["labels"]))
-
-    loss = mtf.cast(loss, variable_dtype.slice_dtype)
-
-    # Cast back to checkpoint dtype
-    output = mtf.cast(output, variable_dtype.master_dtype)
 
     return output, loss
