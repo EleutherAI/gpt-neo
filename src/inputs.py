@@ -76,23 +76,3 @@ def generic_data(params: ModelParameter, eval: bool = False):
         data = data.prefetch(buffer_size)
 
     return data
-
-
-if __name__ == '__main__':
-    test_data = ['/tfrecord/bDCLRy2qbgo.tfrecord', '/tfrecord/Q0eeWvE8mfs.tfrecord', '/tfrecord/pXYHHcwhWrQ.tfrecord',
-                 '/tfrecord/pUH42iBHksQ.tfrecord', '/tfrecord/pCUPKkaWlVg.tfrecord', '/tfrecord/xXNsR9X1XQk.tfrecord',
-                 '/tfrecord/J9pMGE0z-fc.tfrecord', '/tfrecord/On60TZ98eb4.tfrecord', '/tfrecord/KtvAVH4AhY8.tfrecord']
-
-    dataset = generic_data({'n_ctx': 256, 'train_batch_size': 32})
-
-    iterator = dataset.make_one_shot_iterator()
-    # iterator = dataset.make_initializable_iterator()
-    next_frame_data = iterator.get_next()
-
-    with tf.Session() as sess:
-        sess.run(tf.global_variables_initializer())
-        # sess.run(iterator.initializer)
-
-        while True:
-            frame_data_1, frame_data_2 = sess.run(next_frame_data)
-            print(frame_data_1.shape, frame_data_2.shape)
