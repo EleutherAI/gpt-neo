@@ -61,3 +61,7 @@ class ModelParameter:
     def __setitem__(self, key, value):
         print(f"Setting {key} via deprecated interface")
         self.__dict__[key] = value
+
+    def get(self, key, default):
+        print(f"Getting {key} via deprecated interface with default value {default}")
+        return self.__dict__.get(key, default)
