@@ -121,7 +121,7 @@ def read_checkpoint(checkpoint_path, resume_from_checkpoint=True):
             pass
     return 0, 0
 
-def create_tfrecords(params, write_remainder=True, write_every_n_files=10, save_checkpoints=False, resume_from_checkpoint=False, display_pbar=False):
+def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_checkpoints=False, resume_from_checkpoint=False, display_pbar=False):
     # iterates through files in input_dir, splitting into <args.chunk_size> chunks and saving a tfrecords file every <args.files_per> chunks.
     files, args, process_no = params
     enc = get_tokenizer(args) # get tokenizer
@@ -203,7 +203,7 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True) # make output dir if it doesn't exist
     files = get_files(args.input_dir)
     args.chunk_size += 1 # we shift the data by 1 to the right for targets, so increment the chunk size here
-    args.processes = 2
+
     if args.processes == 0:
         args.processes = cpu_count()
     if args.processes > 1:
