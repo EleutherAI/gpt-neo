@@ -45,6 +45,7 @@ class ModelParameter(dict):
         self.res_dropout = 0
         self.warmup_steps = 3000
         self.eval_batch_size = 64
+        self.steps_per_checkpoint = 2500
         self.predict_batch_size = 1
         self.iterations = 2500
         self.datasets = []
