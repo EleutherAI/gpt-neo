@@ -13,6 +13,7 @@
     "train_batch_size": 512,
     "attn_dropout": 0.1,
     "train_steps": 1000000,
+    "lr_decay_end": 300000,
     "eval_steps": 30,
     "predict_steps": 0,
     "res_dropout": 0.1,
