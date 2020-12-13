@@ -23,6 +23,7 @@ def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
 
 
 def generic_data(params: ModelParameter, eval: bool = False):
+    params = ModelParameter(params)
     sequence_length = params.n_ctx
     buffer_size = params.buffer_size
     frame_height = params.frame_height
