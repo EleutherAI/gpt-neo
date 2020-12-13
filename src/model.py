@@ -54,7 +54,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
         return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], tf.float32, dropout_rate)
 
     for layer in range(params["n_layer"]):
-        def _block_fn(x):
+        def _block_fn(block_input):
             with tf.variable_scope(f"h{layer}"):
                 summed_a = None
 
@@ -62,9 +62,9 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
                     tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
                     with tf.variable_scope(f"attn{dim.name}"):
-                        q = _feed_forward(x)
-                        k = _feed_forward(x)
-                        v = _feed_forward(x)
+                        q = _feed_forward(block_input)
+                        k = _feed_forward(block_input)
+                        v = _feed_forward(block_input)
                         k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
                         v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
 
@@ -84,16 +84,13 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
 
                     summed_a = a if summed_a is None else (summed_a + a)
 
-                x = x + rezero(summed_a, variable_dtype)
+                block_input += rezero(summed_a, variable_dtype)
+                block_input += rezero(_feed_forward(block_input), variable_dtype)
 
-                with tf.variable_scope(f"h{layer}"):
-                    m = _feed_forward(x)
-
-                x = x + rezero(m, variable_dtype)
-                return x
+                return block_input
 
         h = mtf.recompute_grad(_block_fn, [h])
-
+    h = generic_feed_forward(h, [dim_heads, key_dim], h.shape[-1:], tf.float32, dropout_rate)
     h = mtf.reshape(h, original_shape)
     output = mtf.cast(h, tf.float32)
 
