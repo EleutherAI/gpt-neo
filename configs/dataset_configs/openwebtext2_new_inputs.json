@@ -1,0 +1,9 @@
+{
+	"n_vocab": 50257,
+	"path": "gs://neo-datasets/openwebtext2_new_inputs/train/*.tfrecords",
+	"eval_path": "gs://neo-datasets/openwebtext2_new_inputs/eval/*.tfrecords",
+	"tokenizer_is_pretrained": true,
+	"tokenizer_path": "gpt2",
+	"eos_id": 50256,
+	"padding_id": 50257
+}
