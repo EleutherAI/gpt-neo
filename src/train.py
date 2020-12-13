@@ -9,8 +9,9 @@ from .utils import add_mode_to_params, create_host_call, get_graph_info, \
     remove_batch_from_layout, simd_mesh_setup
 
 
-def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: ModelParameter):
+def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     # Get global step
+    params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
     # Construct mtf graph + mesh from params

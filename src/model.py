@@ -36,7 +36,6 @@ def generic_feed_forward(block_input: mtf.Tensor,
 def model(mtf_features: dict, other_features: dict, params: collections.defaultdict, mesh: mtf.Mesh,
           variable_dtype: mtf.VariableDType):
     """A GPT style model implemented in mesh tensorflow."""
-    params = ModelParameter(params)
     embd_dim = other_features["embd_dim"]
     x = mtf_features["inputs"]
     original_shape = x.shape
