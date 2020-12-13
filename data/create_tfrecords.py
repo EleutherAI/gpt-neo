@@ -1,17 +1,13 @@
 import argparse
-import glob
-import json
 import os
-import time
 from pathlib import Path
 
 import ftfy
 import tensorflow as tf
 from lm_dataformat import Reader
 from tokenizers import Tokenizer
-from transformers import GPT2Tokenizer, GPT2TokenizerFast
+from transformers import GPT2TokenizerFast
 from tqdm import tqdm
-from encoders import encode
 import logging
 from multiprocessing import Pool, cpu_count
 from itertools import repeat
@@ -41,7 +37,7 @@ if not args.output_dir.endswith("/"):
     args.output_dir = args.output_dir + "/"
 if not args.input_dir.endswith("/"):
     args.input_dir = args.input_dir + "/"
-assert len(args.separator) == 1 
+assert len(args.separator) == 1
 
 
 def _int64_feature(value):
@@ -72,10 +68,11 @@ def split_list(l, n):
 
 def archive_to_tokens(f, encoder, args):
     # Generator that yields the contents of the files in an archive
-    # if data_to_prepend is not None, prepend data_to_prepend + a EOS separator to the encoded data 
+    # if data_to_prepend is not None, prepend data_to_prepend + a EOS separator to the encoded data
     reader = Reader(f)
     for doc in reader.stream_data(threaded=False):
-        # doc = [int(i) for i in doc.split(", ")] + args.separator # for testing
+        if not args.no_ftfy: # fix text with ftfy if specified
+            doc = ftfy.fix_text(doc, normalization='NFKC')
         doc = encoder.encode(doc) + args.separator # read document from lmd and append separator token
         yield split_list(doc, args.chunk_size) # split into n_ctx + 1 size chunks
 
@@ -102,7 +99,7 @@ def write_files(files, files_per, output_dir, out_name, start_no, write_remainde
                 write_to_file(writer, f)
         start_no += 1
     return start_no, remainder
-                    
+
 def get_files(input_dir, filetypes=None):
     # gets all files of <filetypes> in input_dir
     if filetypes == None:
@@ -127,15 +124,13 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
     enc = get_tokenizer(args) # get tokenizer
 
     # init metadata
-    tfrecord_count = 0
     discarded_files = 0
     files_processed = 0
     pbar = tqdm(desc=f"Writing TFRecord Files to {args.output_dir}. Parsed 0 input files. files_written ", disable= not display_pbar)
     checkpoint_path = f"{args.output_dir}/checkpoint.txt"
     resume_files_processed, tfrecord_count = read_checkpoint(checkpoint_path, resume_from_checkpoint)
-    
+
     data_to_prepend = []
-    remainder = None
     tokenized_files_array = []
 
     for f in files:
@@ -174,7 +169,6 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
         pbar.update(_tfrecord_count - tfrecord_count)
         pbar.set_description(f"Writing TFRecord Files to {args.output_dir}. Parsed {files_processed} input files. files_written ")
         tfrecord_count = _tfrecord_count
-        tokenized_files_array = remainder if remainder is not None else []
         with open(checkpoint_path, "w") as checkpoint_file:
             checkpoint_file.write(f"{files_processed}, {tfrecord_count}")
     else:
@@ -186,6 +180,7 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
 
     successful_files = files_processed - discarded_files
     return {"discarded": discarded_files, "processed": files_processed, "successful": successful_files}
+
 
 def create_tfrecords_mp(files, args):
     files = split_list(files, len(files) // args.processes)
