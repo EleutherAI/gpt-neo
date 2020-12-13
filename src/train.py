@@ -81,8 +81,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
                                                                             sequence_length=sequence_length_dict,
                                                                             mesh_shape=mesh_shape,
-                                                                            layout_rules=layout_rules,
-                                                                            tokens_per_microbatch_per_replica=params.tokens_per_mb_per_replica))
+                                                                            layout_rules=layout_rules))
 
     # Add num microbatches to params
 
