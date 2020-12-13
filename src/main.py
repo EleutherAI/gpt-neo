@@ -17,7 +17,7 @@ def main(args: argparse.Namespace):
     logger = setup_logging(args)
 
     # Read params of model
-    params = ModelParameter(fetch_model_params(args.model))
+    params = fetch_model_params(args.model)
 
     # Fetch appropriate input functions
     input_fn = generic_data

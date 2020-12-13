@@ -15,6 +15,8 @@ import tensorflow.compat.v2 as tf2
 from tokenizers import Tokenizer
 from transformers import GPT2TokenizerFast
 
+from .dataclass import ModelParameter
+
 
 def setup_logging(args):
     Path("logs").mkdir(exist_ok=True)
@@ -296,7 +298,7 @@ def fetch_model_params(model):
     model_path = model if model.endswith(".json") else f"configs/{model}.json"
     with open(model_path) as f:
         params = json.load(f)
-
+    params = ModelParameter(params)
     datasets = {}
 
     params.dataset_configs = datasets
@@ -304,7 +306,4 @@ def fetch_model_params(model):
     # Set some other parameter defaults
     params.mlm_training = params.get("mlm_training", False)
     params.causal = not params.mlm_training
-
-    # Set all other parameter values to default to None
-    params = defaultdict(lambda: None, params)
     return params
