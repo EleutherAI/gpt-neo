@@ -65,3 +65,6 @@ class ModelParameter:
     def get(self, key, default):
         print(f"Getting {key} via deprecated interface with default value {default}")
         return self.__dict__.get(key, default)
+
+    def __setattr__(self, key, value):
+        self.__dict__[key] = value
