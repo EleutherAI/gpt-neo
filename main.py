@@ -184,8 +184,25 @@ def main(args):
         handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
         return
 
+    def save_eval_results(task, eval_results):
+        def as_python(x):
+            if isinstance(x, numpy.generic):
+                return x.item()
+            return x
+        eval_results = {k: as_python(v) for k, v in eval_results.items()}
+        with open(f'eval_{args.sacred_id}.jsonl', 'a') as fh:
+            json.dump({'task': task, 'current_step': current_step, **eval_results}, fh)
+            fh.write('\n')
 
-    if args.eval:
+    def run_eval():
+        logger.info("Running evaluation...")
+        eval_results = estimator.evaluate(
+                input_fn=partial(input_fn, eval=True),
+                steps=params["eval_steps"])
+        logger.info(f"Eval results: {eval_results}")
+        save_eval_results('validation', eval_results)
+
+    def run_eval_tasks():
         for task in eval_tasks:
             logger.info(f"Starting evaluation task '{task}'")
             task_info = task_descriptors[task]["get_task_info_fn"](params)
@@ -196,6 +213,10 @@ def main(args):
                 steps=task_info["n_steps"],
                 name=task)
             logger.info(f"Eval task '{task}' results: {eval_results}")
+    
+    if args.eval:
+        run_eval_tasks()
+        run_eval()
         return
 
 
@@ -208,16 +229,6 @@ def main(args):
             estimator.train(input_fn=partial(input_fn, global_step=current_step, eval=False), max_steps=next_checkpoint)
             current_step = next_checkpoint
 
-            def save_eval_results(task, eval_results):
-                def as_python(x):
-                     if isinstance(x, numpy.generic):
-                        return x.item()
-                     return x
-                eval_results = {k: as_python(v) for k, v in eval_results.items()}
-                with open(f'eval_{args.sacred_id}.jsonl', 'a') as fh:
-                    json.dump({'task': task, 'current_step': current_step, **eval_results}, fh)
-                    fh.write('\n')
-
             if params["predict_steps"] > 0:
                 logger.info("Running prediction...")
                 predictions = estimator.predict(input_fn=pred_input_fn)
@@ -225,24 +236,10 @@ def main(args):
                 handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
 
             if params["eval_steps"] > 0:
-                logger.info("Running evaluation...")
-                eval_results = estimator.evaluate(
-                    input_fn=partial(input_fn, eval=True),
-                    steps=params["eval_steps"])
-                logger.info(f"Eval results: {eval_results}")
-                save_eval_results('validation', eval_results)
+                run_eval()
 
-            for task in eval_tasks:
-                logger.info(f"Starting evaluation task '{task}'")
-                task_info = task_descriptors[task]["get_task_info_fn"](params)
-                task_estimator = eval_task_estimators[task]
-                task_input_fn = task_descriptors[task]["input_fn"]
-                eval_results = task_estimator.evaluate(
-                    input_fn=task_input_fn,
-                    steps=task_info["n_steps"],
-                    name=task)
-                logger.info(f"Eval task '{task}' results: {eval_results}")
-                save_eval_results(task, eval_results)
+            if eval_tasks:
+                run_eval_tasks()
                 
         return
     else:

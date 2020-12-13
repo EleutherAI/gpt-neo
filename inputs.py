@@ -324,6 +324,7 @@ def sequential_input(params, global_step=None, eval=False):
     if not eval:
         assert global_step is not None
     logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated. Please ensure your batch size stays constant throughout training.")
+    batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
     filenames = []
     for dataset_config in params['dataset_configs'].values(): # iterate through each dataset and read params
@@ -359,6 +360,6 @@ def sequential_input(params, global_step=None, eval=False):
     dataset = dataset.map(partial(autoregressive_sample_text, params), num_parallel_calls=1)
     
     # batch data and repeat to infinity
-    dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
+    dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
     return dataset.repeat()
     
