@@ -169,11 +169,6 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
 
     # add positional embeddings to the input tensor.
     h = x
-    h += mtf.range(mesh, sequence_dim, tf.float32) / (sequence_dim.size * 2.)
-    h += mtf.range(mesh, width, tf.float32) / (width.size * 2.)
-    h += mtf.range(mesh, height, tf.float32) / (height.size * 2.)
-    h -= 1.5
-
     # instantiate auxiliary losses (for MOE models)
     aux_losses = 0
 
