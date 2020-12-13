@@ -1,22 +1,17 @@
 import collections
 
-from tensorflow.python.tpu import tpu_estimator
-import mesh_tensorflow.transformer as mtf_transformer
-from utils import auto_layout_and_mesh_shape
-from utils import remove_batch_from_layout
-from utils import add_mode_to_params
-from optimizers import get_optimizer
-from utils import create_host_call
-from utils import simd_mesh_setup
-import tensorflow.compat.v1 as tf
-from utils import get_graph_info
 import mesh_tensorflow as mtf
-from utils import auto_layout
-import model
+import mesh_tensorflow.transformer as mtf_transformer
+import tensorflow.compat.v1 as tf
+from tensorflow.python.tpu import tpu_estimator
+
+from .model import model
+from .optimizers import get_optimizer
+from .utils import add_mode_to_params, auto_layout, auto_layout_and_mesh_shape, create_host_call, get_graph_info, \
+    remove_batch_from_layout, simd_mesh_setup
 
 
 def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collections.defaultdict):
-
     # Get global step
     global_step = tf.train.get_global_step()
 
@@ -36,7 +31,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         mesh_shape = [("all_processors", len(gpu_ids))]
         layout_rules = [("batch", "all_processors")]
         mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
-            mesh_shape, layout_rules, gpu_ids)
+                mesh_shape, layout_rules, gpu_ids)
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
@@ -67,12 +62,11 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         if x is not None:
             feature_shape = mtf.Shape(batch_dims + [length_dim])
             mtf_features[key] = mtf.import_fully_replicated(
-                mesh, features_dict[key], feature_shape, name=key)
+                    mesh, features_dict[key], feature_shape, name=key)
 
     # Instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
     other_features = {}
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
-
 
     # Define other Dimensions that we'll need inside the model
     embd_dim = mtf.Dimension("embd", params["n_embd"])
@@ -108,8 +102,8 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         def serialized_fn(mtf_features):
             if params["model"] == "GPT":
                 with tf.variable_scope('gpt2'):
-                    logits, loss = model.model(mtf_features, other_features, params, mesh,
-                                               variable_dtype=variable_dtype)
+                    logits, loss = model(mtf_features, other_features, params, mesh,
+                                         variable_dtype=variable_dtype)
                 return {"logits": logits, "loss": loss}
             else:
                 raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
@@ -124,8 +118,8 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         if params["model"] == "GPT":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss = model.model(mtf_features, other_features, params, mesh,
-                                               variable_dtype=variable_dtype)
+                    logits, loss = model(mtf_features, other_features, params, mesh,
+                                         variable_dtype=variable_dtype)
         else:
             raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
@@ -178,23 +172,23 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         restore_hook = mtf.MtfRestoreHook(lowering)
 
         saver = tf.train.Saver(
-            tf.global_variables(),
-            sharded=True,
-            max_to_keep=10,
-            keep_checkpoint_every_n_hours=2,
-            defer_build=False,
-            save_relative_paths=True)
+                tf.global_variables(),
+                sharded=True,
+                max_to_keep=10,
+                keep_checkpoint_every_n_hours=2,
+                defer_build=False,
+                save_relative_paths=True)
         tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
         saver_listener = mtf.MtfCheckpointSaverListener(lowering)
         saver_hook = tf.train.CheckpointSaverHook(
-            params["model_path"],
-            save_steps=params["steps_per_checkpoint"],
-            saver=saver,
-            listeners=[saver_listener])
+                params["model_path"],
+                save_steps=params["steps_per_checkpoint"],
+                saver=saver,
+                listeners=[saver_listener])
 
         return tpu_estimator.TPUEstimatorSpec(
-            tf.estimator.ModeKeys.TRAIN,
-            loss=tf_loss,
-            host_call=host_call,
-            train_op=train_op,
-            training_hooks=[restore_hook, saver_hook])
+                tf.estimator.ModeKeys.TRAIN,
+                loss=tf_loss,
+                host_call=host_call,
+                train_op=train_op,
+                training_hooks=[restore_hook, saver_hook])
