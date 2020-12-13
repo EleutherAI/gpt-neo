@@ -45,8 +45,8 @@ def add_mode_to_params(params, mode):
 def simd_mesh_setup(params, mesh_shape, layout_rules):
     """Constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
 
-    num_hosts = params["context"].num_hosts
-    host_placement_fn = params["context"].tpu_host_placement_function
+    num_hosts = params.context.num_hosts
+    host_placement_fn = params.context.tpu_host_placement_function
     device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
     tf.logging.info(f"device_list = {device_list}")
 
@@ -54,12 +54,12 @@ def simd_mesh_setup(params, mesh_shape, layout_rules):
     replica_cache_size = 300 * 1000000  # 300M per replica
 
     # Worker 0 caches all the TPU binaries
-    worker0_mem = replica_cache_size * params["context"].num_replicas
+    worker0_mem = replica_cache_size * params.context.num_replicas
     devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
     var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
     mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-            mesh_shape, layout_rules, mesh_devices, params["context"].device_assignment)
+            mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
 
     return var_placer, mesh_impl
 
@@ -297,16 +297,13 @@ def fetch_model_params(model):
     with open(model_path) as f:
         params = json.load(f)
 
-    dataset_ids = [d[0] for d in params.get("datasets", [])]
-    no_datasets = params.get("no_dataset", False)
-
     datasets = {}
 
-    params["dataset_configs"] = datasets
+    params.dataset_configs = datasets
 
     # Set some other parameter defaults
-    params["mlm_training"] = params.get("mlm_training") == True
-    params["causal"] = not params["mlm_training"]
+    params.mlm_training = params.get("mlm_training", False)
+    params.causal = not params.mlm_training
 
     # Set all other parameter values to default to None
     params = defaultdict(lambda: None, params)
