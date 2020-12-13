@@ -73,10 +73,6 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
     other_features = {}
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
 
-    attn_bias = model.biasmask_attn_weights(mesh, length_dim, memory_length_dim, variable_dtype) if params["causal"] else None
-
-    # Add attn_bias into mtf_features
-    other_features["attn_bias"] = attn_bias
 
     # Define other Dimensions that we'll need inside the model
     embd_dim = mtf.Dimension("embd", params["n_embd"])
