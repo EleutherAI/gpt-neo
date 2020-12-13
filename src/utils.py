@@ -32,11 +32,11 @@ def setup_logging(args):
 
 def add_mode_to_params(params, mode):
     if mode == tf.estimator.ModeKeys.PREDICT:
-        params["mode"] = "predict"
+        params.mode = "predict"
     elif mode == tf.estimator.ModeKeys.EVAL:
-        params["mode"] = "eval"
+        params.mode = "eval"
     elif mode == tf.estimator.ModeKeys.TRAIN:
-        params["mode"] = "train"
+        params.mode = "train"
     else:
         raise ValueError(f"Invalid mode {mode}")
     return params
