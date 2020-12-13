@@ -1,4 +1,5 @@
 import mesh_tensorflow as mtf
+import mesh_tensorflow.transformer as mtf_transformer
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 
@@ -77,7 +78,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
 
     # Gets number of microbatches per batch for serialized training
     # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
-    num_microbatches = int(mtf.transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
                                                                             sequence_length=sequence_length_dict,
                                                                             mesh_shape=mesh_shape,
                                                                             layout_rules=layout_rules,
