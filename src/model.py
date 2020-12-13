@@ -89,7 +89,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
                 return block_input
 
         output = mtf.recompute_grad(_block_fn, [output])
-    output = generic_feed_forward(output, [dim_heads, key_dim], original_shape.shape[-1:], tf.float32, dropout_rate)
+    output = generic_feed_forward(output, [dim_heads, key_dim], original_shape[-1:], tf.float32, dropout_rate)
     output = mtf.reshape(output, original_shape)
 
     with tf.variable_scope("reduce_mean_final"):
