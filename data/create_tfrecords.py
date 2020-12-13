@@ -22,17 +22,15 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--mode", type=str, choices=["chunks", "documents"], default="documents",
                     help="Whether a tfrecord example is a constant sized chunk or a full document")
 parser.add_argument("--input_dir", type=str, help="Path to where your files are located. Files ending in .zst are treated as \
-                    archives, all others as raw text.", default="/home/connor/sid/fix_inputs/GPTNeo/data/test")
-parser.add_argument("--files_per", type=int, default=100, help="Text files per tfrecord")
+                    archives, all others as raw text.")
+parser.add_argument("--files_per", type=int, default=100000, help="Text files per tfrecord")
 parser.add_argument("--name", type=str, default="openwebtext",
                     help="Name of output files will be name_i.tfrecords where i is the number of the file")
 parser.add_argument("--output_dir", type=str, default="./tfrecords", help="Where to put tfrecords")
-parser.add_argument("--log_dir", type=str, default="logs", help="Where to put logs")
-parser.add_argument("--encoder_path", type=str, default="byte-level-bpe.tokenizer.json", help="Path to encoder files")
-parser.add_argument("--use_gpt2_tokenizer", action="store_false", help="Use GPT2 tokenizer as encoder")
+parser.add_argument("--encoder_path", type=str, help="Path to encoder files, or leave unspecified to use GPT2 tokenizer")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
-parser.add_argument("--separator", nargs="+", type=int, default=[0], help="separator to place between files in chunk mode")
+parser.add_argument("--separator", nargs="+", type=int, default=[50256], help="separator to place between files in chunk mode")
 parser.add_argument("--chunk_size", type=int, default=2048, help="How big a chunk should be in chunk mode. "
                                                                  "Should equal your model's context size")
 parser.add_argument("--write_dataset_config", action="store_true", help="Write the dataset config file on completion")
@@ -63,7 +61,7 @@ def write_to_file(writer, data):
     writer.write(tf_example.SerializeToString())
 
 def get_tokenizer(args):
-    if args.use_gpt2_tokenizer:
+    if args.encoder_path is None:
         return GPT2TokenizerFast.from_pretrained('gpt2')
     else:
         return Tokenizer.from_file(args.encoder_path)
@@ -123,7 +121,7 @@ def read_checkpoint(checkpoint_path, resume_from_checkpoint=True):
             pass
     return 0, 0
 
-def create_tfrecords(params, write_remainder=True, write_every_n_files=10, save_checkpoints=False, resume_from_checkpoint=False, display_pbar=False):
+def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_checkpoints=False, resume_from_checkpoint=False, display_pbar=False):
     # iterates through files in input_dir, splitting into <args.chunk_size> chunks and saving a tfrecords file every <args.files_per> chunks.
     files, args, process_no = params
     enc = get_tokenizer(args) # get tokenizer
@@ -205,7 +203,7 @@ if __name__ == "__main__":
     os.makedirs(args.output_dir, exist_ok=True) # make output dir if it doesn't exist
     files = get_files(args.input_dir)
     args.chunk_size += 1 # we shift the data by 1 to the right for targets, so increment the chunk size here
-    args.processes = 2
+
     if args.processes == 0:
         args.processes = cpu_count()
     if args.processes > 1:
