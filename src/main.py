@@ -12,32 +12,6 @@ from .train import model_fn
 from .utils import check_dataset, fetch_model_params, remove_gs_or_filepath, setup_logging, yes_or_no
 
 
-def parse_args():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--tpu", type=str, help="Name of TPU to train on, if any.")
-    parser.add_argument("--gpu_ids", nargs="+", type=str, default=["device:GPU:0"],
-                        help=" If training on GPU, can specify your GPU names in a list - i.e 'device:GPU:0 device:GPU:1'")
-    parser.add_argument("--model", type=str, default=None, help="JSON file that contains model parameters.")
-    parser.add_argument("--steps_per_checkpoint", type=int, default=5000, help="Save a model checkpoint every X steps.")
-    parser.add_argument("--auto_layout", action="store_true", help="If set, generates and prints the most memory "
-                                                                   "efficient layout according to MTF auto layout.")
-    parser.add_argument("--auto_layout_and_mesh_shape", action="store_true",
-                        help="If set, generates and prints the most memory efficient layout and mesh shape according to"
-                             " MTF auto layout.")
-    parser.add_argument("--new", action="store_true", help="If set, deletes previous checkpoint, if it exists, and "
-                                                           "starts a new training run")
-    parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
-    parser.add_argument("--prompt", type=str, help="path to .txt file containing a prompt for prediction. If empty, "
-                                                   "defaults to unicorns.",
-                        default="")
-    parser.add_argument("--check_dataset", action="store_true",
-                        help="If set, outputs sample from the dataset and quits.")
-    args = parser.parse_args()
-    assert args.model is not None, "Model must be set"
-    return args
-
-
 def main(args: argparse.Namespace):
     # Setup logging
     logger = setup_logging(args)
@@ -51,13 +25,6 @@ def main(args: argparse.Namespace):
     # Sample from Dataset if check dataset flag is on
     if args.check_dataset:
         check_dataset(input_fn, params)
-
-    # Confirm deletion of checkpoint files if --new flag is set
-    if args.new:
-        if yes_or_no(f"Are you sure you want to remove '{params['model_path']}' to start afresh?"):
-            remove_gs_or_filepath(params["model_path"])
-        else:
-            exit()
 
     # Add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
@@ -108,25 +75,9 @@ def main(args: argparse.Namespace):
             predict_batch_size=params["predict_batch_size"],
             params=params)
 
-    def _make_task_estimator(task):
-        task_params = params.copy()
-        return tpu_estimator.TPUEstimator(
-                use_tpu=params["use_tpu"],
-                model_fn=model_fn,
-                config=config,
-                train_batch_size=params["train_batch_size"],
-                predict_batch_size=params["predict_batch_size"],
-                params=task_params)
-
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
     logger.info(f"Current step {current_step}")
 
     while current_step < params["train_steps"]:
         # Else, don't stop and restart
         estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params["train_steps"])
-
-
-if __name__ == "__main__":
-    tf.disable_v2_behavior()
-    args = parse_args()
-    main(args)
