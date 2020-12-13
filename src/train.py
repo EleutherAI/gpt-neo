@@ -1,37 +1,27 @@
-import collections
-
 import mesh_tensorflow as mtf
-import mesh_tensorflow.transformer as mtf_transformer
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
 
+from .dataclass import ModelParameter
 from .model import model
 from .optimizers import get_optimizer
-from .utils import add_mode_to_params, auto_layout, auto_layout_and_mesh_shape, create_host_call, get_graph_info, \
+from .utils import add_mode_to_params, create_host_call, get_graph_info, \
     remove_batch_from_layout, simd_mesh_setup
 
 
-def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collections.defaultdict):
+def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: ModelParameter):
     # Get global step
     global_step = tf.train.get_global_step()
 
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
-    mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
+    mesh_shape = mtf.convert_to_shape(params.mesh_shape)
     if mode == tf.estimator.ModeKeys.PREDICT:
-        params["layout"] = remove_batch_from_layout(params["layout"])
-    layout_rules = mtf.convert_to_layout_rules(params["layout"])
+        params.layout = remove_batch_from_layout(params.layout)
+    layout_rules = mtf.convert_to_layout_rules(params.layout)
 
     # Mesh setup
-    if params["use_tpu"]:
-        var_placer, mesh_impl = simd_mesh_setup(params, mesh_shape, layout_rules)
-    else:
-        var_placer = None
-        gpu_ids = params["gpu_ids"]
-        mesh_shape = [("all_processors", len(gpu_ids))]
-        layout_rules = [("batch", "all_processors")]
-        mesh_impl = mtf.placement_mesh_impl.PlacementMeshImpl(
-                mesh_shape, layout_rules, gpu_ids)
+    var_placer, mesh_impl = simd_mesh_setup(params, mesh_shape, layout_rules)
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
@@ -43,7 +33,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
     features_dict = {"inputs": features, "labels": labels}
-    sequence_length_dict = {"inputs": params["n_ctx"], "labels": params["n_ctx"]}
+    sequence_length_dict = {"inputs": params.n_ctx, "labels": params.n_ctx}
 
     params = add_mode_to_params(params, mode)
 
@@ -54,7 +44,6 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
     width = mtf.Dimension("width", model_input_shape[2])
     height = mtf.Dimension("height", model_input_shape[3])
     batch_dims = [batch_dim, sequence, width, height]
-    feature_length = sequence_length_dict["inputs"]
     length_dim = mtf.Dimension("color_channels", model_input_shape[4])
 
     mtf_features = {}
@@ -69,13 +58,13 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
     memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
 
     # Define other Dimensions that we'll need inside the model
-    embd_dim = mtf.Dimension("embd", params["n_embd"])
-    vocab_dim = mtf.Dimension("vocab", params["n_vocab"])
+    embd_dim = mtf.Dimension("embd", params.n_embd)
+    vocab_dim = mtf.Dimension("vocab", params.n_vocab)
 
     # We need this because gathering when both the args have the same dimension in them breaks things
     # This dim is specifically for the weights
     # This prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error
-    embed_sequence_dim = mtf.Dimension("embed_sequence", params["n_ctx"])
+    embed_sequence_dim = mtf.Dimension("embed_sequence", params.n_ctx)
 
     other_features["embd_dim"] = embd_dim
     other_features["vocab_dim"] = vocab_dim
@@ -87,26 +76,21 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
 
     # Gets number of microbatches per batch for serialized training
     # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
-    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+    num_microbatches = int(mtf.transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
                                                                             sequence_length=sequence_length_dict,
                                                                             mesh_shape=mesh_shape,
                                                                             layout_rules=layout_rules,
-                                                                            tokens_per_microbatch_per_replica=params[
-                                                                                "tokens_per_mb_per_replica"]))
+                                                                            tokens_per_microbatch_per_replica=params.tokens_per_mb_per_replica))
 
     # Add num microbatches to params
-    params["num_microbatches"] = num_microbatches
 
     if num_microbatches > 1:
         # For serialize_training_step we need to modify the model to output results in a dict
         def serialized_fn(mtf_features):
-            if params["model"] == "GPT":
-                with tf.variable_scope('gpt2'):
-                    logits, loss = model(mtf_features, other_features, params, mesh,
-                                         variable_dtype=variable_dtype)
-                return {"logits": logits, "loss": loss}
-            else:
-                raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
+            with tf.variable_scope('gpt2'):
+                logits, loss = model(mtf_features, other_features, params, mesh,
+                                     variable_dtype=variable_dtype)
+            return {"logits": logits, "loss": loss}
 
         # Serialize the training step - Gradients are accumulated locally and reduced once.
         var_grads, output_dict = mtf.serialize_training_step(mtf_features, serialized_fn, batch_dim, num_microbatches)
@@ -114,39 +98,17 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         logits = output_dict["logits"]
 
     else:
-        # If we're not splitting into microbatches, return logits & loss as is
-        if params["model"] == "GPT":
-            with mtf.utils.outside_all_rewrites():
-                with tf.variable_scope('gpt2'):
-                    logits, loss = model(mtf_features, other_features, params, mesh,
-                                         variable_dtype=variable_dtype)
-        else:
-            raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
-
-    # Auto layout generation
-    if params["auto_layout"]:
-        auto_layout(graph, mesh_shape, logits, loss)
-    if params["auto_layout_and_mesh_shape"]:
-        auto_layout_and_mesh_shape(graph, params["num_cores"], logits, loss)
+        with mtf.utils.outside_all_rewrites():
+            with tf.variable_scope('gpt2'):
+                logits, loss = model(mtf_features, other_features, params, mesh,
+                                     variable_dtype=variable_dtype)
 
     # In TRAIN mode, get optimizer
-    if params["num_microbatches"] > 1:
-        # If we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
-        # So we pass them in here
-        _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
-                                                 inp_var_grads=var_grads)
-    else:
-        # Otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
-        _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
+                                             inp_var_grads=None if num_microbatches == 1 else var_grads)
 
     # Log summaries to tensorboard
     mtf.scalar_summary("loss", loss)
-
-    # Log gradients if in params
-    if params["log_grads"] not in [None, False]:
-        for g in var_grads:
-            grad_norm = mtf.sqrt(mtf.reduce_sum(mtf.square(g)))
-            mtf.scalar_summary("grads/norm" + g.name[:-2], grad_norm)
 
     # Gets & prints info about no. trainable vars in the model & dimension names
     get_graph_info(graph)
@@ -157,7 +119,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
     tf_loss = tf.cast(tf_loss, tf.float32)
 
     # Use our patched version until mtf updates theirs
-    host_call = create_host_call(params['model_path'], labels)
+    host_call = create_host_call(params.model_path, labels)
     mtf.utils.remove_summaries()
 
     # Creates train_op
@@ -181,7 +143,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: collecti
         tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
         saver_listener = mtf.MtfCheckpointSaverListener(lowering)
         saver_hook = tf.train.CheckpointSaverHook(
-                params["model_path"],
+                params.model_path,
                 save_steps=params["steps_per_checkpoint"],
                 saver=saver,
                 listeners=[saver_listener])
