@@ -54,6 +54,7 @@ class ModelParameter(dict):
         self.scale_by_in = False
         self.activation_function = "gelu"
         self.gradient_clipping = 1.0
+        self.dropout_rate = 0.
 
         self.__dict__.update(config)
 

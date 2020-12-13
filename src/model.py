@@ -42,7 +42,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
     sequence_dim = x.shape[1]
     width = x.shape[2]
     height = x.shape[3]
-    dropout_rate = params.get('dropout_rate', 0)
+    dropout_rate = params.dropout_rate
 
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", embd_dim.size // params.n_head)
