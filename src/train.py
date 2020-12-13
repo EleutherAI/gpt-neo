@@ -144,7 +144,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: ModelPar
         saver_listener = mtf.MtfCheckpointSaverListener(lowering)
         saver_hook = tf.train.CheckpointSaverHook(
                 params.model_path,
-                save_steps=params["steps_per_checkpoint"],
+                save_steps=params.steps_per_checkpoint,
                 saver=saver,
                 listeners=[saver_listener])
 
