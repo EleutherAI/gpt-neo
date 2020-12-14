@@ -1,19 +1,21 @@
-from shutil import rmtree
-import logging
-import os.path
 import json
-import sys
-import re
+import logging
 import os
-
-from transformers import GPT2TokenizerFast
+import os.path
+import re
+import sys
 from collections import defaultdict
-import tensorflow.compat.v2 as tf2
-import tensorflow.compat.v1 as tf
-from urllib.parse import urlparse
-from tokenizers import Tokenizer
-import mesh_tensorflow as mtf
 from pathlib import Path
+from shutil import rmtree
+from urllib.parse import urlparse
+
+import mesh_tensorflow as mtf
+import tensorflow.compat.v1 as tf
+import tensorflow.compat.v2 as tf2
+from tokenizers import Tokenizer
+from transformers import GPT2TokenizerFast
+
+from .dataclass import ModelParameter
 
 
 def setup_logging(args):
@@ -22,9 +24,9 @@ def setup_logging(args):
     tf.get_logger().propagate = False  # Remove double log on console
     name = os.path.splitext(os.path.basename(args.model))[0]
     handlers = [
-        logging.FileHandler(f"logs/{name}.log"),
-        logging.StreamHandler(sys.stdout)
-    ]
+            logging.FileHandler(f"logs/{name}.log"),
+            logging.StreamHandler(sys.stdout)
+            ]
     logger = logging.getLogger("tensorflow")
     logger.handlers = handlers
     return logger
@@ -32,11 +34,11 @@ def setup_logging(args):
 
 def add_mode_to_params(params, mode):
     if mode == tf.estimator.ModeKeys.PREDICT:
-        params["mode"] = "predict"
+        params.mode = "predict"
     elif mode == tf.estimator.ModeKeys.EVAL:
-        params["mode"] = "eval"
+        params.mode = "eval"
     elif mode == tf.estimator.ModeKeys.TRAIN:
-        params["mode"] = "train"
+        params.mode = "train"
     else:
         raise ValueError(f"Invalid mode {mode}")
     return params
@@ -45,8 +47,8 @@ def add_mode_to_params(params, mode):
 def simd_mesh_setup(params, mesh_shape, layout_rules):
     """Constructs SimdMesh function - instructions on how to evenly split tensors across all TPU cores"""
 
-    num_hosts = params["context"].num_hosts
-    host_placement_fn = params["context"].tpu_host_placement_function
+    num_hosts = params.context.num_hosts
+    host_placement_fn = params.context.tpu_host_placement_function
     device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
     tf.logging.info(f"device_list = {device_list}")
 
@@ -54,12 +56,12 @@ def simd_mesh_setup(params, mesh_shape, layout_rules):
     replica_cache_size = 300 * 1000000  # 300M per replica
 
     # Worker 0 caches all the TPU binaries
-    worker0_mem = replica_cache_size * params["context"].num_replicas
+    worker0_mem = replica_cache_size * params.context.num_replicas
     devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
     var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
     mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-        mesh_shape, layout_rules, mesh_devices, params["context"].device_assignment)
+            mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
 
     return var_placer, mesh_impl
 
@@ -84,7 +86,7 @@ def remove_batch_from_layout(layout):
 
 def yes_or_no(question):
     while True:
-        reply = str(input(question+' (y/n): ')).lower().strip()
+        reply = str(input(question + ' (y/n): ')).lower().strip()
         if reply[:1] == 'y':
             return True
         if reply[:1] == 'n':
@@ -116,7 +118,7 @@ def save_config(params_dict, logdir):
         if count == total_params - 1:
             text += f'"{str(key)}"' + ' : ' + config_value + '\n\n'
         else:
-            text += f'"{str(key)}"'  + ' : ' + config_value + ',\n\n'
+            text += f'"{str(key)}"' + ' : ' + config_value + ',\n\n'
     text += '\n\n}'
     sess = tf.InteractiveSession()
     summary_op = tf.summary.text("run_config", tf.convert_to_tensor(text))
@@ -127,6 +129,7 @@ def save_config(params_dict, logdir):
     summary_writer.close()
     tf.reset_default_graph()
     print('Done!')
+
 
 def expand_attention_types_params(params_list):
     newlist = []
@@ -145,11 +148,11 @@ def get_n_trainable_vars(graph):
     """
     total_parameters = 0
     for variable in graph.trainable_variables:
-      shape = variable.shape.dims
-      variable_parameters = 1
-      for dim in shape:
-          variable_parameters *= dim.size
-      total_parameters += variable_parameters
+        shape = variable.shape.dims
+        variable_parameters = 1
+        for dim in shape:
+            variable_parameters *= dim.size
+        total_parameters += variable_parameters
     print(f"\n\nN TRAINABLE VARS:\n{total_parameters:,}\n\n")
 
 
@@ -165,19 +168,20 @@ def print_dim_names(graph):
         all_dim_names.append(names)
 
     # Print all dim names in graph & write to file
-    all_dim_names = [item for sublist in all_dim_names for item in sublist] # Flatten all dims
+    all_dim_names = [item for sublist in all_dim_names for item in sublist]  # Flatten all dims
     unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
     for dim_name in unique_dims:
         print(dim_name)
     print('\n')
 
+
 def fetch_encoder(params):
     no_dataset = params.get('no_dataset', False)
     if no_dataset:
         return None
 
-    dataset = next(iter(params['dataset_configs'].values())) # Get the first value from the dict
+    dataset = next(iter(params['dataset_configs'].values()))  # Get the first value from the dict
     path = dataset["tokenizer_path"]
     is_pretrained = dataset.get("tokenizer_is_pretrained", False)
 
@@ -225,15 +229,15 @@ def check_dataset(input_fn, params, global_step=None):
 def auto_layout(graph, mesh_shape, logits, loss):
     layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
     print(f"Auto-selected layout:\n{layout_rules}\nRe-initialize graph with selected layout")
-    quit() # TODO: It should be easy to just reinitialize everything with selected layout
+    quit()  # TODO: It should be easy to just reinitialize everything with selected layout
 
 
 def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores,
-                                                                    [logits, loss], max_mesh_shape_dimensions=4)
+                                                                  [logits, loss], max_mesh_shape_dimensions=4)
     print(f"Num cores:\n{num_cores}\nAuto-selected layout:\n{layout_rules}\nAuto-selected mesh shape:\n{mesh_shape}" \
-            f"\nRe-initialize graph with selected layout & mesh shape")
-    quit() # TODO: It should be easy to just reinitialize everything with selected layout
+          f"\nRe-initialize graph with selected layout & mesh shape")
+    quit()  # TODO: It should be easy to just reinitialize everything with selected layout
 
 
 def create_host_call(model_dir, labels):
@@ -253,7 +257,7 @@ def create_host_call(model_dir, labels):
 
     def maybe_cast(tensor):
         if tensor.shape.is_compatible_with([]):
-           tensor = tf.reshape(tensor, [1])
+            tensor = tf.reshape(tensor, [1])
         if tensor.dtype == tf.int64:
             return tf.to_int32(tensor)
         if tensor.dtype == tf.bfloat16:
@@ -294,18 +298,12 @@ def fetch_model_params(model):
     model_path = model if model.endswith(".json") else f"configs/{model}.json"
     with open(model_path) as f:
         params = json.load(f)
-
-    dataset_ids = [d[0] for d in params.get("datasets", [])]
-    no_datasets = params.get("no_dataset", False)
-
+    params = ModelParameter(params)
     datasets = {}
 
-    params["dataset_configs"] = datasets
+    params.dataset_configs = datasets
 
     # Set some other parameter defaults
-    params["mlm_training"] = params.get("mlm_training") == True
-    params["causal"] = not params["mlm_training"]
-
-    # Set all other parameter values to default to None
-    params = defaultdict(lambda: None, params)
+    params.mlm_training = params.get("mlm_training", False)
+    params.causal = not params.mlm_training
     return params
