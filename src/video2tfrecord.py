@@ -14,14 +14,17 @@ import numpy as np
 import youtube_dl
 import cv2
 
+pading_frame = cv2.imencode('.jpg', np.array([[[255]]]))[1].tostring()
 
 def _int64_feature(value):
     """Returns an int64_list."""
-    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=value))
+
 
 def _bytes_feature(value):
     """Returns an bytes_list."""
     return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
 
 def diveision_zero(x, y):
     '''
@@ -35,7 +38,8 @@ def diveision_zero(x, y):
     except ZeroDivisionError:
         return 0
 
-def frame_encoder(frame):
+
+def frame_encoder(frame, text_tokens=None, skip_frame=False):
     '''
     :param frame:
 
@@ -47,33 +51,52 @@ def frame_encoder(frame):
         'frame': _bytes_feature(frame)
     }
 
+    if text_tokens is not None:
+        feature.update({'tokens': _int64_feature(text_tokens)})
+        feature.update({'skip_frame': _int64_feature(skip_frame)})
+
     # Encode
     proto = tf.train.Example(features=tf.train.Features(feature=feature))
+    #print(proto)
 
     # Serialize proto buffer to string.
     proto = proto.SerializeToString()
 
     return proto
 
-def frame_decoder(proto):
-    '''
-    :param proto: Proto buffer to be decoded.
-    :return: tensor with decode frame.
 
-    This Function will decode frame from proto buffer.
-    '''
+def get_decoder(language_token_len=0):
 
-    # Decoding Key.
-    features = {
-        'frame': tf.FixedLenFeature([], tf.string)
-    }
+    decode_language_token = language_token_len > 0
 
-    # Decode.
-    sample = tf.parse_single_example(proto, features)
-    #frame = tf.image.decode_image(sample['frame'])
-    frame = tf.io.decode_jpeg(sample['frame'], channels=3)
+    def frame_decoder(proto):
+        '''
+        :param proto: Proto buffer to be decoded.
+        :return: tensor with decode frame.
 
-    return frame
+        This Function will decode frame from proto buffer.
+        '''
+
+        # Decoding Key.
+        features = {
+            'frame': tf.FixedLenFeature([], tf.string)
+        }
+
+        if decode_language_token:
+            features.update({'tokens': tf.FixedLenFeature([language_token_len], tf.int64)})
+            features.update({'skip_frame': tf.FixedLenFeature([], tf.int64)})
+
+        # Decode.
+        sample = tf.parse_single_example(proto, features)
+        frame = [tf.image.decode_image(sample['frame'])]
+
+        if decode_language_token:
+            frame += [sample['tokens'], sample['skip_frame']]
+
+        return frame
+
+    return frame_decoder
+
 
 def split_equal(id: list, num: int):
 
@@ -86,6 +109,7 @@ def split_equal(id: list, num: int):
         id_split[pos].append(i)
 
     return id_split
+
 
 def decode_vtt(content: str):
     '''
@@ -145,7 +169,8 @@ def decode_vtt(content: str):
 
     return ' '.join(words), words, stamp
 
-def encode_with_word_split(enc: GPT2Tokenizer, words: list, text: str):
+
+def bpe_with_word_split(enc: GPT2Tokenizer, words: list, text: str):
     '''
     :param enc: BPE encoder to be used.
     :param words: List with word strings split at time stamps.
@@ -200,14 +225,18 @@ def encode_with_word_split(enc: GPT2Tokenizer, words: list, text: str):
 
     return bpe_list
 
+
 def worker(work: list,
            save_dir,
            target_fps: int = 0,
            target_resolution: tuple = None,
            download: bool = True,
-           use_subtitles: bool = False,
            keep_buffer_download: bool = False,
            download_buffer_dir: str = '',
+           use_subtitles: bool = False,
+           enc: GPT2Tokenizer = GPT2Tokenizer.from_pretrained('gpt2'),
+           language_tokens_per_frame: int = 4,
+           skip_if_no_subtitles: bool = True,
            youtube_base: str = 'https://www.youtube.com/watch?v='):
     '''
     :param work: List with path to existing videos (if so download need to be True (default))
@@ -226,8 +255,6 @@ def worker(work: list,
     This function will download youtube videos and proses them and save than as TF.record files.
     '''
 
-    total_len = 0
-
     # Check if TF.record are uploaded to google cloud storage.
     if type(save_dir) is storage.Blob:
         cloud_storage = True
@@ -236,6 +263,8 @@ def worker(work: list,
         cloud_storage = False
         buffer_save_dir = save_dir
 
+    vocab_size = len(enc.get_vocab())
+
     # Check if video needs to be downloaded.
     if download:
         # Configer base paramiter for YoutubeDL.
@@ -243,7 +272,6 @@ def worker(work: list,
 
         # Check if subtitles are required, if so add parameter to YoutubeDL config.
         if use_subtitles:
-            ydl_opts['writesubtitles'] = str(use_subtitles)
             ydl_opts['writeautomaticsub'] = str(use_subtitles)
             ydl_opts['subtitlesformat'] = 'vtt'
             #ydl_opts['subtitleslangs'] = ['en']
@@ -265,58 +293,105 @@ def worker(work: list,
             wor = [w for w in glob.glob(wor) if '.vtt' not in w][0]
             wor = os.path.join(download_buffer_dir, wor)
 
-        # Setup CV2 video reader.
-        video_cap = cv2.VideoCapture(wor)
-        success, frame = video_cap.read()
-        frame_count = 0
+        subtitles_available = True
 
-        # Get base video FPS, this is needed to align language and video.
-        fps_raw = video_cap.get(cv2.CAP_PROP_FPS)
+        if use_subtitles:
+            vtt = os.path.splitext(wor)[0]
+            vtt = os.path.join(download_buffer_dir, (vtt + '.*'))
+            vtt = [v for v in glob.glob(vtt) if '.vtt' in v]
 
-        # Calculate Modulo number.
-        fps_split = diveision_zero(round(fps_raw), target_fps)
+            if len(vtt) > 0:
+                vtt = os.path.join(download_buffer_dir, vtt[0])
 
-        # Create TF Record Writer
-        _save_name = buffer_save_dir + os.path.splitext(ntpath.basename(wor))[0] + '.tfrecord'
-        with tf.io.TFRecordWriter(_save_name) as tf_writer:
-            while success:
+                with open(vtt, "r") as r:
+                    text, words, stamp = decode_vtt(r.read())
 
-                # Check if frame needs to be saved.
-                if frame_count % fps_split == 0:
+                bpe_list = bpe_with_word_split(enc, words, text)
 
-                    # Do resizing if required.
-                    if target_resolution is not None:
-                        frame = cv2.resize(frame, target_resolution)
+            else:
+                subtitles_available = False
 
-                    # convert BGR to RGB frames.
-                    frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-                    # Encode frame to image string.
-                    frame = cv2.imencode('.jpg', frame)[1].tostring()
 
-                    # Encode frame to proto buffer.
-                    proto = frame_encoder(frame)
+        if not use_subtitles or \
+                (subtitles_available and not skip_if_no_subtitles) or \
+                (subtitles_available and skip_if_no_subtitles):
 
-                    # Write proto buffer to TF.record file.
-                    tf_writer.write(proto)
+            # Setup CV2 video reader.
+            video_cap = cv2.VideoCapture(wor)
+            success, frame = video_cap.read()
+            frame_count = 0
 
-                # Get next frame.
-                success, frame = video_cap.read()
-                frame_count += 1
+            # Get base video FPS, this is needed to align language and video.
+            fps_raw = video_cap.get(cv2.CAP_PROP_FPS)
 
-        # Release video capture.
-        video_cap.release()
-        total_len  = total_len + frame_count
+            # Calculate Modulo number.
+            fps_split = diveision_zero(round(fps_raw), target_fps)
+
+            # Create TF Record Writer
+            _save_name = buffer_save_dir + os.path.splitext(ntpath.basename(wor))[0] + '.tfrecord'
+            with tf.io.TFRecordWriter(_save_name) as tf_writer:
+                while success:
+
+                    # Check if frame needs to be saved.
+                    if frame_count % fps_split == 0:
+
+                        # Do resizing if required.
+                        if target_resolution is not None:
+                            frame = cv2.resize(frame, target_resolution)
+
+                        # convert BGR to RGB frames.
+                        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+                        # Encode frame to image string.
+                        frame = cv2.imencode('.jpg', frame)[1].tostring()
+
+                        if use_subtitles:
+                            token_buffer = []
+                            proto = []
+
+                            while len(bpe_list) > 0 and stamp[0] < (frame_count + fps_split) * (1 / fps_raw):
+                                token_buffer += bpe_list[0]
+                                bpe_list.pop(0)
+                                stamp.pop(0)
+
+
+                            for i in range(0, len(token_buffer), language_tokens_per_frame):
+                                buffer = token_buffer[i:i + language_tokens_per_frame]
+                                buffer += [vocab_size + 1] * (language_tokens_per_frame - len(buffer))
+
+                                proto.append(frame_encoder(frame, buffer, [(i > 0)]))
+
+                            if len(proto) <= 0:
+                                proto.append(frame_encoder(pading_frame, [vocab_size + 1] * language_tokens_per_frame, [False]))
+
+                        else:
+                            # Encode frame to proto buffer.
+                            proto = [frame_encoder(frame)]
+
+                        #print(frame_count, len(proto))
+
+                        # Write proto buffer to TF.record file.
+                        for p in proto:
+                            tf_writer.write(p)
+
+                    # Get next frame.
+                    success, frame = video_cap.read()
+                    frame_count += 1
+
+            # close video file.
+            video_cap.release()
 
         # Remove video file if it was downloaded.
         if download and not keep_buffer_download:
             os.remove(wor)
+            if use_subtitles and subtitles_available:
+                os.remove(vtt)
 
         if cloud_storage and not keep_buffer_download:
             save_dir.upload_from_filename(_save_name)
             os.remove(_save_name)
 
-    print('TOTAL EXAMPELS:', total_len)
 
 
 if __name__ == '__main__':
@@ -350,7 +425,6 @@ if __name__ == '__main__':
         print(enc.decode(duffer[i]), duffer[i], i)
     '''
 
-
     '''
     content = os.listdir('/buffer/')
     content = ['/buffer/' + c for c in content if '.vtt' not in c]
@@ -359,9 +433,7 @@ if __name__ == '__main__':
            download_buffer_dir='/buffer/', use_subtitles=False, download=False)
     '''
 
-
-
-
+    '''
     #id = json.load(open('channel_video_id_list.json'))
 
     content = os.listdir('/buffer/')
@@ -398,11 +470,7 @@ if __name__ == '__main__':
 
 
     #worker(id, '/video_only/', target_fps=1, target_resolution=(320, 176), keep_buffer_download=True, download_buffer_dir='/buffer/', use_subtitles=True)
-
-
-
-
-
+    '''
 
     '''
     video_cap = cv2.VideoCapture('/opt/project/7vPNcnYWQ4.mp4')
@@ -426,25 +494,55 @@ if __name__ == '__main__':
             
     video_cap.release()
     '''
+
+    '''
+    worker(['/opt/project/7vPNcnYWQ4.mp4'],
+           save_dir='/opt/project/',
+           target_fps=1,
+           target_resolution=(320, 176),
+           download=False,
+           use_subtitles=True)
     '''
 
-    dataset = tf.data.TFRecordDataset(['/opt/project/test.tfrecord'])
+
+    frame_decoder = get_decoder(language_token_len=4)
+
+    dataset = tf.data.TFRecordDataset(['/opt/project/7vPNcnYWQ4.tfrecord'])
     dataset = dataset.map(frame_decoder)
     iterator = dataset.make_one_shot_iterator()
     next_frame_data = iterator.get_next()
-
+    buffer_frame = None
 
     with tf.Session() as sess:
         sess.run(tf.global_variables_initializer())
 
-        writer = cv2.VideoWriter('/opt/project/test.avi', cv2.VideoWriter_fourcc(*"MJPG"), 1, (426, 240))
+        writer = cv2.VideoWriter('/opt/project/test.avi', cv2.VideoWriter_fourcc(*"MJPG"), 1, (320, 176))
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (10, 100)
+        fontScale = 0.6
+        fontColor = (255, 255, 255)
+        lineType = 2
 
         try:
             # Keep extracting data till TFRecord is exhausted
             while True:
-                frame_data = sess.run(next_frame_data)
-                writer.write(np.array(frame_data).astype('uint8'))
+                frame_data, token, skip_frame = sess.run(next_frame_data)
+                print(np.array(frame_data).shape, token, skip_frame)
+
+                if not skip_frame:
+                    buffer_frame = np.array(frame_data).astype('uint8')
+
+                frame = np.copy(buffer_frame)
+                cv2.putText(frame, '[' + " ".join([str(t) for t in token]) + ']',
+                            bottomLeftCornerOfText,
+                            font,
+                            fontScale,
+                            fontColor,
+                            lineType)
+
+                writer.write(frame)
         except:
             writer.release()
 
-    '''
+
