@@ -35,7 +35,7 @@ def generic_data(params: ModelParameter, eval: bool = False):
     batch_size = params.eval_batch_size if eval else params.train_batch_size
     prefix = params.prefix
 
-    frame_decoder = get_decoder(language_token_len=params.language_token_per_frame)
+    frame_decoder = get_decoder(language_token_num_per_frame=params.language_token_per_frame)
 
     time_patch_size = sequence_length // time_patch
     frame_height_patch = frame_height // patch_size
