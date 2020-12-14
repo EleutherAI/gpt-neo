@@ -14,7 +14,6 @@ import numpy as np
 import youtube_dl
 import cv2
 
-pading_frame = cv2.imencode('.jpg', np.array([[[255]]]))[1].tostring()
 
 def _int64_feature(value):
     """Returns an int64_list."""
@@ -280,6 +279,8 @@ def worker(work: list,
 
     # Get the vocab size from the BPE encoder.
     vocab_size = len(enc.get_vocab())
+
+    pading_frame = cv2.imencode('.jpg', np.array([[[255]]]))[1].tostring()
 
     # Check if video needs to be downloaded.
     if download:
