@@ -39,9 +39,12 @@ def diveision_zero(x, y):
         return 0
 
 
-def frame_encoder(frame, text_tokens=None, skip_frame=False):
+def frame_encoder(frame, text_tokens=None, skip_frame: list = [False]):
     '''
-    :param frame:
+    :param frame: A byte String containing a jpg encoded image.
+    :param text_tokens: A list containing int ped tokens.
+    :param skip_frame: A list containing a single bool that
+    determines if this frame include an image or just text.
 
     This Function will encode frame to proto buffer.
     '''
@@ -52,12 +55,11 @@ def frame_encoder(frame, text_tokens=None, skip_frame=False):
     }
 
     if text_tokens is not None:
-        feature.update({'tokens': _int64_feature(text_tokens)})
-        feature.update({'skip_frame': _int64_feature(skip_frame)})
+        feature.update({'tokens': _int64_feature(text_tokens),
+                        'skip_frame': _int64_feature(skip_frame)})
 
     # Encode
     proto = tf.train.Example(features=tf.train.Features(feature=feature))
-    #print(proto)
 
     # Serialize proto buffer to string.
     proto = proto.SerializeToString()
@@ -65,9 +67,24 @@ def frame_encoder(frame, text_tokens=None, skip_frame=False):
     return proto
 
 
-def get_decoder(language_token_len=0):
+def get_decoder(language_token_num_per_frame=0):
+    '''
+    :param language_token_num_per_frame: The number of language tokens per single frame.
+    If this is 0 (default) language tokens are disabled.
 
-    decode_language_token = language_token_len > 0
+    This function will return a frame decoder function, that can than be used to decode tf.records.
+    '''
+
+    decode_language_token = language_token_num_per_frame > 0
+
+    # Decoding Key.
+    features = {
+        'frame': tf.FixedLenFeature([], tf.string)
+    }
+
+    if decode_language_token:
+        features.update({'tokens': tf.FixedLenFeature([language_token_num_per_frame], tf.int64),
+                         'skip_frame': tf.FixedLenFeature([], tf.int64)})
 
     def frame_decoder(proto):
         '''
@@ -77,21 +94,14 @@ def get_decoder(language_token_len=0):
         This Function will decode frame from proto buffer.
         '''
 
-        # Decoding Key.
-        features = {
-            'frame': tf.FixedLenFeature([], tf.string)
-        }
-
-        if decode_language_token:
-            features.update({'tokens': tf.FixedLenFeature([language_token_len], tf.int64)})
-            features.update({'skip_frame': tf.FixedLenFeature([], tf.int64)})
-
         # Decode.
         sample = tf.parse_single_example(proto, features)
-        frame = [tf.image.decode_image(sample['frame'])]
 
         if decode_language_token:
-            frame += [sample['tokens'], sample['skip_frame']]
+            frame = (tf.image.decode_image(sample['frame']), sample['tokens'], sample['skip_frame'])
+
+        else:
+            frame = tf.image.decode_image(sample['frame'])
 
         return frame
 
@@ -247,7 +257,12 @@ def worker(work: list,
     If None original download resolution will be kept (default).
     :param download: Bool if it needs to download the video or just proses it. If download=True (default) youtube ID's
     needs to be given and if download=False path to videos needs to be given.
-    :param use_subtitles: Bool, if true Text will be used to. (not implemented jet)
+    :param keep_buffer_download: If True the downloaded files will not be deleted after the tfrecord got created.
+    :param use_subtitles: Bool, if true Text will be used to.
+    :param enc: The BPE token encoder.
+    :param language_tokens_per_frame: The number of language tokens encoded per single frame.
+    :param skip_if_no_subtitles: If True the video will be skipped if no subtitles are available.
+    (only if use_subtitles is True)
     :param download_buffer_dir: Directory where YoutubDL will download the videos (only if download is True (default)).
     It is recommended to use a RAM Disk as buffer directory.
     :param youtube_base: Youtube base string https://www.youtube.com/watch?v=.
@@ -263,6 +278,7 @@ def worker(work: list,
         cloud_storage = False
         buffer_save_dir = save_dir
 
+    # Get the vocab size from the BPE encoder.
     vocab_size = len(enc.get_vocab())
 
     # Check if video needs to be downloaded.
@@ -293,6 +309,7 @@ def worker(work: list,
             wor = [w for w in glob.glob(wor) if '.vtt' not in w][0]
             wor = os.path.join(download_buffer_dir, wor)
 
+        # Assume by default the subtitles are available.
         subtitles_available = True
 
         if use_subtitles:
@@ -311,8 +328,7 @@ def worker(work: list,
             else:
                 subtitles_available = False
 
-
-
+        # Check if this video need to be skipt. This will happen if subtitles are required but are not available.
         if not use_subtitles or \
                 (subtitles_available and not skip_if_no_subtitles) or \
                 (subtitles_available and skip_if_no_subtitles):
@@ -359,11 +375,16 @@ def worker(work: list,
                             for i in range(0, len(token_buffer), language_tokens_per_frame):
                                 buffer = token_buffer[i:i + language_tokens_per_frame]
                                 buffer += [vocab_size + 1] * (language_tokens_per_frame - len(buffer))
+                                skip_buffer = i > 0
 
-                                proto.append(frame_encoder(frame, buffer, [(i > 0)]))
+                                proto.append(frame_encoder(pading_frame if skip_buffer else frame,
+                                                           buffer,
+                                                           [skip_buffer]))
 
                             if len(proto) <= 0:
-                                proto.append(frame_encoder(pading_frame, [vocab_size + 1] * language_tokens_per_frame, [False]))
+                                proto.append(frame_encoder(frame,
+                                                           [vocab_size + 1] * language_tokens_per_frame,
+                                                           [False]))
 
                         else:
                             # Encode frame to proto buffer.
@@ -495,14 +516,14 @@ if __name__ == '__main__':
     video_cap.release()
     '''
 
-    '''
+
     worker(['/opt/project/7vPNcnYWQ4.mp4'],
            save_dir='/opt/project/',
            target_fps=1,
            target_resolution=(320, 176),
            download=False,
            use_subtitles=True)
-    '''
+
 
 
     frame_decoder = get_decoder(language_token_len=4)
@@ -531,9 +552,9 @@ if __name__ == '__main__':
                 print(np.array(frame_data).shape, token, skip_frame)
 
                 if not skip_frame:
-                    buffer_frame = np.array(frame_data).astype('uint8')
+                    frame = np.array(frame_data).astype('uint8')
 
-                frame = np.copy(buffer_frame)
+                #frame = np.copy(buffer_frame)
                 cv2.putText(frame, '[' + " ".join([str(t) for t in token]) + ']',
                             bottomLeftCornerOfText,
                             font,
