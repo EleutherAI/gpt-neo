@@ -6,31 +6,25 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 
-from .dataclass import ModelParameter
 from .inputs import generic_data
 from .train import model_fn
-from .utils import check_dataset, fetch_model_params, setup_logging
-
+from .dataclass import ModelParameter
+import json
 
 def main(args: argparse.Namespace):
     # Setup logging
-    logger = setup_logging(args)
-
+    model_path = args.model if args.model.endswith(".json") else f"configs/{args.model}.json"
+    with open(model_path) as f:
+        params = json.load(f)
+    params = ModelParameter(params)
     # Read params of model
-    params = fetch_model_params(args.model)
 
     # Fetch appropriate input functions
     input_fn = generic_data
 
-    # Sample from Dataset if check dataset flag is on
-    if args.check_dataset:
-        check_dataset(input_fn, params)
-
     # Add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     mesh_shape = mtf.convert_to_shape(params.mesh_shape)
     params.num_cores = mesh_shape.size
-    params.auto_layout = args.auto_layout
-    params.auto_layout_and_mesh_shape = args.auto_layout_and_mesh_shape
     params.use_tpu = True if not args.tpu is None else False
     params.gpu_ids = args.gpu_ids
     params.steps_per_checkpoint = args.steps_per_checkpoint
@@ -42,8 +36,6 @@ def main(args: argparse.Namespace):
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
     params.slow_sampling = False
-
-    logger.info(f"params = {params}")
 
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
 
@@ -71,7 +63,6 @@ def main(args: argparse.Namespace):
             params=params)
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
-    logger.info(f"Current step {current_step}")
 
     while current_step < params.train_steps:
         # Else, don't stop and restart

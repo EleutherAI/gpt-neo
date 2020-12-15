@@ -5,8 +5,6 @@ import typing
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
-from .dataclass import ModelParameter
-
 
 def rezero(block_input: tf.Tensor, dtype: mtf.VariableDType):
     with tf.variable_scope(f'rezero_{random.getrandbits(64):x}'):
