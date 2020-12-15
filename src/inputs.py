@@ -2,10 +2,10 @@ import tensorflow.compat.v1 as tf
 from google.cloud import storage
 
 from .dataclass import ModelParameter
-from .video2tfrecord import frame_decoder
+from .video2tfrecord import get_decoder
 
 
-def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int):
+def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int, frame_decoder: object):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
     data = data.map(frame_decoder, num_parallel_calls=1)
     data = data.repeat()
@@ -35,6 +35,8 @@ def generic_data(params: ModelParameter, eval: bool = False):
     batch_size = params.eval_batch_size if eval else params.train_batch_size
     prefix = params.prefix
 
+    frame_decoder = get_decoder(language_token_num_per_frame=params.language_token_per_frame)
+
     time_patch_size = sequence_length // time_patch
     frame_height_patch = frame_height // patch_size
     frame_width_patch = frame_width // patch_size
@@ -43,7 +45,7 @@ def generic_data(params: ModelParameter, eval: bool = False):
     path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
 
     data = tf.data.Dataset.from_tensor_slices(path)
-    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch),
+    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder),
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
