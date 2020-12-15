@@ -1,0 +1,9 @@
+{
+	"n_vocab": 50257,
+	"path": "gs://neo-datasets/SmallPileAblation_small_owt_newinput/*.tfrecords",
+	"eval_path": "gs://neo-datasets/pile_val_newinput.tfrecords",
+	"tokenizer_is_pretrained": true,
+	"tokenizer_path": "gpt2",
+	"eos_id": 50256,
+	"padding_id": 50257
+}
