@@ -28,6 +28,7 @@ class ModelParameter(dict):
         self.dataset_ids = ["openwebtext-documents"]
         self.local_attention_radius = 256
         self.n_vocab = 256
+        self.language_token_per_frame = 0
         self.embed_dropout = 0
         self.lr_decay = "cosine"
         self.warmup_steps = 3000
