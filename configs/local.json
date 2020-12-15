@@ -50,6 +50,5 @@
     "scale_by_depth": true,
     "scale_by_in": false,
     "activation_function": "gelu",
-    "recompute_grad": false,
     "gradient_clipping": 1.0
 }

@@ -1,3 +1,5 @@
+import json
+
 import mesh_tensorflow as mtf
 import mesh_tensorflow.transformer as mtf_transformer
 import tensorflow.compat.v1 as tf
@@ -6,24 +8,34 @@ from tensorflow.python.tpu import tpu_estimator
 from .dataclass import ModelParameter
 from .model import model
 from .optimizers import get_optimizer
-from .utils import add_mode_to_params, create_host_call, get_graph_info, \
-    remove_batch_from_layout, simd_mesh_setup
 
 
 def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     # Get global step
+
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params.mesh_shape)
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        params.layout = remove_batch_from_layout(params.layout)
     layout_rules = mtf.convert_to_layout_rules(params.layout)
 
     # Mesh setup
-    var_placer, mesh_impl = simd_mesh_setup(params, mesh_shape, layout_rules)
+    num_hosts = params.context.num_hosts
+    host_placement_fn = params.context.tpu_host_placement_function
+    device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
+    tf.logging.info(f"device_list = {device_list}")
+
+    replica_cache_size = 300 * 1000000  # 300M per replica
+
+    # Worker 0 caches all the TPU binaries
+    worker0_mem = replica_cache_size * params.context.num_replicas
+    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
+    var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
+    mesh_devices = [""] * mesh_shape.size
+    mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
+            mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
@@ -37,7 +49,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     features_dict = {"inputs": features, "labels": labels}
     sequence_length_dict = {"inputs": params.n_ctx, "labels": params.n_ctx}
 
-    params = add_mode_to_params(params, mode)
+    params.mode = mode
 
     model_input = next(iter(features_dict.values()))
     model_input_shape = model_input.get_shape().as_list()
@@ -111,8 +123,26 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     # Log summaries to tensorboard
     mtf.scalar_summary("loss", loss)
 
-    # Gets & prints info about no. trainable vars in the model & dimension names
-    get_graph_info(graph)
+    total_parameters = 0
+    for variable in graph.trainable_variables:
+        shape = variable.shape.dims
+        variable_parameters = 1
+        for dim in shape:
+            variable_parameters *= dim.size
+        total_parameters += variable_parameters
+    print(f"\n\nN TRAINABLE VARS:\n{total_parameters:,}\n\n")
+    all_dim_names = []
+    for variable in graph.all_variables:
+        names = variable.shape.dimension_names
+        all_dim_names.append(names)
+
+    # Print all dim names in graph & write to file
+    all_dim_names = [item for sublist in all_dim_names for item in sublist]  # Flatten all dims
+    unique_dims = list(set(all_dim_names))
+    print("ALL DIM NAMES:")
+    for dim_name in unique_dims:
+        print(dim_name)
+    print('\n')
 
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
 
@@ -120,7 +150,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     tf_loss = tf.cast(tf_loss, tf.float32)
 
     # Use our patched version until mtf updates theirs
-    host_call = create_host_call(params.model_path, labels)
+    host_call = None  # create_host_call(params.model_path, labels)
     mtf.utils.remove_summaries()
 
     # Creates train_op
