@@ -213,6 +213,7 @@ def main(args):
                 steps=task_info["n_steps"],
                 name=task)
             logger.info(f"Eval task '{task}' results: {eval_results}")
+            save_eval_results(task, eval_results)
     
     if args.eval:
         run_eval_tasks()
