@@ -60,7 +60,7 @@ def main(args: argparse.Namespace):
             config=config,
             train_batch_size=params.train_batch_size,
             predict_batch_size=params.predict_batch_size,
-            params=params)
+            params=params.dict())
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
 

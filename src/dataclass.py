@@ -80,3 +80,6 @@ class ModelParameter(dict):
 
     def __repr__(self):
         return str(self)
+
+    def dict(self):
+        return self.__dict__
