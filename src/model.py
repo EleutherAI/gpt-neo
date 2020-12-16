@@ -39,15 +39,14 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
     x = mtf_features["inputs"]
     middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
     input_features = x.shape[-1]
-    dropout_rate = params.dropout_rate
 
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", embd_dim.size // params.n_head)
 
-    output = generic_feed_forward(x, x.shape[-1:], [dim_heads, key_dim], tf.float32, dropout_rate)
+    output = generic_feed_forward(x, x.shape[-1:], [dim_heads, key_dim], tf.float32, params.dropout_rate)
 
     def _feed_forward(x):
-        return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], tf.float32, dropout_rate)
+        return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], tf.float32, params.dropout_rate)
 
     for layer in range(params.n_layer):
         def _block_fn(block_input):
@@ -86,7 +85,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
                 return block_input
 
         output = mtf.recompute_grad(_block_fn, [output])
-    output = generic_feed_forward(output, [dim_heads, key_dim], [input_features], tf.float32, dropout_rate)
+    output = generic_feed_forward(output, [dim_heads, key_dim], [input_features], tf.float32, params.dropout_rate)
 
     with tf.variable_scope("reduce_mean_final"):
         loss = mtf.reduce_mean(mtf.abs(output - mtf_features["labels"]))
