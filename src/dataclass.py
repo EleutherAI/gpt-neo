@@ -13,6 +13,7 @@ class ModelParameter(dict):
         self.frame_height = 1152
         self.bucket_name = "text-datasets"
         self.color_channels = 3
+        self._3d_attention = True
         self.prefix = "datasets/video"
         self.n_head = 8
         self.n_embd = 256
