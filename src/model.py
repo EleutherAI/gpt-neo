@@ -37,10 +37,10 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
     """A GPT style model implemented in mesh tensorflow."""
     embd_dim = other_features["embd_dim"]
     x = mtf_features["inputs"]
-    original_shape = x.shape
     sequence_dim = x.shape[1]
     width = x.shape[2]
     height = x.shape[3]
+    input_features = x.shape[-1]
     dropout_rate = params.dropout_rate
 
     dim_heads = mtf.Dimension("heads", params.n_head)
@@ -88,7 +88,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
                 return block_input
 
         output = mtf.recompute_grad(_block_fn, [output])
-    output = generic_feed_forward(output, [dim_heads, key_dim], original_shape[-1:], tf.float32, dropout_rate)
+    output = generic_feed_forward(output, [dim_heads, key_dim], [input_features], tf.float32, dropout_rate)
 
     with tf.variable_scope("reduce_mean_final"):
         loss = mtf.reduce_mean(mtf.abs(output - mtf_features["labels"]))
