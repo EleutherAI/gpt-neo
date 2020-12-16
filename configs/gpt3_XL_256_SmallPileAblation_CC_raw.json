@@ -12,7 +12,7 @@
     "weight_decay": 0.1,
     "train_batch_size": 256,
     "attn_dropout": 0,
-    "train_steps": 28615,
+    "train_steps": 25000,
     "eval_steps": 10,
     "predict_steps": 1,
     "res_dropout": 0,
