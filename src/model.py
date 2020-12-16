@@ -16,16 +16,16 @@ def rezero(block_input: tf.Tensor, dtype: mtf.VariableDType):
 def generic_feed_forward(block_input: mtf.Tensor,
                          reduced_dims: typing.List[mtf.Dimension],
                          new_dimensions: typing.List[mtf.Dimension],
-                         variable_dtype: typing.Union[mtf.VariableDType, tf.DType] = tf.float32,
+                         dtype: typing.Union[mtf.VariableDType, tf.DType] = tf.float32,
                          dropout_rate: float = 0):
     intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
     with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
         with tf.variable_scope('layer0'):
-            weight0 = mtf.get_variable(block_input.mesh, "weight0", reduced_dims + intermediate_dimensions, initializer=tf.orthogonal_initializer(), dtype=dtype)
+            weight0 = mtf.get_variable(block_input.mesh, "weight0", reduced_dims + intermediate_dimensions, initializer=tf.orthogonal_initializer(), dtype=variable_dtype)
             block_input = mtf.einsum([block_input, weight0], block_input.shape - reduced_dims + intermediate_dimensions)
         if dropout_rate > 0:
             block_input = mtf.dropout(block_input, 1 - dropout_rate)
-        block_input = mtf.gelu(block_input)
+        block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
         with tf.variable_scope('layer1'):
             weight1 = mtf.get_variable(block_input.mesh, "weight1", intermediate_dimensions + new_dimensions, initializer=tf.orthogonal_initializer(), dtype=dtype)
             block_input = mtf.einsum([block_input, weight1], block_input.shape - intermediate_dimensions + new_dimensions)
