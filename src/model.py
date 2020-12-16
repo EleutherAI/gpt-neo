@@ -37,9 +37,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
     """A GPT style model implemented in mesh tensorflow."""
     embd_dim = other_features["embd_dim"]
     x = mtf_features["inputs"]
-    sequence_dim = x.shape[1]
-    width = x.shape[2]
-    height = x.shape[3]
+    middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
     input_features = x.shape[-1]
     dropout_rate = params.dropout_rate
 
@@ -56,7 +54,7 @@ def model(mtf_features: dict, other_features: dict, params: collections.defaultd
             with tf.variable_scope(f"attention_block{layer}"):
                 summed_a = None
 
-                for idx, dim in enumerate([sequence_dim, width, height]):
+                for idx, dim in enumerate(middle_dimensions):
                     tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
                     with tf.variable_scope(f"attn{dim.name}"):
