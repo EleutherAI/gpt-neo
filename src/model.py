@@ -35,13 +35,13 @@ def generic_feed_forward(block_input: mtf.Tensor,
 def model(mtf_features: dict, other_features: dict, params: collections.defaultdict, mesh: mtf.Mesh,
           variable_dtype: mtf.VariableDType):
     """A GPT style model implemented in mesh tensorflow."""
-    embd_dim = other_features["embd_dim"]
     x = mtf_features["inputs"]
+    
     middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
     input_features = x.shape[-1]
 
     dim_heads = mtf.Dimension("heads", params.n_head)
-    key_dim = mtf.Dimension("features_per_head", embd_dim.size // params.n_head)
+    key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
     output = generic_feed_forward(x, x.shape[-1:], [dim_heads, key_dim], tf.float32, params.dropout_rate)
 
