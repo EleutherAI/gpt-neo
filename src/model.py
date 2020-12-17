@@ -17,23 +17,22 @@ def rezero(block_input: tf.Tensor, dtype: mtf.VariableDType):
 def generic_feed_forward(block_input: mtf.Tensor,
                          reduced_dims: typing.List[mtf.Dimension],
                          new_dimensions: typing.List[mtf.Dimension],
-                         dtype: typing.Union[mtf.VariableDType, tf.DType] = tf.float32,
                          dropout_rate: float = 0):
     intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
     with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
-        with tf.variable_scope('layer0'):
-            weight0 = mtf.get_variable(block_input.mesh, "weight0", reduced_dims + intermediate_dimensions,
-                                       initializer=tf.orthogonal_initializer(), dtype=dtype)
-            block_input = mtf.einsum([block_input, weight0], block_input.shape - reduced_dims + intermediate_dimensions)
+        weight0 = get_variable(block_input.mesh, reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
+        block_input = mtf.einsum([block_input, weight0], block_input.shape - reduced_dims + intermediate_dimensions)
         if dropout_rate > 0:
             block_input = mtf.dropout(block_input, 1 - dropout_rate)
         block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
-        with tf.variable_scope('layer1'):
-            weight1 = mtf.get_variable(block_input.mesh, "weight1", intermediate_dimensions + new_dimensions,
-                                       initializer=tf.orthogonal_initializer(), dtype=dtype)
-            block_input = mtf.einsum([block_input, weight1],
-                                     block_input.shape - intermediate_dimensions + new_dimensions)
+        weight1 = get_variable(block_input.mesh, intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
+        block_input = mtf.einsum([block_input, weight1],
+                                 block_input.shape - intermediate_dimensions + new_dimensions)
     return block_input
+
+
+def get_variable(mesh, shape, initializer):
+    return mtf.get_variable(mesh, f"{random.getrandbits(64):x}", shape, dtype=tf.float32, initializer=initializer)
 
 
 def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh: mtf.Mesh,
@@ -44,26 +43,20 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
 
     x = mtf_features["inputs"] / 255.
     context_dimension = x.shape[1]
-    input_features = x.shape[-1]
 
     tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
     src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-
     middle_dimensions = src.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
 
-    embedding = mtf.add_n([mtf.broadcast(mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1),
-                                                     [mtf.Dimension(cdim.name, dim.size if cdim.name == dim.name else 1)
-                                                      for cdim in x.shape]),
-                                         src.shape[:-1] + [mtf.Dimension(input_features.name, 1)])
-                           for idx, dim in enumerate(middle_dimensions)])
-    src = mtf.concat([src, embedding], input_features.name)
+    embedding = mtf.add_n([get_variable(mesh, [dim, x.shape[-1]], tf.random_normal_initializer())
+                           for dim in middle_dimensions])
+    src += embedding
+    input_features = src.shape[-1]
 
-    input_features = x.shape[-1]
-
-    output = generic_feed_forward(src, src.shape[-1:], [dim_heads, key_dim], tf.float32, params.dropout_rate)
+    output = generic_feed_forward(src, src.shape[-1:], [dim_heads, key_dim], params.dropout_rate)
 
     def _feed_forward(x):
-        return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], tf.float32, params.dropout_rate)
+        return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], params.dropout_rate)
 
     for layer in range(params.n_layer):
         def _block_fn(block_input):
@@ -102,7 +95,7 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
                 return block_input
 
         output = mtf.recompute_grad(_block_fn, [output])
-    output = generic_feed_forward(output, [dim_heads, key_dim], [input_features], tf.float32, params.dropout_rate)
+    output = generic_feed_forward(output, [dim_heads, key_dim], [input_features], params.dropout_rate)
 
     with tf.variable_scope("reduce_mean_final"):
         loss = mtf.reduce_mean(mtf.abs(output - tgt))
