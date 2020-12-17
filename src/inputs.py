@@ -71,6 +71,7 @@ def generic_data(params: ModelParameter, eval: bool = False):
     patch_size = params.patch_size
     batch_size = params.eval_batch_size if eval else params.train_batch_size
     prefix = params.prefix
+    concat_linea_encode = params.concat_linea_encode
 
     frame_decoder = get_decoder(language_token_num_per_frame=params.language_token_per_frame)
 
@@ -82,8 +83,9 @@ def generic_data(params: ModelParameter, eval: bool = False):
     if not _3d_attention:
         frame_height_patch = frame_height_patch * frame_width_patch
 
-    #embedding = embedding_pos(batch_size, time_patch_size, frame_height_patch, frame_width_patch, _3d_attention)
-    #embedding = tf.convert_to_tensor(embedding, dtype=tf.float32)
+    if concat_linea_encode:
+        embedding = embedding_pos(batch_size, time_patch_size, frame_height_patch, frame_width_patch, _3d_attention)
+        embedding = tf.convert_to_tensor(embedding, dtype=tf.float32)
 
     path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
 
@@ -124,7 +126,15 @@ def generic_data(params: ModelParameter, eval: bool = False):
         src = tf.cast(src, tf.float32) / 255.
         tgt = tf.cast(tgt, tf.float32) / 255.
 
-        #src = tf.concat([src, embedding], axis=-1)
+        if concat_linea_encode:
+            src = tf.concat([src, embedding], axis=-1)
+        else:
+            src += tf.reshape(tf.range(time_patch_size, dtype=tf.float32) / (time_patch_size - 1),
+                              (1, time_patch_size, 1, 1, 1))
+            src += tf.reshape(tf.range(frame_height_patch, dtype=tf.float32) / (frame_height_patch - 1),
+                              (1, 1, frame_height_patch, 1, 1))
+            src += tf.reshape(tf.range(frame_width_patch, dtype=tf.float32) / (frame_width_patch - 1),
+                              (1, 1, 1, frame_width_patch, 1))
 
         return src, tgt
 
