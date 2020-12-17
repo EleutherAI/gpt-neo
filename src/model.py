@@ -41,15 +41,16 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
     """A GPT style model implemented in mesh tensorflow."""
     x = mtf_features["inputs"]
 
+    context_dimension = x.shape[1]
     middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
     input_features = x.shape[-1]
 
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
-    x = x/ 255.
-    tgt = mtf.slice(x, 1, 1 + params.n_ctx // params.time_patch, x.shape[1])
-    src = mtf.slice(x, 0, params.n_ctx // params.time_patch, x.shape[1])
+    x = x / 255.
+    tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension)
+    src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension)
 
     embedding = mtf.add_n([mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1) / 3,
                                        (1,) + (1,) * idx + (dim.size,) + (1,) * (len(middle_dimensions) - idx))
