@@ -14,6 +14,7 @@ class ModelParameter(dict):
         self.bucket_name = "text-datasets"
         self.color_channels = 3
         self._3d_attention = True
+        self.concat_linea_encode = False
         self.prefix = "datasets/video"
         self.n_head = 8
         self.n_embd = 256
