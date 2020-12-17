@@ -44,8 +44,8 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
     context_dimension = x.shape[1]
 
     x = x / 255.
-    tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension)
-    src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension)
+    tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
+    src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
     middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
     input_features = x.shape[-1]
