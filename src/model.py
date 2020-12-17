@@ -39,27 +39,25 @@ def generic_feed_forward(block_input: mtf.Tensor,
 def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh: mtf.Mesh,
           variable_dtype: mtf.VariableDType):
     """A GPT style model implemented in mesh tensorflow."""
-    x = mtf_features["inputs"]
-
-    context_dimension = x.shape[1]
-    input_features = x.shape[-1]
-
-    x = x / 255.
-    tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
-    src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-
-    middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
-
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
-    embedding = mtf.add_n([mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1) / 3,
+    x = mtf_features["inputs"] / 255.
+    context_dimension = x.shape[1]
+    input_features = x.shape[-1]
+
+    tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
+    src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
+
+    middle_dimensions = src.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
+
+    embedding = mtf.add_n([mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1),
                                        [mtf.Dimension(cdim.name, dim.size if cdim.name == dim.name else 1)
                                         for cdim in x.shape])
                            for idx, dim in enumerate(middle_dimensions)])
-
     embedding = mtf.broadcast(embedding, src.shape[:-1] + [mtf.Dimension(input_features.name, 1)])
     src = mtf.concat([src, embedding], input_features.name)
+
     input_features = x.shape[-1]
 
     output = generic_feed_forward(src, src.shape[-1:], [dim_heads, key_dim], tf.float32, params.dropout_rate)
