@@ -51,11 +51,11 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
 
     middle_dimensions = src.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
 
-    embedding = mtf.add_n([mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1),
-                                       [mtf.Dimension(cdim.name, dim.size if cdim.name == dim.name else 1)
-                                        for cdim in x.shape])
+    embedding = mtf.add_n([mtf.broadcast(mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1),
+                                                     [mtf.Dimension(cdim.name, dim.size if cdim.name == dim.name else 1)
+                                                      for cdim in x.shape]),
+                                         src.shape[:-1] + [mtf.Dimension(input_features.name, 1)])
                            for idx, dim in enumerate(middle_dimensions)])
-    embedding = mtf.broadcast(embedding, src.shape[:-1] + [mtf.Dimension(input_features.name, 1)])
     src = mtf.concat([src, embedding], input_features.name)
 
     input_features = x.shape[-1]
