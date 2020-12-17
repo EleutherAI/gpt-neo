@@ -1,7 +1,4 @@
-import json
-
 import mesh_tensorflow as mtf
-import mesh_tensorflow.transformer as mtf_transformer
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 from tensorflow.python.tpu import tpu_estimator
@@ -10,7 +7,8 @@ from .dataclass import ModelParameter
 from .model import model
 from .optimizers import get_optimizer
 
-def create_host_call(model_dir, labels):
+
+def create_host_call(model_dir):
     """Construct a host_call writing scalar summaries.
     Borrowed from t2t.
     
@@ -61,61 +59,9 @@ def create_host_call(model_dir, labels):
 
     global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
     return host_call_fn, [global_step_t] + reshaped_tensors
-def create_host_call(model_dir, labels):
-    """Construct a host_call writing scalar summaries.
-    Borrowed from t2t.
-    
-    Args:
-        model_dir: String containing path to train
-    Returns:
-        (fn, args) Pair to be called by TPUEstimator as the host_call.
-    """
-
-    graph = tf.get_default_graph()
-    # A list of (name, lowered tensor) tuples
-    summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
-
-    def maybe_cast(tensor):
-        if tensor.shape.is_compatible_with([]):
-            tensor = tf.reshape(tensor, [1])
-        if tensor.dtype == tf.int64:
-            return tf.to_int32(tensor)
-        if tensor.dtype == tf.bfloat16:
-            return tf.cast(tensor, tf.float32)
-        return tensor
-
-    reshaped_tensors = [maybe_cast(t) for _, t in summaries]
-
-    # When no supported summaries are found, don't create host_call. Otherwise,
-    # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
-    # it, eventually causing hang.
-    if not reshaped_tensors:
-        return None
-
-    def host_call_fn(global_step, *args):
-        """Training host call. Creates scalar summaries for training metrics."""
-        # This function is executed on the CPU and should not directly reference
-        # any Tensors in the rest of the `model_fn`. To pass Tensors from the
-        # model to the `model_fn`, provide as part of the `host_call`.
-        global_step = tf.cast(global_step[0], tf.int64)
-        with tf2.summary.create_file_writer(model_dir).as_default():
-            # We cannot directly use any tensor from summaries, because each
-            # tensor here must be a concat of multiple tensors from all shards.
-            # Therefore, we rely on the assumption that args wil have the same
-            # length as summaries, and all tensors in args will have the same
-            # order of self._tup_summaries.
-            assert len(args) == len(summaries)
-            for i, tensor in enumerate(args):
-                name = summaries[i][0]
-                tf2.summary.scalar(name, tf.reduce_mean(tensor), step=global_step)
-        return tf.summary.all_v2_summary_ops()
-
-    global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
-    return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-
-def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
+def model_fn(features: tf.Tensor, mode: str, params: dict):
     # Get global step
 
     params = ModelParameter(params)
@@ -132,12 +78,8 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     device_list = [host_placement_fn(host_id=i) for i in range(num_hosts)]
     tf.logging.info(f"device_list = {device_list}")
 
-    replica_cache_size = 300 * 1000000  # 300M per replica
-
-    # Worker 0 caches all the TPU binaries
-    worker0_mem = replica_cache_size * params.context.num_replicas
-    devices_memory_usage = [worker0_mem] + [0] * (num_hosts - 1)
-    var_placer = mtf.utils.BalancedVariablePlacer(device_list, devices_memory_usage)
+    var_placer = mtf.utils.BalancedVariablePlacer(device_list,
+                                                  [300 * 1000000 * params.context.num_replicas] + [0] * (num_hosts - 1))
     mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
             mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
@@ -151,8 +93,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
 
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
-    features_dict = {"inputs": features, "labels": labels}
-    sequence_length_dict = {"inputs": params.n_ctx, "labels": params.n_ctx}
+    features_dict = {"inputs": features}
 
     params.mode = mode
 
@@ -190,42 +131,14 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     other_features["embed_sequence_dim"] = embed_sequence_dim
     other_features["memory_length_dim"] = memory_length_dim
 
-    # We're not predicting, so we better be training or evaluating
-    assert (mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL)
+    with mtf.utils.outside_all_rewrites():
+        with tf.variable_scope('gpt2'):
+            logits, loss = model(mtf_features, other_features, params, mesh,
+                                 variable_dtype=variable_dtype)
 
-    # Gets number of microbatches per batch for serialized training
-    # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
-    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
-                                                                            sequence_length=sequence_length_dict,
-                                                                            mesh_shape=mesh_shape,
-                                                                            layout_rules=layout_rules))
-
-    # Add num microbatches to params
-
-    if num_microbatches > 1:
-        # For serialize_training_step we need to modify the model to output results in a dict
-        def serialized_fn(mtf_features):
-            with tf.variable_scope('gpt2'):
-                logits, loss = model(mtf_features, other_features, params, mesh,
-                                     variable_dtype=variable_dtype)
-            return {"logits": logits, "loss": loss}
-
-        # Serialize the training step - Gradients are accumulated locally and reduced once.
-        var_grads, output_dict = mtf.serialize_training_step(mtf_features, serialized_fn, batch_dim, num_microbatches)
-        loss = output_dict["loss"]
-        logits = output_dict["logits"]
-
-    else:
-        with mtf.utils.outside_all_rewrites():
-            with tf.variable_scope('gpt2'):
-                logits, loss = model(mtf_features, other_features, params, mesh,
-                                     variable_dtype=variable_dtype)
-
-    # In TRAIN mode, get optimizer
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
-                                             inp_var_grads=None if num_microbatches == 1 else var_grads)
+                                             inp_var_grads=None)
 
-    # Log summaries to tensorboard
     mtf.scalar_summary("loss", loss)
 
     total_parameters = 0
@@ -255,7 +168,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     tf_loss = tf.cast(tf_loss, tf.float32)
 
     # Use our patched version until mtf updates theirs
-    host_call = create_host_call(params.model_path, labels)
+    host_call = create_host_call(params.model_path)
     mtf.utils.remove_summaries()
 
     # Creates train_op
