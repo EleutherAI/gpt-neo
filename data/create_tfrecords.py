@@ -25,7 +25,7 @@ parser.add_argument("--name", type=str, default="openwebtext",
 parser.add_argument("--output_dir", type=str, default="./tfrecords", help="Where to put tfrecords")
 parser.add_argument("--encoder_path", type=str, help="Path to encoder files, or leave unspecified to use GPT2 tokenizer")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
-parser.add_argument("--no_ftfy", action="store_true", help="If set skips unicode normalization with ftfy")
+parser.add_argument("--ftfy", action="store_false", help="normalize with ftfy")
 parser.add_argument("--separator", nargs="+", type=int, default=[50256], help="separator to place between files in chunk mode")
 parser.add_argument("--chunk_size", type=int, default=2048, help="How big a chunk should be in chunk mode. "
                                                                  "Should equal your model's context size")
@@ -71,7 +71,7 @@ def archive_to_tokens(f, encoder, args):
     # if data_to_prepend is not None, prepend data_to_prepend + a EOS separator to the encoded data
     reader = Reader(f)
     for doc in reader.stream_data(threaded=False):
-        if not args.no_ftfy: # fix text with ftfy if specified
+        if args.ftfy: # fix text with ftfy if specified
             doc = ftfy.fix_text(doc, normalization='NFKC')
         doc = encoder.encode(doc) + args.separator # read document from lmd and append separator token
         yield split_list(doc, args.chunk_size) # split into n_ctx + 1 size chunks
