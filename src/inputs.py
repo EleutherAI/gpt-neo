@@ -105,15 +105,17 @@ def generic_data(params: ModelParameter, eval: bool = False):
                  for i in range(0, sequence_length + time_patch, time_patch)]
             x = tf.stack(x, axis=1)
 
-        x = [tf.reshape(x[:, :, i:i + patch_size, j:j + patch_size], [batch_size, sequence_length + time_patch, channel_color_size]) for i in range(0, frame_height, patch_size) for j in range(0, frame_width, patch_size)]
+        x = [tf.reshape(x[:, :, i:i + patch_size, j:j + patch_size], [batch_size, time_patch_size + 1,
+                                                                      channel_color_size])
+             for i in range(0, frame_height, patch_size) for j in range(0, frame_width, patch_size)]
 
         x = tf.stack(x, axis=2)
         if _3d_attention:
-            x = tf.reshape(x, (batch_size, time_patch_size + time_patch, frame_height_patch, frame_width_patch,
+            x = tf.reshape(x, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
                                channel_color_size))
 
         src = x[:, :time_patch_size]
-        tgt = x[:, time_patch:time_patch_size + time_patch]
+        tgt = x[:, 1:time_patch_size + 1]
 
         return src, tgt
 
