@@ -58,6 +58,7 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
     def _feed_forward(x):
         return generic_feed_forward(x, [dim_heads, key_dim], [dim_heads, key_dim], params.dropout_rate)
 
+    xs = output, None, output, None
     for layer in range(params.n_layer):
         def _block_fn(block_input):
             with tf.variable_scope(f"attention_block{layer}"):
@@ -94,7 +95,8 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
 
                 return block_input
 
-        output = mtf.recompute_grad(_block_fn, [output])
+        xs = mtf.layers.reversible_half_residual_and_swap(*xs, _block_fn)
+    output = xs[0] + xs[2]
     output = generic_feed_forward(output, [dim_heads, key_dim], [input_features], params.dropout_rate)
 
     with tf.variable_scope("reduce_mean_final"):
