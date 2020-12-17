@@ -48,8 +48,8 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
     x = x/ 255.
-    tgt = x[:, 1:params.n_ctx // params.time_patch + 1]
-    src = x[:, :params.n_ctx // params.time_patch]
+    tgt = mtf.slice(x, 1, 1 + params.n_ctx // params.time_patch, x.shape[1])
+    src = mtf.slice(x, 0, params.n_ctx // params.time_patch, x.shape[1])
 
     embedding = mtf.add_n([mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1) / 3,
                                        (1,) + (1,) * idx + (dim.size,) + (1,) * (len(middle_dimensions) - idx))
