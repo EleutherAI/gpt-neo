@@ -42,23 +42,25 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
     x = mtf_features["inputs"]
 
     context_dimension = x.shape[1]
+    input_features = x.shape[-1]
 
     x = x / 255.
     tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
     src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
     middle_dimensions = x.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
-    input_features = x.shape[-1]
 
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
     embedding = mtf.add_n([mtf.reshape(mtf.range(mesh, dim, dtype=tf.float32) / (dim.size - 1) / 3,
-                                       (1,) + (1,) * idx + (dim.size,) + (1,) * (len(middle_dimensions) - idx))
+                                       [mtf.Dimension(cdim.name, dim.size if cdim.name == dim.name else 1)
+                                        for cdim in x.shape])
                            for idx, dim in enumerate(middle_dimensions)])
 
-    embedding = mtf.broadcast(embedding, [src.shape[:-1], mtf.Dimension(input_features.name, 1)])
+    embedding = mtf.broadcast(embedding, src.shape[:-1] + [mtf.Dimension(input_features.name, 1)])
     src = mtf.concat([src, embedding], input_features.name)
+    input_features = x.shape[-1]
 
     output = generic_feed_forward(src, src.shape[-1:], [dim_heads, key_dim], tf.float32, params.dropout_rate)
 
