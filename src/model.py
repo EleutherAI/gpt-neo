@@ -47,7 +47,7 @@ def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
-    x = mtf.cast(x, tf.float32) / 255.
+    x = x/ 255.
     tgt = x[:, 1:params.n_ctx // params.time_patch + 1]
     src = x[:, :params.n_ctx // params.time_patch]
 
