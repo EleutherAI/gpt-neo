@@ -102,9 +102,14 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     batch_dim = mtf.Dimension("batch", model_input_shape[0])
     sequence = mtf.Dimension("sequence", model_input_shape[1])
     width = mtf.Dimension("width", model_input_shape[2])
-    height = mtf.Dimension("height", model_input_shape[3])
-    batch_dims = [batch_dim, sequence, width, height]
-    length_dim = mtf.Dimension("color_channels", model_input_shape[4])
+
+    if params.three_axes:
+        height = mtf.Dimension("height", model_input_shape[3])
+        batch_dims = [batch_dim, sequence, width, height]
+        length_dim = mtf.Dimension("color_channels", model_input_shape[4])
+    else:
+        batch_dims = [batch_dim, sequence, width]
+        length_dim = mtf.Dimension("color_channels", model_input_shape[3])
 
     mtf_features = {}
     for key, x in features_dict.items():
@@ -113,28 +118,10 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
             mtf_features[key] = mtf.import_fully_replicated(
                     mesh, features_dict[key], feature_shape, name=key)
 
-    # Instantiate dict for dimensions, bias, etc that can be calculated here once then passed into model
-    other_features = {}
-    memory_length_dim = mtf.Dimension("memory_length", length_dim.size)
-
-    # Define other Dimensions that we'll need inside the model
-    embd_dim = mtf.Dimension("embd", params.n_embd)
-    vocab_dim = mtf.Dimension("vocab", params.n_vocab)
-
-    # We need this because gathering when both the args have the same dimension in them breaks things
-    # This dim is specifically for the weights
-    # This prevents the "Einsum has lhs dimension without corresponding rhs or output dimension." error
-    embed_sequence_dim = mtf.Dimension("embed_sequence", params.n_ctx)
-
-    other_features["embd_dim"] = embd_dim
-    other_features["vocab_dim"] = vocab_dim
-    other_features["embed_sequence_dim"] = embed_sequence_dim
-    other_features["memory_length_dim"] = memory_length_dim
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('gpt2'):
-            logits, loss = model(mtf_features, other_features, params, mesh,
-                                 variable_dtype=variable_dtype)
+            logits, loss = model(mtf_features, params, mesh, variable_dtype=variable_dtype)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
                                              inp_var_grads=None)
@@ -145,11 +132,14 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     for variable in graph.trainable_variables:
         shape = variable.shape.dims
         variable_parameters = 1
+
         for dim in shape:
             variable_parameters *= dim.size
         total_parameters += variable_parameters
+
     print(f"\n\nN TRAINABLE VARS:\n{total_parameters:,}\n\n")
     all_dim_names = []
+
     for variable in graph.all_variables:
         names = variable.shape.dimension_names
         all_dim_names.append(names)
