@@ -235,6 +235,17 @@ def bpe_with_word_split(enc: GPT2Tokenizer, words: list, text: str):
     return bpe_list
 
 
+def char_level_encoder(words: list):
+
+    chars = []
+
+    for word in words:
+        w = " " + word
+        chars.append([ord(c) for c in w])
+
+    return chars
+
+
 def worker(work: list,
            save_dir,
            target_fps: int = 0,
@@ -243,8 +254,9 @@ def worker(work: list,
            keep_buffer_download: bool = False,
            download_buffer_dir: str = '',
            use_subtitles: bool = False,
-           enc: GPT2Tokenizer = GPT2Tokenizer.from_pretrained('gpt2'),
+           tokenizer=None,
            language_tokens_per_frame: int = 4,
+           padding_token: int = 50257,
            skip_if_no_subtitles: bool = True,
            youtube_base: str = 'https://www.youtube.com/watch?v='):
     '''
@@ -258,8 +270,9 @@ def worker(work: list,
     needs to be given and if download=False path to videos needs to be given.
     :param keep_buffer_download: If True the downloaded files will not be deleted after the tfrecord got created.
     :param use_subtitles: Bool, if true Text will be used to.
-    :param enc: The BPE token encoder.
+    :param tokenizer: A lambda that contains the tokenizer.
     :param language_tokens_per_frame: The number of language tokens encoded per single frame.
+    :param padding_token: The token id that is used as padding token.
     :param skip_if_no_subtitles: If True the video will be skipped if no subtitles are available.
     (only if use_subtitles is True)
     :param download_buffer_dir: Directory where YoutubDL will download the videos (only if download is True (default)).
@@ -276,9 +289,6 @@ def worker(work: list,
     else:
         cloud_storage = False
         buffer_save_dir = save_dir
-
-    # Get the vocab size from the BPE encoder.
-    vocab_size = len(enc.get_vocab())
 
     pading_frame = cv2.imencode('.jpg', np.array([[[255]]]))[1].tostring()
 
@@ -324,7 +334,7 @@ def worker(work: list,
                 with open(vtt, "r") as r:
                     text, words, stamp = decode_vtt(r.read())
 
-                bpe_list = bpe_with_word_split(enc, words, text)
+                bpe_list = tokenizer(words, text)
 
             else:
                 subtitles_available = False
@@ -375,7 +385,7 @@ def worker(work: list,
 
                             for i in range(0, len(token_buffer), language_tokens_per_frame):
                                 buffer = token_buffer[i:i + language_tokens_per_frame]
-                                buffer += [vocab_size + 1] * (language_tokens_per_frame - len(buffer))
+                                buffer += [padding_token] * (language_tokens_per_frame - len(buffer))
                                 skip_buffer = i > 0
 
                                 proto.append(frame_encoder(pading_frame if skip_buffer else frame,
@@ -384,7 +394,7 @@ def worker(work: list,
 
                             if len(proto) <= 0:
                                 proto.append(frame_encoder(frame,
-                                                           [vocab_size + 1] * language_tokens_per_frame,
+                                                           [padding_token] * language_tokens_per_frame,
                                                            [False]))
 
                         else:
@@ -417,18 +427,33 @@ def worker(work: list,
 
 
 if __name__ == '__main__':
+
     '''
     parser = argparse.ArgumentParser()
 
     enc = GPT2Tokenizer.from_pretrained('gpt2')
+    print(len(enc.get_vocab()))
 
-    f = open("7vPNcnYWQ4.en.vtt", "r")
+
+    f = open("/opt/project/7vPNcnYWQ4.en.vtt", "r")
     vtt = f.read()
     f.close()
 
     text, words, stamp = decode_vtt(vtt)
-    bpe_list = encode_with_word_split(enc, words, text)
+    chars = char_level_encoder(words)
+
+    for w in chars:
+        print(w)
+
+    encode = lambda enc, words, text: char_level_encoder(words)
+    bpe_list = encode(enc, words, text)
+
+    for bpe in bpe_list:
+        print(bpe)
+
+    exit()
     '''
+
 
     '''
     duffer = []
