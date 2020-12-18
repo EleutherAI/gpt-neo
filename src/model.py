@@ -35,8 +35,7 @@ def get_variable(mesh, shape, initializer):
     return mtf.get_variable(mesh, f"{random.getrandbits(64):x}", shape, dtype=tf.float32, initializer=initializer)
 
 
-def model(mtf_features: dict, other_features: dict, params: ModelParameter, mesh: mtf.Mesh,
-          variable_dtype: mtf.VariableDType):
+def model(mtf_features: dict, params: ModelParameter, mesh: mtf.Mesh, variable_dtype: mtf.VariableDType):
     """A GPT style model implemented in mesh tensorflow."""
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
