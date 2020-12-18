@@ -40,7 +40,7 @@ def model(mtf_features: dict, params: ModelParameter, mesh: mtf.Mesh, variable_d
     dim_heads = mtf.Dimension("heads", params.n_head)
     key_dim = mtf.Dimension("features_per_head", params.n_embd // params.n_head)
 
-    x = mtf_features["inputs"] / 255.
+    x = mtf_features["frame_features"] / 255.
     context_dimension = x.shape[1]
 
     tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
