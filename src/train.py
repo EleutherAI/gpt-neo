@@ -61,7 +61,7 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(features: tf.Tensor, mode: str, params: dict):
+def model_fn(frame_features: tf.Tensor, mode: str, params: dict):
     # Get global step
 
     params = ModelParameter(params)
@@ -89,27 +89,28 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
     # Build mtf mesh object
-    mesh = mtf.Mesh(graph, "my_mesh", var_placer)
+    mesh = mtf.Mesh(graph, "the_mesh", var_placer)
 
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
-    features_dict = {"inputs": features}
+    features_dict = {"frame_features": frame_features}
 
     params.mode = mode
 
-    model_input = next(iter(features_dict.values()))
+    model_input_iter = iter(features_dict.values())
+    model_input = next(model_input_iter)
     model_input_shape = model_input.get_shape().as_list()
+
     batch_dim = mtf.Dimension("batch", model_input_shape[0])
     sequence = mtf.Dimension("sequence", model_input_shape[1])
     width = mtf.Dimension("width", model_input_shape[2])
 
+    batch_dims = [batch_dim, sequence, width]
+
     if params.three_axes:
-        height = mtf.Dimension("height", model_input_shape[3])
-        batch_dims = [batch_dim, sequence, width, height]
-        length_dim = mtf.Dimension("color_channels", model_input_shape[4])
-    else:
-        batch_dims = [batch_dim, sequence, width]
-        length_dim = mtf.Dimension("color_channels", model_input_shape[3])
+        batch_dims.append(mtf.Dimension("height", model_input_shape[3]))
+
+    length_dim = mtf.Dimension("color_channels", model_input_shape[-1])
 
     mtf_features = {}
     for key, x in features_dict.items():
@@ -120,7 +121,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
 
     with mtf.utils.outside_all_rewrites():
-        with tf.variable_scope('gpt2'):
+        with tf.variable_scope('jannet'):
             logits, loss = model(mtf_features, params, mesh, variable_dtype=variable_dtype)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
