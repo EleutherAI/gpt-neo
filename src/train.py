@@ -61,7 +61,7 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(frame_features: tf.Tensor, mode: str, params: dict):
+def model_fn(features: tf.Tensor, mode: str, params: dict):
     # Get global step
 
     params = ModelParameter(params)
@@ -93,7 +93,7 @@ def model_fn(frame_features: tf.Tensor, mode: str, params: dict):
 
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
-    features_dict = {"frame_features": frame_features}
+    features_dict = {"frame_features": features}
 
     params.mode = mode
 
