@@ -66,10 +66,13 @@ def frame_encoder(frame, text_tokens=None, skip_frame: list = [False]):
     return proto
 
 
-def get_decoder(language_token_num_per_frame=0):
+def get_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=None, color_channels=None):
     '''
     :param language_token_num_per_frame: The number of language tokens per single frame.
     If this is 0 (default) language tokens are disabled.
+    :param frame_height:
+    :param frame_width:
+    :param color_channels:
 
     This function will return a frame decoder function, that can than be used to decode tf.records.
     '''
@@ -93,18 +96,34 @@ def get_decoder(language_token_num_per_frame=0):
         This Function will decode frame from proto buffer.
         '''
 
+        proto = tf.unstack(proto, axis=0)
+        frames = []
+        tokens = []
+        skip_frames = []
+
         # Decode.
-        sample = tf.parse_single_example(proto, features)
+        for pro in proto:
+            sample = tf.parse_single_example(pro, features)
 
-        if decode_language_token:
-            frame = (tf.image.decode_image(sample['frame']), sample['tokens'], sample['skip_frame'])
-
-        else:
             frame = tf.image.decode_image(sample['frame'])
 
-        return frame
+            if decode_language_token:
+                tokens.append(sample['tokens'])
+                skip_frame = sample['skip_frame']
+                skip_frames.append(skip_frame)
 
-    return frame_decoder
+                if skip_frame > 0:
+                    frame = tf.zeros(shape=(frame_height, frame_width, color_channels), dtype=tf.uint8)
+
+            frames.append(frame)
+
+        if decode_language_token:
+            return tf.stack(frames, axis=0), tf.stack(tokens, axis=0), tf.stack(skip_frames, axis=0)
+        else:
+            return tf.stack(frames, axis=0), None, None
+
+
+    return tf.function(frame_decoder, experimental_compile=False)
 
 
 def split_equal(id: list, num: int):
