@@ -72,14 +72,19 @@ class ModelParameter(dict):
 
         self.mesh = None
 
-        self.dim_heads = mtf.Dimension("heads", self.n_head)
-        self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-        self.feature_dims = [self.dim_heads, self.key_dim]
         self.masked_attention_dimensions = [0]
 
         self._layer_idx = 0
 
         self.__dict__.update(config)
+
+    @property
+    def dim_heads(self):
+        return mtf.Dimension("heads", self.n_head)
+
+    @property
+    def key_dim(self):
+        return mtf.Dimension("features_per_head", self.n_embd // self.n_head)
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -141,7 +146,7 @@ class ModelParameter(dict):
         return block_input
 
     def _feed_forward(self, x):
-        return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
+        return self._generic_feed_forward(x, [self.dim_heads, self.key_dim], [self.dim_heads, self.key_dim])
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
@@ -188,14 +193,14 @@ class ModelParameter(dict):
         src += embedding
         input_features = [src.shape[-1]]
 
-        xs = (self._generic_feed_forward(src, input_features, self.feature_dims),
+        xs = (self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]),
               None,
-              self._generic_feed_forward(src, input_features, self.feature_dims),
+              self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]),
               None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
-        output = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
+        output = self._generic_feed_forward(xs[0] + xs[2], [self.dim_heads, self.key_dim], input_features)
 
         with tf.variable_scope("reduce_mean_final"):
             loss = mtf.reduce_mean(mtf.abs(output - tgt))
