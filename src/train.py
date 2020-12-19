@@ -4,7 +4,6 @@ import tensorflow.compat.v2 as tf2
 from tensorflow.python.tpu import tpu_estimator
 
 from .dataclass import ModelParameter
-from .model import model
 from .optimizers import get_optimizer
 
 
@@ -61,7 +60,7 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(features: tf.Tensor, mode: str, params: dict):
+def model_fn(model_input: tf.Tensor, mode: str, params: dict):
     # Get global step
 
     params = ModelParameter(params)
@@ -90,39 +89,28 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
     # Build mtf mesh object
     mesh = mtf.Mesh(graph, "the_mesh", var_placer)
+    params.mesh = mesh
 
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
-    features_dict = {"frame_features": features}
-
     params.mode = mode
 
-    model_input_iter = iter(features_dict.values())
-    model_input = next(model_input_iter)
-    model_input_shape = model_input.get_shape().as_list()
-
-    batch_dim = mtf.Dimension("batch", model_input_shape[0])
-    sequence = mtf.Dimension("sequence", model_input_shape[1])
-    width = mtf.Dimension("width", model_input_shape[2])
+    batch_dim = mtf.Dimension("batch", model_input.shape[0])
+    sequence = mtf.Dimension("sequence", model_input.shape[1])
+    width = mtf.Dimension("width", model_input.shape[2])
 
     batch_dims = [batch_dim, sequence, width]
 
     if params.three_axes:
-        batch_dims.append(mtf.Dimension("height", model_input_shape[3]))
+        batch_dims.append(mtf.Dimension("height", model_input.shape[3]))
 
-    length_dim = mtf.Dimension("color_channels", model_input_shape[-1])
+    length_dim = mtf.Dimension("color_channels", model_input.shape[-1])
 
-    mtf_features = {}
-    for key, x in features_dict.items():
-        if x is not None:
-            feature_shape = mtf.Shape(batch_dims + [length_dim])
-            mtf_features[key] = mtf.import_fully_replicated(
-                    mesh, features_dict[key], feature_shape, name=key)
-
+    model_input = mtf.import_fully_replicated(mesh, model_input, mtf.Shape(batch_dims + [length_dim]), name="model_input")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = model(mtf_features, params, mesh, variable_dtype=variable_dtype)
+            logits, loss = params.get_model(model_input, mesh)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
                                              inp_var_grads=None)

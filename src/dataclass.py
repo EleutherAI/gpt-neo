@@ -1,3 +1,10 @@
+import random
+import typing
+
+import mesh_tensorflow as mtf
+import tensorflow.compat.v1 as tf
+
+
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
@@ -59,6 +66,15 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
 
+        self.mesh = None
+
+        self.dim_heads = mtf.Dimension("heads", self.n_head)
+        self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+        self.feature_dims = [self.dim_heads, self.key_dim]
+        self.masked_attention_dimensions = [0]
+
+        self._layer_idx = 0
+
         self.__dict__.update(config)
 
     def __getitem__(self, key):
@@ -84,3 +100,93 @@ class ModelParameter(dict):
 
     def dict(self):
         return self.__dict__
+
+    def _get_variable(self, shape, initializer):
+        return mtf.get_variable(self.mesh, f"{random.getrandbits(64):x}", shape, dtype=tf.float32,
+                                initializer=initializer)
+
+    def _rezero(self, block_input: tf.Tensor):
+        with tf.variable_scope(f'rezero_{random.getrandbits(64):x}'):
+            block_input = block_input * self._get_variable([], tf.constant_initializer(0))
+        return block_input
+
+    def _generic_feed_forward(self,
+                              block_input: mtf.Tensor,
+                              reduced_dims: typing.List[mtf.Dimension],
+                              new_dimensions: typing.List[mtf.Dimension]):
+        intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
+        with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
+            weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
+            block_input = mtf.einsum([block_input, weight0],
+                                     block_input.shape - reduced_dims + intermediate_dimensions)
+            if self.dropout_rate > 0:
+                block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
+            block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
+            weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
+            block_input = mtf.einsum([block_input, weight1],
+                                     block_input.shape - intermediate_dimensions + new_dimensions)
+        return block_input
+
+    def _feed_forward(self, x):
+        return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
+
+    def _block_fn(self, block_input):
+        self._layer_idx += 1
+        middle_dimensions = block_input.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
+
+        with tf.variable_scope(f"attention_block{self._layer_idx}"):
+            for idx, dim in enumerate(middle_dimensions):
+                tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+
+                q = self._feed_forward(block_input)
+                k = self._feed_forward(block_input)
+                v = self._feed_forward(block_input)
+                k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
+                v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
+
+                logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+                if idx in self.masked_attention_dimensions:
+                    i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
+                    j = mtf.range(self.mesh, dim, tf.int32)
+                    i = mtf.broadcast(i, [tmp_dim, dim])
+                    j = mtf.broadcast(j, [tmp_dim, dim])
+                    bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
+                    logits += mtf.broadcast(bias, logits.shape)
+                weights = mtf.softmax(logits, dim)
+                a = mtf.einsum([weights, v], q.shape)
+
+                a += self._feed_forward(a)
+                block_input += self._rezero(a)
+            block_input += self._rezero(self._feed_forward(block_input))
+
+        return block_input
+
+    def get_model(self, model_input):
+        """A GPT style model implemented in mesh tensorflow."""
+        x = model_input / 255.
+        context_dimension = x.shape[1]
+
+        tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
+        src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
+        middle_dimensions = src.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
+
+        embedding = mtf.add_n([self._get_variable([dim, x.shape[-1]], tf.random_normal_initializer())
+                               for dim in middle_dimensions])
+        src += embedding
+        input_features = [src.shape[-1]]
+
+        xs = (self._generic_feed_forward(src, input_features, self.feature_dims),
+              None,
+              self._generic_feed_forward(src, input_features, self.feature_dims),
+              None)
+
+        for layer in range(self.n_layer):
+            xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
+        output = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
+
+        with tf.variable_scope("reduce_mean_final"):
+            loss = mtf.reduce_mean(mtf.abs(output - tgt))
+
+        self._layer_idx = 0
+
+        return output, loss
