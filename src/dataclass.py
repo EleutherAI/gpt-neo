@@ -4,7 +4,7 @@ import typing
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
-
+object
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
@@ -98,8 +98,8 @@ class ModelParameter(dict):
         self._set_count[key] = self._set_count.get(key, 0) + 1
 
     def __getattr__(self, key):
-        self._get_count[key] = self._set_count.get(key, 0) + 1
-        return self.__dict__[key]
+        object.__getattribute__(self, '_get_count')[key] = object.__getattribute__(self, '_get_count').get(key, 0) + 1
+        return object.__getattribute__(self, '__dict__')[key]
 
     def __str__(self):
         return str(self.__dict__)
