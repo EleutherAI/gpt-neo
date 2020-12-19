@@ -75,22 +75,31 @@ class ModelParameter(dict):
 
         self._layer_idx = 0
 
+        self._get_count = {}
+        self._set_count = {}
+
         self.__dict__.update(config)
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
-        return self.__dict__[key]
+        return self.__getattr__(key)
 
     def __setitem__(self, key, value):
         print(f"Setting {key} via deprecated interface")
-        self.__dict__[key] = value
+        return self.__setattr__(key, value)
 
     def get(self, key, default):
         print(f"Getting {key} via deprecated interface with default value {default}")
+        self._get_count[key] = self._get_count.get(key, 0) + 1
         return self.__dict__.get(key, default)
 
     def __setattr__(self, key, value):
         self.__dict__[key] = value
+        self._set_count[key] = self._set_count.get(key, 0) + 1
+
+    def __getattr__(self, key):
+        self._get_count[key] = self._set_count.get(key, 0) + 1
+        return self.__dict__[key]
 
     def __str__(self):
         return str(self.__dict__)
@@ -190,3 +199,9 @@ class ModelParameter(dict):
         self._layer_idx = 0
 
         return output, loss
+
+    def attribute_accesses(self):
+        return {'GET':    self._get_count,
+                'SET':    self._set_count,
+                'unread': [k for k, v in {**self.__dict__, **self._set_count}.items() if k not in self._get_count]
+                }

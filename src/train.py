@@ -176,6 +176,8 @@ def model_fn(model_input: tf.Tensor, mode: str, params: dict):
                 saver=saver,
                 listeners=[saver_listener])
 
+        print(params.attribute_accesses())
+
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
