@@ -4,10 +4,14 @@ import typing
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
-object
+
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
+
+        self._get_count = {}
+        self._set_count = {}
+
         if isinstance(config, dict):
             config.update(config_kwargs)
         else:
@@ -75,9 +79,6 @@ class ModelParameter(dict):
 
         self._layer_idx = 0
 
-        self._get_count = {}
-        self._set_count = {}
-
         self.__dict__.update(config)
 
     def __getitem__(self, key):
@@ -94,13 +95,14 @@ class ModelParameter(dict):
         return self.__dict__.get(key, default)
 
     def __setattr__(self, key, value):
+        if value == {} and key in ('_set_count', '_get_count'):
+            super().__setattr__(key, value)
+            return
         self.__dict__[key] = value
-        if hasattr(self, "_set_count") and hasattr(self, "_get_count"):
-            self._set_count[key] = self._set_count.get(key, 0) + 1
+        self._set_count[key] = self._set_count.get(key, 0) + 1
 
     def __getattr__(self, key):
-        if hasattr(self, "_set_count") and hasattr(self, "_get_count"):
-            self.__getattribute__('_get_count')[key] = self.__getattribute__('_get_count').get(key, 0) + 1
+        self.__getattribute__('_get_count')[key] = self.__getattribute__('_get_count').get(key, 0) + 1
         return self.__getattribute__('__dict__')[key]
 
     def __str__(self):
