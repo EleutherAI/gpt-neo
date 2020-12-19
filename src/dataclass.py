@@ -98,8 +98,8 @@ class ModelParameter(dict):
         self._set_count[key] = self._set_count.get(key, 0) + 1
 
     def __getattr__(self, key):
-        object.__getattribute__(self, '_get_count')[key] = object.__getattribute__(self, '_get_count').get(key, 0) + 1
-        return object.__getattribute__(self, '__dict__')[key]
+        self.__getattribute__('_get_count')[key] = self.__getattribute__('_get_count').get(key, 0) + 1
+        return self.__getattribute__('__dict__')[key]
 
     def __str__(self):
         return str(self.__dict__)
