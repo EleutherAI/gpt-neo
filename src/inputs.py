@@ -7,11 +7,9 @@ from .video2tfrecord import get_decoder
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int, frame_decoder: object):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
-    data = data.map(frame_decoder, num_parallel_calls=1)
     data = data.repeat()
 
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
-
     data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
                            cycle_length=1,
                            num_parallel_calls=1,
@@ -34,9 +32,14 @@ def generic_data(params: ModelParameter, eval: bool = False):
     color_channels = params.color_channels
     patch_size = params.patch_size
     batch_size = params.eval_batch_size if eval else params.train_batch_size
+    language_token_per_frame = params.language_token_per_frame
     prefix = params.prefix
 
-    frame_decoder = get_decoder(language_token_num_per_frame=params.language_token_per_frame)
+    assert not (language_token_per_frame > 0 and time_patch > 1),\
+        ("Time patch and language token are currently not supported together")
+
+    frame_decoder = get_decoder(language_token_num_per_frame=language_token_per_frame,
+                                frame_height=frame_height, frame_width=frame_width, color_channels=color_channels)
 
     time_patch_size = sequence_length // time_patch
     frame_height_patch = frame_height // patch_size
@@ -54,13 +57,16 @@ def generic_data(params: ModelParameter, eval: bool = False):
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
 
+    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.batch(batch_size)
 
-    def prepare_cpu(x: tf.Tensor):
-
+    def prepare_cpu(x: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
         # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
         # TODO: use tf.gather
         x = tf.reshape(x, (batch_size, sequence_length + time_patch, frame_height, frame_width, color_channels))
+
+        token_x = None
+        token_y = None
 
         if time_patch > 1:
             x = [tf.concat([x[:, j] for j in range(i, i + time_patch)], axis=-1)
@@ -75,7 +81,15 @@ def generic_data(params: ModelParameter, eval: bool = False):
         if three_axes:
             x = tf.reshape(x, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
                                channel_color_size))
-        return x
+
+        if language_token_per_frame > 0:
+            token = tf.reshape(token, (batch_size, sequence_length + time_patch, language_token_per_frame))
+            token = tf.cast(token, tf.int64)
+
+            token_x = token[:, :sequence_length]
+            token_y = token[:, 1:sequence_length + 1]
+
+        return x, token_x, token_y
 
     data = data.map(prepare_cpu, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
@@ -83,6 +97,6 @@ def generic_data(params: ModelParameter, eval: bool = False):
         print(f"Buffering {buffer_size} elements")
         data = data.prefetch(buffer_size)
 
-    data = data.map(lambda x: tf.cast(x, tf.float32))
+    data = data.map(lambda x, y, z: (tf.cast(x, tf.float32), y, z))
 
     return data
