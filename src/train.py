@@ -60,9 +60,9 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(model_input: tf.Tensor, mode: str, params: dict):
+def model_fn(features: tf.Tensor, mode: str, params: dict):
     # Get global step
-
+    model_input = features
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
