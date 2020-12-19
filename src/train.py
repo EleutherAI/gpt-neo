@@ -110,7 +110,7 @@ def model_fn(model_input: tf.Tensor, mode: str, params: dict):
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = params.get_model(model_input, mesh)
+            logits, loss = params.build(model_input, mesh)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
                                              inp_var_grads=None)
