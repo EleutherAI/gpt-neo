@@ -156,30 +156,10 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     train_op = tf.group(tf_update_ops)
 
     with mtf.utils.outside_all_rewrites():
-
-        # Copy master variables to slices. Must be called first.
-        restore_hook = mtf.MtfRestoreHook(lowering)
-
-        saver = tf.train.Saver(
-                tf.global_variables(),
-                sharded=True,
-                max_to_keep=10,
-                keep_checkpoint_every_n_hours=2,
-                defer_build=False,
-                save_relative_paths=True)
-        tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
-        saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-        saver_hook = tf.train.CheckpointSaverHook(
-                params.model_path,
-                save_steps=params.steps_per_checkpoint,
-                saver=saver,
-                listeners=[saver_listener])
-
         print(params.attribute_accesses())
 
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 host_call=host_call,
-                train_op=train_op,
-                training_hooks=[restore_hook, saver_hook])
+                train_op=train_op)
