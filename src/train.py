@@ -60,9 +60,10 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(model_input: tf.Tensor, mode: str, params: dict):
+def model_fn(features: tf.Tensor, mode: str, params: dict):
     # Get global step
-
+    model_input = features
+    model_input_shape = model_input.shape.as_list()
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
@@ -94,23 +95,21 @@ def model_fn(model_input: tf.Tensor, mode: str, params: dict):
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
     params.mode = mode
-
-    batch_dim = mtf.Dimension("batch", model_input.shape[0])
-    sequence = mtf.Dimension("sequence", model_input.shape[1])
-    width = mtf.Dimension("width", model_input.shape[2])
+    batch_dim = mtf.Dimension("batch", model_input_shape[0])
+    sequence = mtf.Dimension("sequence", model_input_shape[1])
+    width = mtf.Dimension("width", model_input_shape[2])
 
     batch_dims = [batch_dim, sequence, width]
 
     if params.three_axes:
-        batch_dims.append(mtf.Dimension("height", model_input.shape[3]))
+        batch_dims.append(mtf.Dimension("height", model_input_shape[3]))
 
-    length_dim = mtf.Dimension("color_channels", model_input.shape[-1])
-
-    model_input = mtf.import_fully_replicated(mesh, model_input, mtf.Shape(batch_dims + [length_dim]), name="model_input")
+    length_dim = mtf.Dimension("color_channels", model_input_shape[-1])
+    model_input = mtf.import_fully_replicated(mesh, model_input, mtf.Shape(batch_dims + [length_dim]), "model_input")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = params.build(model_input, mesh)
+            logits, loss = params.build(model_input)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
                                              inp_var_grads=None)
@@ -175,6 +174,8 @@ def model_fn(model_input: tf.Tensor, mode: str, params: dict):
                 save_steps=params.steps_per_checkpoint,
                 saver=saver,
                 listeners=[saver_listener])
+
+        print(params.attribute_accesses())
 
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,

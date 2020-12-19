@@ -8,6 +8,10 @@ import tensorflow.compat.v1 as tf
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
+
+        self._get_count = {}
+        self._set_count = {}
+
         if isinstance(config, dict):
             config.update(config_kwargs)
         else:
@@ -68,29 +72,43 @@ class ModelParameter(dict):
 
         self.mesh = None
 
-        self.dim_heads = mtf.Dimension("heads", self.n_head)
-        self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-        self.feature_dims = [self.dim_heads, self.key_dim]
         self.masked_attention_dimensions = [0]
 
         self._layer_idx = 0
 
         self.__dict__.update(config)
 
+    @property
+    def dim_heads(self):
+        return mtf.Dimension("heads", self.n_head)
+
+    @property
+    def key_dim(self):
+        return mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
-        return self.__dict__[key]
+        return self.__getattr__(key)
 
     def __setitem__(self, key, value):
         print(f"Setting {key} via deprecated interface")
-        self.__dict__[key] = value
+        return self.__setattr__(key, value)
 
     def get(self, key, default):
         print(f"Getting {key} via deprecated interface with default value {default}")
+        self._get_count[key] = self._get_count.get(key, 0) + 1
         return self.__dict__.get(key, default)
 
     def __setattr__(self, key, value):
+        if value == {} and key in ('_set_count', '_get_count'):
+            super().__setattr__(key, value)
+            return
         self.__dict__[key] = value
+        self._set_count[key] = self._set_count.get(key, 0) + 1
+
+    def __getattr__(self, key):
+        self.__getattribute__('_get_count')[key] = self.__getattribute__('_get_count').get(key, 0) + 1
+        return self.__getattribute__('__dict__')[key]
 
     def __str__(self):
         return str(self.__dict__)
@@ -128,7 +146,7 @@ class ModelParameter(dict):
         return block_input
 
     def _feed_forward(self, x):
-        return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
+        return self._generic_feed_forward(x, [self.dim_heads, self.key_dim], [self.dim_heads, self.key_dim])
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
@@ -175,14 +193,14 @@ class ModelParameter(dict):
         src += embedding
         input_features = [src.shape[-1]]
 
-        xs = (self._generic_feed_forward(src, input_features, self.feature_dims),
+        xs = (self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]),
               None,
-              self._generic_feed_forward(src, input_features, self.feature_dims),
+              self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]),
               None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
-        output = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
+        output = self._generic_feed_forward(xs[0] + xs[2], [self.dim_heads, self.key_dim], input_features)
 
         with tf.variable_scope("reduce_mean_final"):
             loss = mtf.reduce_mean(mtf.abs(output - tgt))
@@ -190,3 +208,9 @@ class ModelParameter(dict):
         self._layer_idx = 0
 
         return output, loss
+
+    def attribute_accesses(self):
+        return {'GET':    self._get_count,
+                'SET':    self._set_count,
+                'unread': [k for k, v in {**self.__dict__, **self._set_count}.items() if k not in self._get_count]
+                }
