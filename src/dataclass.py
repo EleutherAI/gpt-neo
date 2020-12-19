@@ -95,10 +95,12 @@ class ModelParameter(dict):
 
     def __setattr__(self, key, value):
         self.__dict__[key] = value
-        self._set_count[key] = self._set_count.get(key, 0) + 1
+        if hasattr(self, "_set_count") and hasattr(self, "_get_count"):
+            self._set_count[key] = self._set_count.get(key, 0) + 1
 
     def __getattr__(self, key):
-        self.__getattribute__('_get_count')[key] = self.__getattribute__('_get_count').get(key, 0) + 1
+        if hasattr(self, "_set_count") and hasattr(self, "_get_count"):
+            self.__getattribute__('_get_count')[key] = self.__getattribute__('_get_count').get(key, 0) + 1
         return self.__getattribute__('__dict__')[key]
 
     def __str__(self):
