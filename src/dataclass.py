@@ -151,8 +151,9 @@ class ModelParameter(dict):
     def _block_fn(self, block_input):
         self._layer_idx += 1
         middle_dimensions = block_input.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
-
+        
         with tf.variable_scope(f"attention_block{self._layer_idx}"):
+            block_output = self._rezero(self._feed_forward(block_input))
             for idx, dim in enumerate(middle_dimensions):
                 tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
@@ -173,11 +174,11 @@ class ModelParameter(dict):
                 weights = mtf.softmax(logits, dim)
                 a = mtf.einsum([weights, v], q.shape)
 
-                a += self._feed_forward(a)
-                block_input += self._rezero(a)
-            block_input += self._rezero(self._feed_forward(block_input))
+                a += self._rezero(self._feed_forward(a))
+                block_output += self._rezero(a)
+            block_output += self._rezero(self._feed_forward(block_output))
 
-        return block_input
+        return block_output
 
     def build(self, model_input):
         """A GPT style model implemented in mesh tensorflow."""
