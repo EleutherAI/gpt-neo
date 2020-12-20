@@ -114,7 +114,8 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
 
     if params.language_token_per_frame > 0:
         token_dim = mtf.Dimension("tokens", token_input_shape[-1])
-        token_input = mtf.import_fully_replicated(mesh, token_input, mtf.Shape(batch_dims + [token_dim]), "token_input")
+        token_input = mtf.import_fully_replicated(mesh, token_input, mtf.Shape([batch_dim, sequence, token_dim]),
+                                                  "token_input")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
