@@ -567,10 +567,13 @@ if __name__ == '__main__':
            target_fps=1,
            target_resolution=(320, 176),
            download=False,
-           use_subtitles=True)
+           use_subtitles=True,
+           tokenizer=lambda words, text: char_level_encoder(words),
+           padding_token=0,
+           language_tokens_per_frame=64)
 
 
-
+    '''
     frame_decoder = get_decoder(language_token_len=4)
 
     dataset = tf.data.TFRecordDataset(['/opt/project/7vPNcnYWQ4.tfrecord'])
@@ -610,5 +613,6 @@ if __name__ == '__main__':
                 writer.write(frame)
         except:
             writer.release()
+    '''
 
 
