@@ -60,13 +60,13 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(features: tf.Tensor, token: tf.Tensor, mode: str, params: dict):
+def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
     # Get global step
     frame_input = features
-    token_input = token
+    token_input = labels
     frame_input_shape = frame_input.shape.as_list()
 
     if params.language_token_per_frame > 1:
@@ -113,9 +113,8 @@ def model_fn(features: tf.Tensor, token: tf.Tensor, mode: str, params: dict):
     frame_input = mtf.import_fully_replicated(mesh, frame_input, mtf.Shape(batch_dims + [length_dim]), "frame_input")
 
     if params.language_token_per_frame > 0:
-        token_dim = token_input_shape[-1]
-        token_input = mtf.import_fully_replicated(mesh, token_input, mtf.Shape(batch_dims + [token_dim]),
-                                                                                   "token_input")
+        token_dim = mtf.Dimension("tokens", token_input_shape[-1])
+        token_input = mtf.import_fully_replicated(mesh, token_input, mtf.Shape(batch_dims + [token_dim]), "token_input")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
