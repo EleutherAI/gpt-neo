@@ -180,7 +180,7 @@ class ModelParameter(dict):
 
         return block_output
 
-    def build(self, model_input):
+    def build(self, model_input, token_x_input, token_y_input):
         """A GPT style model implemented in mesh tensorflow."""
         x = model_input / 255.
         context_dimension = x.shape[1]
@@ -194,10 +194,8 @@ class ModelParameter(dict):
         src += embedding
         input_features = [src.shape[-1]]
 
-        xs = (self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]),
-              None,
-              self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]),
-              None)
+        xs = (self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]), None,
+              self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]), None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
