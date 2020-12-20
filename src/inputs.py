@@ -97,6 +97,6 @@ def generic_data(params: ModelParameter, eval: bool = False):
         print(f"Buffering {buffer_size} elements")
         data = data.prefetch(buffer_size)
 
-    data = data.map(lambda x, y, z: (tf.cast(x, tf.float32), y, z))
+    data = data.map(lambda x, y, z: (tf.cast(x, tf.float32), y))
 
     return data
