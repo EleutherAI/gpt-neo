@@ -86,10 +86,7 @@ def generic_data(params: ModelParameter, eval: bool = False):
             token = tf.reshape(token, (batch_size, sequence_length + time_patch, language_token_per_frame))
             token = tf.cast(token, tf.int64)
 
-            token_x = token[:, :sequence_length]
-            token_y = token[:, 1:sequence_length + 1]
-
-        return x, token_x, token_y
+        return x, token
 
     data = data.map(prepare_cpu, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
@@ -97,6 +94,6 @@ def generic_data(params: ModelParameter, eval: bool = False):
         print(f"Buffering {buffer_size} elements")
         data = data.prefetch(buffer_size)
 
-    data = data.map(lambda x, y, z: (tf.cast(x, tf.float32), y))
+    data = data.map(lambda x, y: (tf.cast(x, tf.float32), y))
 
     return data
