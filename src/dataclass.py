@@ -153,7 +153,7 @@ class ModelParameter(dict):
         middle_dimensions = block_input.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
         
         with tf.variable_scope(f"attention_block{self._layer_idx}"):
-            block_output = self._rezero(self._feed_forward(block_input))
+            outputs = []
             for idx, dim in enumerate(middle_dimensions):
                 tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
@@ -175,8 +175,9 @@ class ModelParameter(dict):
                 a = mtf.einsum([weights, v], q.shape)
 
                 a += self._rezero(self._feed_forward(a))
-                block_output += self._rezero(a)
-            block_output += self._rezero(self._feed_forward(block_output))
+                outputs.append(a)
+            block_output = mtf.add_n([self._rezero(t) for t in a])
+            block_output += self._rezero(self._feed_forward(mtf.add_n(outputs)))
 
         return block_output
 
