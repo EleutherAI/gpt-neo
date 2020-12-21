@@ -60,17 +60,14 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
+def model_fn(features: tf.Tensor, mode: str, params: dict):
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
     # Get global step
     frame_input = features
-    token_input = labels
     frame_input_shape = frame_input.shape.as_list()
 
-    if params.language_token_per_frame > 0:
-        token_input_shape = token_input.shape.as_list()
 
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
@@ -112,16 +109,10 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     length_dim = mtf.Dimension("color_channels", frame_input_shape[-1])
     frame_input = mtf.import_fully_replicated(mesh, frame_input, mtf.Shape(batch_dims + [length_dim]), "frame_input")
 
-    if params.language_token_per_frame > 0:
-        token_dim = mtf.Dimension("tokens", token_input_shape[-1])
-        token_input = mtf.import_fully_replicated(mesh, token_input,
-                                                  mtf.Shape([batch_dim, sequence, token_dim]), "token_input")
-    else:
-        token_input = None
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = params.build(frame_input, token_input)
+            logits, loss = params.build(frame_input)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=None)
 
