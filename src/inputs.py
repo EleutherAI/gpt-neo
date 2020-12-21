@@ -60,40 +60,57 @@ def generic_data(params: ModelParameter, eval: bool = False):
     data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.batch(batch_size)
 
-    def prepare_cpu(x: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
+    def frame_cpu(frame: tf.Tensor):
         # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
         # TODO: use tf.gather
-        x = tf.reshape(x, (batch_size, sequence_length + time_patch, frame_height, frame_width, color_channels))
-
-        token_x = None
-        token_y = None
+        frame = tf.reshape(frame, (batch_size, sequence_length + time_patch, frame_height, frame_width, color_channels))
 
         if time_patch > 1:
-            x = [tf.concat([x[:, j] for j in range(i, i + time_patch)], axis=-1)
+            frame = [tf.concat([frame[:, j] for j in range(i, i + time_patch)], axis=-1)
                  for i in range(0, sequence_length + time_patch, time_patch)]
-            x = tf.stack(x, axis=1)
+            frame = tf.stack(frame, axis=1)
 
-        x = [tf.reshape(x[:, :, i:i + patch_size, j:j + patch_size],
+        frame = [tf.reshape(frame[:, :, i:i + patch_size, j:j + patch_size],
                         [batch_size, time_patch_size + 1, channel_color_size])
              for i in range(0, frame_height, patch_size) for j in range(0, frame_width, patch_size)]
 
-        x = tf.stack(x, axis=2)
+        frame = tf.stack(frame, axis=2)
         if three_axes:
-            x = tf.reshape(x, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
+            frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
                                channel_color_size))
 
-        if language_token_per_frame > 0:
-            token = tf.reshape(token, (batch_size, sequence_length + time_patch, language_token_per_frame))
-            token = tf.cast(token, tf.int64)
+        return frame
 
-        return x, token
+    def with_token(frame: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
 
-    data = data.map(prepare_cpu, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        token = tf.reshape(token, (batch_size, sequence_length + time_patch, language_token_per_frame))
+        token = tf.cast(token, tf.int64)
+
+        token_x = token[:, :sequence_length]
+        token_y = token[:, 1:sequence_length + 1]
+
+        frame = frame_cpu(frame)
+
+        return {'frame': frame, 'token_x': token_x, 'token_y': token_y}
+
+    def memory_with_frame(x):
+        x['frame'] = tf.cast(['frame'], tf.float32)
+        return x
+
+
+
+    if language_token_per_frame > 0:
+        data = data.map(with_token, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    else:
+        data = data.map(frame_cpu, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if buffer_size > 0:
         print(f"Buffering {buffer_size} elements")
         data = data.prefetch(buffer_size)
 
-    data = data.map(lambda x, y: (tf.cast(x, tf.float32), y))
+    if language_token_per_frame > 0:
+        data = data.map(memory_with_frame)
+    else:
+        data = data.map(lambda x: tf.cast(x, tf.float32))
 
     return data

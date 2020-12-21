@@ -120,7 +120,7 @@ def get_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=N
         if decode_language_token:
             return tf.stack(frames, axis=0), tf.stack(tokens, axis=0), tf.stack(skip_frames, axis=0)
         else:
-            return tf.stack(frames, axis=0), tf.zeros(shape=1, dtype=tf.int64), tf.zeros(shape=1, dtype=tf.int64)
+            return tf.stack(frames, axis=0)
 
 
     return tf.function(frame_decoder, experimental_compile=False)
