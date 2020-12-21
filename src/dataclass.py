@@ -180,7 +180,7 @@ class ModelParameter(dict):
 
         return block_output
 
-    def build(self, model_input, token_input):
+    def build(self, model_input):
         """A GPT style model implemented in mesh tensorflow."""
         x = model_input / 255.
         context_dimension = x.shape[1]
