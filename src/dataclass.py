@@ -176,7 +176,7 @@ class ModelParameter(dict):
 
                 a += self._rezero(self._feed_forward(a))
                 outputs.append(a)
-            block_output = mtf.add_n([self._rezero(t) for t in a])
+            block_output = mtf.add_n([self._rezero(a) for a in outputs])
             block_output += self._rezero(self._feed_forward(mtf.add_n(outputs)))
 
         return block_output
