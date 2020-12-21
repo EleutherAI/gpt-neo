@@ -159,9 +159,10 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
     with mtf.utils.outside_all_rewrites():
         print(params.attribute_accesses())
-
+        restore_hook = mtf.MtfRestoreHook(lowering)
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 host_call=host_call,
+                training_hooks=[restore_hook],
                 train_op=train_op)
