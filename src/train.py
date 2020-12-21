@@ -69,7 +69,7 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
     token_input = labels
     frame_input_shape = frame_input.shape.as_list()
 
-    if params.language_token_per_frame > 1:
+    if params.language_token_per_frame > 0:
         token_input_shape = token_input.shape.as_list()
 
     # Construct mtf graph + mesh from params
@@ -114,15 +114,16 @@ def model_fn(features: tf.Tensor, labels: tf.Tensor, mode: str, params: dict):
 
     if params.language_token_per_frame > 0:
         token_dim = mtf.Dimension("tokens", token_input_shape[-1])
-        token_input = mtf.import_fully_replicated(mesh, token_input, mtf.Shape([batch_dim, sequence, token_dim]),
-                                                  "token_input")
+        token_input = mtf.import_fully_replicated(mesh, token_input,
+                                                  mtf.Shape([batch_dim, sequence, token_dim]), "token_input")
+    else:
+        token_input = None
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
             logits, loss = params.build(frame_input, token_input)
 
-    _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
-                                             inp_var_grads=None)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=None)
 
     mtf.scalar_summary("loss", loss)
 
