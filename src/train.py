@@ -98,7 +98,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     # We need to pack inputs into a dict to pass into serialize_training_step
     params.mode = mode
     batch_dim = mtf.Dimension("batch", params.the_batch_size)
-    sequence = mtf.Dimension("sequence", params.n_ctx)
+    sequence = mtf.Dimension("sequence", params.n_ctx + 1)
     height = mtf.Dimension("height", params.frame_height_patch)
 
     batch_dims = [batch_dim, sequence, height]
