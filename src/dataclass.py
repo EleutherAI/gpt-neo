@@ -85,6 +85,9 @@ class ModelParameter(dict):
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.the_batch_size = self.eval_batch_size if self.eval else self.train_batch_size
 
+        if not self.three_axes:
+            self.frame_height_patch = self.frame_height_patch * self.frame_width_patch
+
     @property
     def dim_heads(self):
         return mtf.Dimension("heads", self.n_head)
