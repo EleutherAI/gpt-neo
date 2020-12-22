@@ -46,9 +46,6 @@ def generic_data(params: ModelParameter):
     frame_width_patch = params.frame_width_patch
     channel_color_size = params.channel_color_size
 
-    if not three_axes:
-        frame_height_patch = frame_height_patch * frame_width_patch
-
     path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
 
     data = tf.data.Dataset.from_tensor_slices(path)
