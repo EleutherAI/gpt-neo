@@ -97,7 +97,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
     params.mode = mode
-    batch_dim = mtf.Dimension("batch", params._batch_size)
+    batch_dim = mtf.Dimension("batch", params.the_batch_size)
     sequence = mtf.Dimension("sequence", params.n_ctx)
     height = mtf.Dimension("height", params.frame_height_patch)
 
