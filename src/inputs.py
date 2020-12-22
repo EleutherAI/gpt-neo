@@ -87,8 +87,9 @@ def generic_data(params: ModelParameter):
         token_y = token[:, 1:sequence_length + 1]
 
         frame = frame_cpu(frame)
+        frame.update({'token_x': token_x, 'token_y': token_y})
 
-        return frame.update({'token_x': token_x, 'token_y': token_y})
+        return frame
 
     def memory_op(x):
         x['frame'] = tf.cast(x['frame'], tf.float32)
