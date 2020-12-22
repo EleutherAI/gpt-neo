@@ -71,6 +71,12 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
 
+        self.time_patch_size = None
+        self.frame_height_patch = None
+        self.frame_width_patch = None
+        self.channel_color_size = None
+        self.batch_size = None
+
         self.mesh = None
 
         self.masked_attention_dimensions = [0]
