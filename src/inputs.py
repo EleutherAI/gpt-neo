@@ -45,12 +45,13 @@ def generic_data(params: ModelParameter):
     frame_height_patch = frame_height // patch_size
     frame_width_patch = frame_width // patch_size
     channel_color_size = color_channels * time_patch * patch_size ** 2
-    batch_size = params.eval_batch_size if params.eval else params.train_batch_size
+    _batch_size = params.eval_batch_size if params.eval else params.train_batch_size
 
     params.time_patch_size = time_patch_size
     params.frame_height_patch = frame_height_patch
     params.frame_width_patch = frame_width_patch
     params.channel_color_size = channel_color_size
+    params._batch_size = _batch_size
 
     if not three_axes:
         frame_height_patch = frame_height_patch * frame_width_patch

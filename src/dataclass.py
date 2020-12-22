@@ -75,7 +75,7 @@ class ModelParameter(dict):
         self.frame_height_patch = None
         self.frame_width_patch = None
         self.channel_color_size = None
-        self.batch_size = None
+        self._batch_size = None
 
         self.mesh = None
 
