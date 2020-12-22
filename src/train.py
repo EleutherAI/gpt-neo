@@ -61,13 +61,13 @@ def create_host_call(model_dir):
 
 
 def model_fn(features: tf.Tensor, mode: str, params: dict):
+
+    # Get global step
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
-    # Get global step
-    frame_input = features
-    frame_input_shape = frame_input.shape.as_list()
-
+    # Get inputs
+    frame_input = features['frame']
 
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
@@ -97,16 +97,16 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
     params.mode = mode
-    batch_dim = mtf.Dimension("batch", frame_input_shape[0])
-    sequence = mtf.Dimension("sequence", frame_input_shape[1])
-    width = mtf.Dimension("width", frame_input_shape[2])
+    batch_dim = mtf.Dimension("batch", params.batch_size)
+    sequence = mtf.Dimension("sequence", params.n_ctx)
+    height = mtf.Dimension("height", params.frame_height_patch)
 
-    batch_dims = [batch_dim, sequence, width]
+    batch_dims = [batch_dim, sequence, height]
 
     if params.three_axes:
-        batch_dims.append(mtf.Dimension("height", frame_input_shape[3]))
+        batch_dims.append(mtf.Dimension("width", params.frame_width_patch))
 
-    length_dim = mtf.Dimension("color_channels", frame_input_shape[-1])
+    length_dim = mtf.Dimension("color_channels", params.channel_color_size)
     frame_input = mtf.import_fully_replicated(mesh, frame_input, mtf.Shape(batch_dims + [length_dim]), "frame_input")
 
 
