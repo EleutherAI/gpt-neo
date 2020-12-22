@@ -22,6 +22,7 @@ class ModelParameter(dict):
         self.patch_size = 16
         self.frame_width = 2048
         self.frame_height = 1152
+        self.vocab_size = 256
         self.bucket_name = "text-datasets"
         self.color_channels = 3
         self.three_axes = True
@@ -192,17 +193,27 @@ class ModelParameter(dict):
         return block_output
 
     def build(self, model_input, token_x_input, token_y_input):
-        """A GPT style model implemented in mesh tensorflow."""
+        # TODO: Add support for missing model_input, token_x/y_input
+        # TODO: Rename token_x_input
+        # TODO: General cleanup
         x = model_input / 255.
         context_dimension = x.shape[1]
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-        middle_dimensions = src.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
+        token_x_input = mtf.embedding(token_x_input, token_x_input.shape[-1], self.key_dim, tf.float32)
+        
+        src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
+                                   for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
+                                  )
+        tkn_embedding = mtf.add_n([self._get_variable([dim, token_x_input.shape[-1]], tf.random_normal_initializer())
+                                   for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
+                                  )
+        src += src_embedding
+        token_x_input += tkn_embedding
 
-        embedding = mtf.add_n([self._get_variable([dim, x.shape[-1]], tf.random_normal_initializer())
-                               for dim in middle_dimensions])
-        src += embedding
+        src = mtf.concat([src, token_x_input], token_x_input.shape[-2].name)
+        
         input_features = [src.shape[-1]]
 
         xs = (self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]), None,
@@ -213,11 +224,14 @@ class ModelParameter(dict):
         output = self._generic_feed_forward(xs[0] + xs[2], [self.dim_heads, self.key_dim], input_features)
 
         with tf.variable_scope("reduce_mean_final"):
-            loss = mtf.reduce_mean(mtf.abs(output - tgt))
+            tkn = mtf.slice(output, tgt.shape[-2].size, token_x_input.shape[-2].size, output.shape[-2].name)
+            src = mtf.slice(output, 0, tgt.shape[-2].size, output.shape[-2].name)
+            vid_loss = mtf.reduce_mean(mtf.abs(output - tgt))
+            tkn_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn, targets=token_y_input, vocab_dim=token_y_input.shape[-1], z_loss=1e-4))
 
         self._layer_idx = 0
 
-        return output, loss
+        return output, vid_loss + tkn_loss
 
     def attribute_accesses(self):
         return {'GET':    self._get_count,
