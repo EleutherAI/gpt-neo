@@ -31,7 +31,7 @@ def generic_data(params: ModelParameter):
     time_patch = params.time_patch
     color_channels = params.color_channels
     patch_size = params.patch_size
-    batch_size = params.batch_size
+    batch_size = params.the_batch_size
     language_token_per_frame = params.language_token_per_frame
     prefix = params.prefix
 

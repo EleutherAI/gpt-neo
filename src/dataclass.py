@@ -75,7 +75,7 @@ class ModelParameter(dict):
         self.frame_height_patch = self.frame_height // self.patch_size
         self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
-        self._batch_size = self.eval_batch_size if self.eval else self.train_batch_size
+        self.the_batch_size = self.eval_batch_size if self.eval else self.train_batch_size
 
         self.mesh = None
 
