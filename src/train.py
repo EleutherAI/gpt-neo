@@ -66,9 +66,6 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
-    # Get inputs
-    frame_input = features['frame']
-
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params.mesh_shape)
@@ -98,21 +95,32 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     # We need to pack inputs into a dict to pass into serialize_training_step
     params.mode = mode
     batch_dim = mtf.Dimension("batch", params.the_batch_size)
-    sequence = mtf.Dimension("sequence", params.n_ctx + 1)
+    sequence_plus = mtf.Dimension("sequence_plus", params.n_ctx + 1)
+    sequence = mtf.Dimension("sequence", params.n_ctx)
     height = mtf.Dimension("height", params.frame_height_patch)
+    language_token = mtf.Dimension("language_token", params.language_token_per_frame)
+    length_dim = mtf.Dimension("color_channels", params.channel_color_size)
 
-    batch_dims = [batch_dim, sequence, height]
+    batch_dims = [batch_dim, sequence_plus, height]
 
     if params.three_axes:
         batch_dims.append(mtf.Dimension("width", params.frame_width_patch))
 
-    length_dim = mtf.Dimension("color_channels", params.channel_color_size)
-    frame_input = mtf.import_fully_replicated(mesh, frame_input, mtf.Shape(batch_dims + [length_dim]), "frame_input")
+    batch_dims = batch_dims + [length_dim]
+    frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(batch_dims), "frame_input")
+
+    if params.language_token_per_frame > 0:
+        token_dim = [batch_dim, sequence, language_token]
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], mtf.Shape(token_dim), "token_x_input")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], mtf.Shape(token_dim), "token_y_input")
+    else:
+        token_x_input = None
+        token_y_input = None
 
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = params.build(frame_input)
+            logits, loss = params.build(frame_input, token_x_input, token_y_input)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=None)
 
