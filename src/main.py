@@ -66,4 +66,4 @@ def main(args: argparse.Namespace):
 
     while current_step < params.train_steps:
         # Else, don't stop and restart
-        estimator.train(input_fn=partial(input_fn, eval=False), max_steps=params.train_steps)
+        estimator.train(input_fn=partial(input_fn), max_steps=params.train_steps)

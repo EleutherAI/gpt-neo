@@ -20,7 +20,7 @@ def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int, fr
     return data
 
 
-def generic_data(params: ModelParameter, eval: bool = False):
+def generic_data(params: ModelParameter):
     params = ModelParameter(params)
     sequence_length = params.n_ctx
     buffer_size = params.buffer_size
@@ -31,7 +31,7 @@ def generic_data(params: ModelParameter, eval: bool = False):
     time_patch = params.time_patch
     color_channels = params.color_channels
     patch_size = params.patch_size
-    batch_size = params.eval_batch_size if eval else params.train_batch_size
+    batch_size = params.batch_size
     language_token_per_frame = params.language_token_per_frame
     prefix = params.prefix
 
@@ -41,10 +41,10 @@ def generic_data(params: ModelParameter, eval: bool = False):
     frame_decoder = get_decoder(language_token_num_per_frame=language_token_per_frame,
                                 frame_height=frame_height, frame_width=frame_width, color_channels=color_channels)
 
-    time_patch_size = sequence_length // time_patch
-    frame_height_patch = frame_height // patch_size
-    frame_width_patch = frame_width // patch_size
-    channel_color_size = color_channels * time_patch * patch_size ** 2
+    time_patch_size = params.time_patch_size
+    frame_height_patch = params.frame_height_patch
+    frame_width_patch = params.frame_width_patch
+    channel_color_size = params.channel_color_size
 
     if not three_axes:
         frame_height_patch = frame_height_patch * frame_width_patch
@@ -79,7 +79,7 @@ def generic_data(params: ModelParameter, eval: bool = False):
             frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
                                channel_color_size))
 
-        return frame
+        return {'frame': frame}
 
     def with_token(frame: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
 
@@ -91,9 +91,9 @@ def generic_data(params: ModelParameter, eval: bool = False):
 
         frame = frame_cpu(frame)
 
-        return {'frame': frame, 'token_x': token_x, 'token_y': token_y}
+        return frame.update({'token_x': token_x, 'token_y': token_y})
 
-    def memory_with_frame(x):
+    def memory_op(x):
         x['frame'] = tf.cast(['frame'], tf.float32)
         return x
 
@@ -108,9 +108,6 @@ def generic_data(params: ModelParameter, eval: bool = False):
         print(f"Buffering {buffer_size} elements")
         data = data.prefetch(buffer_size)
 
-    if language_token_per_frame > 0:
-        data = data.map(memory_with_frame)
-    else:
-        data = data.map(lambda x: tf.cast(x, tf.float32))
+    data = data.map(memory_op)
 
     return data
