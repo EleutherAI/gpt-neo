@@ -71,11 +71,11 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
 
-        self.time_patch_size = None
-        self.frame_height_patch = None
-        self.frame_width_patch = None
-        self.channel_color_size = None
-        self._batch_size = None
+        self.time_patch_size = self.n_ctx // self.time_patch
+        self.frame_height_patch = self.frame_height // self.patch_size
+        self.frame_width_patch = self.frame_width // self.patch_size
+        self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
+        self._batch_size = self.eval_batch_size if self.eval else self.train_batch_size
 
         self.mesh = None
 
@@ -84,7 +84,6 @@ class ModelParameter(dict):
         self._layer_idx = 0
 
         self.__dict__.update(config)
-
 
     @property
     def dim_heads(self):
