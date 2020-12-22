@@ -41,10 +41,16 @@ def generic_data(params: ModelParameter):
     frame_decoder = get_decoder(language_token_num_per_frame=language_token_per_frame,
                                 frame_height=frame_height, frame_width=frame_width, color_channels=color_channels)
 
-    time_patch_size = params.time_patch_size
-    frame_height_patch = params.frame_height_patch
-    frame_width_patch = params.frame_width_patch
-    channel_color_size = params.channel_color_size
+    time_patch_size = sequence_length // time_patch
+    frame_height_patch = frame_height // patch_size
+    frame_width_patch = frame_width // patch_size
+    channel_color_size = color_channels * time_patch * patch_size ** 2
+    batch_size = params.eval_batch_size if params.eval else params.train_batch_size
+
+    params.time_patch_size = time_patch_size
+    params.frame_height_patch = frame_height_patch
+    params.frame_width_patch = frame_width_patch
+    params.channel_color_size = channel_color_size
 
     if not three_axes:
         frame_height_patch = frame_height_patch * frame_width_patch

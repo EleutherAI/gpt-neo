@@ -85,11 +85,6 @@ class ModelParameter(dict):
 
         self.__dict__.update(config)
 
-        self.time_patch_size = self.n_ctx // self.time_patch
-        self.frame_height_patch = self.frame_height // self.patch_size
-        self.frame_width_patch = self.frame_width // self.patch_size
-        self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
-        self.batch_size = self.eval_batch_size if self.eval else self.train_batch_size
 
     @property
     def dim_heads(self):
