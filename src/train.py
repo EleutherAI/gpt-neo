@@ -109,18 +109,9 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     batch_dims = batch_dims + [length_dim]
     frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(batch_dims), "frame_input")
 
-    if params.language_token_per_frame > 0:
-        token_dim = [batch_dim, sequence, language_token]
-        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], mtf.Shape(token_dim), "token_x_input")
-        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], mtf.Shape(token_dim), "token_y_input")
-    else:
-        token_x_input = None
-        token_y_input = None
-
-
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = params.build(frame_input, token_x_input, token_y_input)
+            logits, loss = params.build(frame_input)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=None)
 

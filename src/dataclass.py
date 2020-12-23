@@ -71,6 +71,7 @@ class ModelParameter(dict):
         self.activation_function = "gelu"
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
+        self.token_embedding = False
 
         self.mesh = None
 
@@ -196,7 +197,7 @@ class ModelParameter(dict):
 
         return block_output
 
-    def build(self, model_input, token_x_input, token_y_input):
+    def build(self, model_input):
         # TODO: Add support for missing model_input, token_x/y_input
         # TODO: Rename token_x_input
         # TODO: General cleanup
@@ -205,49 +206,43 @@ class ModelParameter(dict):
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
-        embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape([vocab_dim] + self.feature_dims),
-                                     dtype=tf.float32, initializer=tf.random_normal_initializer())
-        token_x_input = mtf.einsum([mtf.one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding],
-                                   reduced_dims=[vocab_dim],
-                                   output_shape=token_x_input.shape + self.feature_dims)
 
-        src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
-                                   for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
-                                  )
-        tkn_embedding = mtf.add_n([self._get_variable([dim, token_x_input.shape[-1]], tf.random_normal_initializer())
-                                   for dim in token_x_input.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
+        if self.token_embedding:
+            input_features = [mtf.Dimension("vocab_size", self.vocab_size)]
+            embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape(input_features + self.feature_dims),
+                                         dtype=tf.float32, initializer=tf.random_normal_initializer())
+            src = mtf.einsum([mtf.one_hot(token_x_input, input_features[0], dtype=tf.float32), embedding],
+                             reduced_dims=input_features,
+                             output_shape=token_x_input.shape + self.feature_dims)
+
+        else:
+            input_features = [src.shape[-1]]
+            src = self._generic_feed_forward(src, input_features, self.feature_dims)
+
+        src_embedding = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
+                                   for dim in src.shape[1:-2]]  # Ex: Shape[Sequence, Width, Height]
                                   )
         src += src_embedding
-        token_x_input += tkn_embedding
-
-        input_features = [src.shape[-1]]
-
-        src = self._generic_feed_forward(src, input_features, self.feature_dims)
-        token_x_input = self._generic_feed_forward(token_x_input, self.feature_dims, self.feature_dims)
-        print(src, token_x_input)
-        src += token_x_input
-
 
         xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
               self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
-        out = xs[0] + xs[2]
-        src = self._generic_feed_forward(out, self.feature_dims, input_features)
-        tkn = self._generic_feed_forward(out, self.feature_dims, [vocab_dim])
+
+        src = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
 
         with tf.variable_scope("reduce_mean_final"):
-            vid_loss = mtf.reduce_mean(mtf.abs(src - tgt))
-            print(tkn.size, vocab_dim, token_y_input)
-            tkn_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn, targets=token_y_input,
-                                                                                    vocab_dim=vocab_dim,
+            if self.token_embedding:
+                loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=src, targets=tgt,
+                                                                                    vocab_dim=input_features,
                                                                                     z_loss=1e-4))
+            else:
+                loss = mtf.reduce_mean(mtf.abs(src - tgt))
 
         self._layer_idx = 0
 
-        return src, vid_loss + tkn_loss
+        return src, loss
 
     def attribute_accesses(self):
         return {'GET':    self._get_count,
