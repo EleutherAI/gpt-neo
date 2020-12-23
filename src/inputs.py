@@ -7,6 +7,7 @@ from .video2tfrecord import get_decoder
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int, frame_decoder: object):
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
+    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.repeat()
 
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
@@ -54,7 +55,7 @@ def generic_data(params: ModelParameter):
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
 
-    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    #data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.batch(batch_size)
 
     def frame_cpu(frame: tf.Tensor):
