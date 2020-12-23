@@ -98,7 +98,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     sequence_plus = mtf.Dimension("sequence", params.time_patch_size + 1)
     sequence = mtf.Dimension("sequence", params.time_patch_size)
     height = mtf.Dimension("height", params.frame_height_patch)
-    language_token = mtf.Dimension("language_token", params.language_token_per_frame)
+    language_token = mtf.Dimension("height", params.language_token_per_frame)
     length_dim = mtf.Dimension("color_channels", params.channel_color_size)
 
     batch_dims = [batch_dim, sequence_plus, height]
