@@ -107,7 +107,8 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
         batch_dims.append(mtf.Dimension("width", params.frame_width_patch))
 
     batch_dims = batch_dims + [length_dim]
-    frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(batch_dims), "frame_input")
+    #frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(batch_dims), "frame_input")
+    frame_input = mtf.import_fully_replicated(mesh, features, mtf.Shape(batch_dims), "frame_input")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):

@@ -76,7 +76,8 @@ def generic_data(params: ModelParameter):
             frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
                                channel_color_size))
 
-        return {'frame': frame}
+        #return {'frame': frame}
+        return frame
 
     def with_token(frame: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
 
@@ -92,7 +93,8 @@ def generic_data(params: ModelParameter):
         return frame
 
     def memory_op(x):
-        x['frame'] = tf.cast(x['frame'], tf.float32)
+        #x['frame'] = tf.cast(x['frame'], tf.float32)
+        x = tf.cast(x, tf.float32)
         return x
 
 
