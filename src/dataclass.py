@@ -205,7 +205,7 @@ class ModelParameter(dict):
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-        vocab_dim = token_x_input.shape[-1]
+        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
         embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape([vocab_dim] + self.feature_dims),
                                      dtype=tf.float32, initializer=tf.random_normal_initializer())
         token_x_input = mtf.einsum([mtf.one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding],
