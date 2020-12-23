@@ -160,25 +160,9 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     with mtf.utils.outside_all_rewrites():
         print(params.attribute_accesses())
         restore_hook = mtf.MtfRestoreHook(lowering)
-
-        saver = tf.train.Saver(
-                tf.global_variables(),
-                sharded=True,
-                max_to_keep=10,
-                keep_checkpoint_every_n_hours=2,
-                defer_build=False,
-                save_relative_paths=True)
-        tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
-        saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-        saver_hook = tf.train.CheckpointSaverHook(
-                params.model_path,
-                save_steps=params.steps_per_checkpoint,
-                saver=saver,
-                listeners=[saver_listener])
-
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
                 loss=tf_loss,
                 host_call=host_call,
-                training_hooks=[restore_hook, saver_hook],
+                training_hooks=[restore_hook],
                 train_op=train_op)
