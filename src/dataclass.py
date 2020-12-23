@@ -165,7 +165,7 @@ class ModelParameter(dict):
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
-        middle_dimensions = block_input.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
+        middle_dimensions = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
 
         with tf.variable_scope(f"attention_block{self._layer_idx}"):
             outputs = []
@@ -210,39 +210,44 @@ class ModelParameter(dict):
                                      dtype=tf.float32, initializer=tf.random_normal_initializer())
         token_x_input = mtf.einsum([mtf.one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding],
                                    reduced_dims=[vocab_dim],
-                                   output_shape=token_x_input - vocab_dim + self.feature_dims)
+                                   output_shape=token_x_input.shape + self.feature_dims)
 
         src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
                                    for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
                                   )
         tkn_embedding = mtf.add_n([self._get_variable([dim, token_x_input.shape[-1]], tf.random_normal_initializer())
-                                   for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
+                                   for dim in token_x_input.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
                                   )
         src += src_embedding
         token_x_input += tkn_embedding
 
-        src = mtf.concat([src, token_x_input], token_x_input.shape[-2].name)
-
         input_features = [src.shape[-1]]
 
-        xs = (self._generic_feed_forward(src, input_features, self.feature_dims), None,
-              self._generic_feed_forward(src, input_features, self.feature_dims), None)
+        src = self._generic_feed_forward(src, input_features, self.feature_dims)
+        token_x_input = self._generic_feed_forward(token_x_input, self.feature_dims, self.feature_dims)
+        print(src, token_x_input)
+        src += token_x_input
+
+
+        xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
+              self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
-        output = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
+        out = xs[0] + xs[2]
+        src = self._generic_feed_forward(out, self.feature_dims, input_features)
+        tkn = self._generic_feed_forward(out, self.feature_dims, [vocab_dim])
 
         with tf.variable_scope("reduce_mean_final"):
-            tkn = mtf.slice(output, tgt.shape[-2].size, token_x_input.shape[-2].size, output.shape[-2].name)
-            src = mtf.slice(output, 0, tgt.shape[-2].size, output.shape[-2].name)
-            vid_loss = mtf.reduce_mean(mtf.abs(output - tgt))
+            vid_loss = mtf.reduce_mean(mtf.abs(src - tgt))
+            print(tkn.size, vocab_dim, token_y_input)
             tkn_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn, targets=token_y_input,
-                                                                                    vocab_dim=token_y_input.shape[-1],
+                                                                                    vocab_dim=vocab_dim,
                                                                                     z_loss=1e-4))
 
         self._layer_idx = 0
 
-        return output, vid_loss + tkn_loss
+        return src, vid_loss + tkn_loss
 
     def attribute_accesses(self):
         return {'GET':    self._get_count,
