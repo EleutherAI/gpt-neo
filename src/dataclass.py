@@ -97,6 +97,10 @@ class ModelParameter(dict):
     def key_dim(self):
         return mtf.Dimension("features_per_head", self.n_embd // self.n_head)
 
+    @property
+    def feature_dims(self):
+        return [self.dim_heads, self.key_dim]
+
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
         return self.__getattr__(key)
@@ -157,12 +161,12 @@ class ModelParameter(dict):
         return block_input
 
     def _feed_forward(self, x):
-        return self._generic_feed_forward(x, [self.dim_heads, self.key_dim], [self.dim_heads, self.key_dim])
+        return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
         middle_dimensions = block_input.shape[1:-1]  # Ex: Shape[Sequence, Width, Height]
-        
+
         with tf.variable_scope(f"attention_block{self._layer_idx}"):
             outputs = []
             for idx, dim in enumerate(middle_dimensions):
@@ -202,9 +206,12 @@ class ModelParameter(dict):
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
         vocab_dim = token_x_input.shape[-1]
-        embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape([vocab_dim, self.dim_heads, self.key_dim]), dtype=tf.float32, initializer=tf.random_normal_initializer())
-        token_x_input = einsum([one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding], reduced_dims=[vocab_dim], output_shape=token_x_input - vocab_dim + [self.dim_heads, self.key_dim])
-        
+        embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape([vocab_dim] + self.feature_dims),
+                                     dtype=tf.float32, initializer=tf.random_normal_initializer())
+        token_x_input = mtf.einsum([mtf.one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding],
+                                   reduced_dims=[vocab_dim],
+                                   output_shape=token_x_input - vocab_dim + self.feature_dims)
+
         src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
                                    for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
                                   )
@@ -215,21 +222,23 @@ class ModelParameter(dict):
         token_x_input += tkn_embedding
 
         src = mtf.concat([src, token_x_input], token_x_input.shape[-2].name)
-        
+
         input_features = [src.shape[-1]]
 
-        xs = (self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]), None,
-              self._generic_feed_forward(src, input_features, [self.dim_heads, self.key_dim]), None)
+        xs = (self._generic_feed_forward(src, input_features, self.feature_dims), None,
+              self._generic_feed_forward(src, input_features, self.feature_dims), None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
-        output = self._generic_feed_forward(xs[0] + xs[2], [self.dim_heads, self.key_dim], input_features)
+        output = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
 
         with tf.variable_scope("reduce_mean_final"):
             tkn = mtf.slice(output, tgt.shape[-2].size, token_x_input.shape[-2].size, output.shape[-2].name)
             src = mtf.slice(output, 0, tgt.shape[-2].size, output.shape[-2].name)
             vid_loss = mtf.reduce_mean(mtf.abs(output - tgt))
-            tkn_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn, targets=token_y_input, vocab_dim=token_y_input.shape[-1], z_loss=1e-4))
+            tkn_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn, targets=token_y_input,
+                                                                                    vocab_dim=token_y_input.shape[-1],
+                                                                                    z_loss=1e-4))
 
         self._layer_idx = 0
 
