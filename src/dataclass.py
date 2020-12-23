@@ -201,8 +201,9 @@ class ModelParameter(dict):
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-        vocab_size = mtf.Dimension("vocab_size", self.vocab_size)
-        token_x_input = mtf.layers.embedding(token_x_input, vocab_size, self.key_dim, tf.float32)
+        vocab_dim = token_x_input.shape[-1]
+        embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape([vocab_dim, self.dim_heads, self.key_dim]), dtype=tf.float32, initializer=tf.random_normal_initializer())
+        token_x_input = einsum([one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding], reduced_dims=[vocab_dim], output_shape=token_x_input - vocab_dim + [self.dim_heads, self.key_dim])
         
         src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
                                    for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
