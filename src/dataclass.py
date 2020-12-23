@@ -201,7 +201,7 @@ class ModelParameter(dict):
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-        token_x_input = mtf.layers.embedding(token_x_input, token_x_input.shape[-1], self.key_dim, tf.float32)
+        token_x_input = mtf.layers.embedding(token_x_input, self.vocab_size, self.key_dim, tf.float32)
         
         src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
                                    for dim in src.shape[1:-1]]  # Ex: Shape[Sequence, Width, Height]
