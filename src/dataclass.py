@@ -166,36 +166,39 @@ class ModelParameter(dict):
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
-        middle_dimensions = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
+        
+        if dim % 2:
+            with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
+                output self._rezero(self._feed_forward(mtf.add_n(block_input)))
+            return output
+        
+        with tf.variable_scope(f"attention_block_{self._layer_idx}"):            
+            dim //= 2
+            attention_dims = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
+            idx = dim % len(attention_dims)
+            dim = attention_dims[áttention_idx]
+            
+            tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
-        with tf.variable_scope(f"attention_block{self._layer_idx}"):
-            outputs = []
-            for idx, dim in enumerate(middle_dimensions):
-                tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+            q = self._feed_forward(block_input)
+            k = self._feed_forward(block_input)
+            v = self._feed_forward(block_input)
+            k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
+            v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
 
-                q = self._feed_forward(block_input)
-                k = self._feed_forward(block_input)
-                v = self._feed_forward(block_input)
-                k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
-                v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
-
-                logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
-                if idx in self.masked_attention_dimensions:
-                    i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
-                    j = mtf.range(self.mesh, dim, tf.int32)
-                    i = mtf.broadcast(i, [tmp_dim, dim])
-                    j = mtf.broadcast(j, [tmp_dim, dim])
-                    bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
-                    logits += mtf.broadcast(bias, logits.shape)
-                weights = mtf.softmax(logits, dim)
-                a = mtf.einsum([weights, v], q.shape)
-
-                a += self._rezero(self._feed_forward(a))
-                outputs.append(a)
-            block_output = mtf.add_n([self._rezero(a) for a in outputs])
-            block_output += self._rezero(self._feed_forward(mtf.add_n(outputs)))
-
-        return block_output
+            logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+            if idx in self.masked_attention_dimensions:
+                i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
+                j = mtf.range(self.mesh, dim, tf.int32)
+                i = mtf.broadcast(i, [tmp_dim, dim])
+                j = mtf.broadcast(j, [tmp_dim, dim])
+                bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
+                logits += mtf.broadcast(bias, logits.shape)
+            weights = mtf.softmax(logits, dim)
+            output = mtf.einsum([weights, v], q.shape)
+            output = self._rezero(output)
+            
+        return output
 
     def build(self, model_input):
         # TODO: Add support for missing model_input, token_x/y_input
