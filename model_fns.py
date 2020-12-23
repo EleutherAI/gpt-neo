@@ -9,7 +9,7 @@ from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
 from models.gpt2 import gpt2
-
+import math
 
 def model_fn(features, labels, mode, params):
     # Get global step
@@ -251,16 +251,20 @@ def model_fn(features, labels, mode, params):
 
         elif mode == tf.estimator.ModeKeys.EVAL:
             # Evaluation metrics
-            def _perplexity(tf_loss_batch):
-                loss = tf.reduce_mean(tf_loss_batch)
-                loss /= params["num_microbatches"]
+            def _perplexity(loss):
                 perplexity = tf.exp(loss)
                 return tf.metrics.mean(perplexity)
 
+            def _bits_per_byte(loss):
+                bpb = loss * (0.29335 / math.log(2))
+                return tf.metrics.mean(bpb)
+
             def _metric_fn(tf_mean_logits, tf_loss_batch):
                 mean_logits = tf.metrics.mean(tf_mean_logits)
-                perp = _perplexity(tf_loss_batch)
-                return {"mean_logits": mean_logits, "perplexity": perp}
+                loss = tf.reduce_mean(tf_loss_batch)
+                perp = _perplexity(loss)
+                bpb = _bits_per_byte(loss)
+                return {"mean_logits": mean_logits, "perplexity": perp, "bits per byte": bpb}
 
             def _lambada_metric_fn(labels, tf_max_logits, tf_loss_batch):
                 eos_token = params["eos_id"]
