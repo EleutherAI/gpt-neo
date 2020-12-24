@@ -5,16 +5,14 @@ from .dataclass import ModelParameter
 from .video2tfrecord import get_decoder
 
 
-def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int, frame_decoder: object):
+def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int,
+                      frame_decoder: object, interleave_func: object):
+
     data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
     data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
-    data = data.repeat()
 
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
-    data = data.interleave(lambda x: x.batch(sequence_length + time_delay, drop_remainder=True),
-                           cycle_length=1,
-                           num_parallel_calls=1,
-                           block_length=1)
+    data = data.interleave(interleave_func, cycle_length=1, num_parallel_calls=1, block_length=1)
 
     data = data.repeat()
 
@@ -47,15 +45,20 @@ def generic_data(params: ModelParameter):
     frame_width_patch = params.frame_width_patch
     channel_color_size = params.channel_color_size
 
+    if language_token_per_frame > 0:
+        interleave_func = lambda x, y, z: tf.data.Dataset.zip((x, y, z))\
+            .batch(sequence_length + time_patch, drop_remainder=True)
+    else:
+        interleave_func = lambda x: x.batch(sequence_length + time_patch, drop_remainder=True)
+
     path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
 
     data = tf.data.Dataset.from_tensor_slices(path)
-    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder),
+    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
                            cycle_length=tf.data.experimental.AUTOTUNE,
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
 
-    #data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data.batch(batch_size)
 
     def frame_cpu(frame: tf.Tensor):
@@ -77,8 +80,7 @@ def generic_data(params: ModelParameter):
             frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
                                channel_color_size))
 
-        #return {'frame': frame}
-        return frame
+        return {'frame': frame}
 
     def with_token(frame: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
 
@@ -94,8 +96,7 @@ def generic_data(params: ModelParameter):
         return frame
 
     def memory_op(x):
-        #x['frame'] = tf.cast(x['frame'], tf.float32)
-        x = tf.cast(x, tf.float32)
+        x['frame'] = tf.cast(x['frame'], tf.float32)
         return x
 
 
