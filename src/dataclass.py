@@ -72,6 +72,7 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
         self.token_embedding = False
+        self.feed_forward_per_attention = 2
 
         self.mesh = None
 
@@ -164,7 +165,7 @@ class ModelParameter(dict):
     def _block_fn(self, block_input):
         self._layer_idx += 1
 
-        if self._layer_idx % 2:
+        if (self._layer_idx % (self.feed_forward_per_attention + 1)) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
                 output = self._rezero(self._feed_forward(block_input))
             return output
