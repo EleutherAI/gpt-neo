@@ -166,18 +166,17 @@ class ModelParameter(dict):
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
-        
-        if dim % 2:
+
+        if self._layer_idx % 2:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                output self._rezero(self._feed_forward(mtf.add_n(block_input)))
+                output = self._rezero(self._feed_forward(block_input))
             return output
-        
-        with tf.variable_scope(f"attention_block_{self._layer_idx}"):            
-            dim //= 2
+
+        with tf.variable_scope(f"attention_block_{self._layer_idx}"):
             attention_dims = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
-            idx = dim % len(attention_dims)
-            dim = attention_dims[áttention_idx]
-            
+            idx = (self._layer_idx // 2) % len(attention_dims)
+            dim = attention_dims[idx]
+
             tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
             q = self._feed_forward(block_input)
@@ -197,7 +196,7 @@ class ModelParameter(dict):
             weights = mtf.softmax(logits, dim)
             output = mtf.einsum([weights, v], q.shape)
             output = self._rezero(output)
-            
+
         return output
 
     def build(self, model_input):
