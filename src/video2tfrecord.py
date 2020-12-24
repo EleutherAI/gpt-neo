@@ -96,7 +96,6 @@ def get_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=N
         This Function will decode frame from proto buffer.
         '''
 
-        '''
         proto = tf.unstack(proto, axis=0)
         frames = []
         tokens = []
@@ -122,11 +121,6 @@ def get_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=N
             return tf.stack(frames, axis=0), tf.stack(tokens, axis=0), tf.stack(skip_frames, axis=0)
         else:
             return tf.stack(frames, axis=0)
-        '''
-
-        sample = tf.parse_single_example(proto, features)
-        frame = tf.image.decode_image(sample['frame'])
-        return frame
 
 
     return tf.function(frame_decoder, experimental_compile=False)
