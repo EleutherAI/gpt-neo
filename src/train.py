@@ -97,14 +97,16 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     batch_dim = mtf.Dimension("batch", params.the_batch_size)
     sequence_plus = mtf.Dimension("sequence", params.time_patch_size + 1)
     sequence = mtf.Dimension("sequence", params.time_patch_size)
-    height = mtf.Dimension("height", params.frame_height_patch)
     language_token = mtf.Dimension("height", params.language_token_per_frame)
     length_dim = mtf.Dimension("color_channels", params.channel_color_size)
 
-    batch_dims = [batch_dim, sequence_plus, height]
+    batch_dims = [batch_dim, sequence_plus]
 
     if params.three_axes:
-        batch_dims.append(mtf.Dimension("width", params.frame_width_patch))
+        batch_dims = batch_dims + [mtf.Dimension("height", params.frame_height_patch),
+                                   mtf.Dimension("width", params.frame_width_patch)]
+    else:
+        batch_dims = batch_dims + [mtf.Dimension("height", params.frame_height_patch * params.frame_width_patch)]
 
     batch_dims = batch_dims + [length_dim]
     frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(batch_dims), "frame_input")
