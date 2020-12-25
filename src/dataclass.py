@@ -248,8 +248,8 @@ class ModelParameter(dict):
         intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
 
         input_dims = ''.join([chr(ord('i') + i) for i in range(len(reduced_dims))])
-        intermediate_dims = ''.join([chr(ord(input_dims[-1]) + i) for i in range(len(new_dimensions))])
-        output_dims = ''.join([chr(ord(intermediate_dims[-1]) + i) for i in range(len(new_dimensions))])
+        intermediate_dims = ''.join([chr(ord(input_dims[-1]) + i) for i in range(1, 1 + len(new_dimensions))])
+        output_dims = ''.join([chr(ord(intermediate_dims[-1]) + i) for i in range(1, 1 + len(new_dimensions))])
 
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
             weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
