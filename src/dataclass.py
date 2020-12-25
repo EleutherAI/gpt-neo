@@ -246,17 +246,22 @@ class ModelParameter(dict):
                               reduced_dims: typing.List[mtf.Dimension],
                               new_dimensions: typing.List[mtf.Dimension]):
         intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
+
+        input_dims = ''.join([chr(ord('i') + i) for i in range(len(reduced_dims))])
+        intermediate_dims = ''.join([chr(ord(input_dims[-1]) + i) for i in range(len(new_dimensions))])
+        output_dims = ''.join([chr(ord(intermediate_dims[-1]) + i) for i in range(len(new_dimensions))])
+
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
             weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
             block_input = einsum([block_input, weight0],
-                                 f'{self._input_dims},hfij->{self._base_dims}ij',
+                                 f'{self._base_dims}{input_dims},{input_dims}{intermediate_dims}->{self._base_dims}{intermediate_dims}',
                                  block_input.shape - reduced_dims + intermediate_dimensions)
             if self.dropout_rate > 0:
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
             weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
             block_input = einsum([block_input, weight1],
-                                 f'{self._input_dims},hfij->{self._base_dims}ij',
+                                 f'{self._base_dims}{intermediate_dims},{intermediate_dims}{output_dims}->{self._base_dims}{output_dims}',
                                  block_input.shape - intermediate_dimensions + new_dimensions)
         return block_input
 
