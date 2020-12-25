@@ -5,6 +5,101 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
+class EinsumOperation(mtf.Operation):
+    """Einstein summation (matmul, etc).
+    The equation follows the dimensions in the input and output shapes.
+    Every dimension must occur in at least two of the input/output Tensors.
+    i.e. no new dimensions in the output, and no reduction of dimensions that
+    occur in only one input.
+    """
+
+    def __init__(self, inputs, output_shape, equation, name=None):
+        super(EinsumOperation, self).__init__(inputs, name=name or "einsum")
+        if not inputs:
+            raise ValueError("Einsum needs at least one input")
+        for x in inputs:
+            if x.dtype != inputs[0].dtype:
+                raise ValueError("Input dtypes must be equal got %s"
+                                 % ([y.dtype for y in inputs],))
+        self._equation = equation
+
+        *equation, output = equation.split(',')
+        output = output.split('->')
+        self._equation_inputs = list(equation) + [output[0]]
+        self._equation_output = output[1]
+        self._outputs = [mtf.Tensor(self, output_shape, inputs[0].dtype)]
+
+    def gradient(self, grad_ys):
+        dy = grad_ys[0]
+        xs = self.inputs
+        return [einsum([dy] + [xs[j] for j in range(len(xs)) if j != i],
+                       ','.join([self._equation_output] +
+                                [self._equation_inputs[j] for j in range(len(self._equation_inputs)) if j != i]) +
+                       '->' +
+                       self._equation_inputs[i],
+                       xs[i].shape)
+                for i in range(len(self.inputs))]
+
+    def lower(self, lowering):
+        mesh_impl = lowering.mesh_impl(self)
+        input_shape = mtf.Shape(list(set(sum([x.shape.dims for x in self.inputs], []))))
+        output_shape = self.outputs[0].shape
+
+        intersection_shape = mtf.Shape([d for d in output_shape.dims if d in input_shape.dims])
+
+        reduced_mesh_axes = [d for i, d in enumerate(input_shape.dims)
+                             if d not in output_shape.dims and mesh_impl.tensor_layout(input_shape)[i] is not None]
+
+        # call tf.einsum
+        y = mesh_impl.slicewise(lambda *slices: mesh_impl.einsum(self._equation, *slices),
+                                *[lowering.tensors[x] for x in self.inputs])
+        if reduced_mesh_axes:
+            y = mtf.LazyAllreduceSum(mesh_impl, y, reduced_mesh_axes,
+                                     lambda: lowering.add_counter(f"allreduce/{reduced_mesh_axes}/einsum_op",
+                                                                  mesh_impl.laid_out_size(intersection_shape)))
+        # broadcast from intersection_shape to output_shape
+        if intersection_shape != output_shape:
+            y = mesh_impl.broadcast_impl(y, intersection_shape, output_shape)
+
+        lowering.set_tensor_lowering(self.outputs[0], y)
+        lowering.add_counter("einsum", mesh_impl.laid_out_size(input_shape))
+        lowering.add_counter("einsum_unique", input_shape.size)
+
+
+def einsum(xs, equation, output_shape):
+    """Einstein summation.
+    einsum(xs, output_shape) is equivalent to broadcasting all inputs
+    to the union of all of their shapes, multiplying them componentwise,
+    and finally reduce_summing down to output_shape.
+    One common case of this is matrix multiplication:
+        x has shape [a, b]
+        y has shape [b, c]
+        matmul(x, y) == einsum([x, y], output_shape=[a, c])
+    We provide a few options for specifying the output shape:
+    If neither output_shape nor reduced_dims is specified, then the output
+    shape is set to the contain all dimensions that appear exactly once in the
+    inputs, in order of appearance.
+    If output_shape is not specified, then the output shape is set to the contain
+    all dimensions that appear in xs but not in reduced_dims, in the order
+    that they appear in xs.  If reduced_dims is also not specified, then
+    reduced_dims is set to the set of all dimensions that appear at least twice in
+    xs.
+    If both output_shape and reduced_dims are specified, then we check that
+    reduced_dims matches the set of dimensions present in xs but not in
+    output_shape, and throw an exception if it does not.  This helps to reduce
+    bugs.
+    Args:
+      xs: a list of Tensors
+      equation: einsum equation
+      output_shape: resulting einsum shape
+    Returns:
+      a Tensor
+    Raises:
+      ValueError: if reduced_dims contradicts output_shape
+    """
+    return EinsumOperation(xs, mtf.convert_to_shape(output_shape), equation, name=None).outputs[0]
+
+
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
@@ -80,6 +175,10 @@ class ModelParameter(dict):
 
         self._layer_idx = 0
 
+        self._space_dims = f'sx{"y" if self.three_axes else ""}'
+        self._base_dims = 'b' + self._space_dims
+        self._input_dims = self._base_dims + 'hf'
+
         self.__dict__.update(config)
 
         self.time_patch_size = self.n_ctx // self.time_patch
@@ -149,14 +248,16 @@ class ModelParameter(dict):
         intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
             weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
-            block_input = mtf.einsum([block_input, weight0],
-                                     block_input.shape - reduced_dims + intermediate_dimensions)
+            block_input = einsum([block_input, weight0],
+                                 f'{self._input_dims},hfij->{self._base_dims}ij',
+                                 block_input.shape - reduced_dims + intermediate_dimensions)
             if self.dropout_rate > 0:
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
             weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
-            block_input = mtf.einsum([block_input, weight1],
-                                     block_input.shape - intermediate_dimensions + new_dimensions)
+            block_input = einsum([block_input, weight1],
+                                 f'{self._input_dims},hfij->{self._base_dims}ij',
+                                 block_input.shape - intermediate_dimensions + new_dimensions)
         return block_input
 
     def _feed_forward(self, x):
@@ -176,6 +277,8 @@ class ModelParameter(dict):
             dim = attention_dims[idx]
 
             tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+            attention_dims = self._base_dims + 'ha'
+            renamed_input_dims = self._input_dims.replace(self._space_dims[idx], 'a')
 
             q = self._feed_forward(block_input)
             k = self._feed_forward(block_input)
@@ -183,7 +286,9 @@ class ModelParameter(dict):
             k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
             v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
 
-            logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+            logits = einsum([q, k],
+                            f"{self._input_dims},{renamed_input_dims}->{attention_dims}",
+                            q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
             if idx in self.masked_attention_dimensions:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
                 j = mtf.range(self.mesh, dim, tf.int32)
@@ -192,14 +297,15 @@ class ModelParameter(dict):
                 bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
                 logits += mtf.broadcast(bias, logits.shape)
             weights = mtf.softmax(logits, dim)
-            output = mtf.einsum([weights, v], q.shape)
+            output = einsum([weights, v],
+                            f"{attention_dims},{renamed_input_dims}->{self._input_dims}",
+                            q.shape)
             output = self._rezero(output)
 
         return output
 
     def build(self, model_input):
         # TODO: Add support for missing model_input, token_x/y_input
-        # TODO: Rename token_x_input
         # TODO: General cleanup
         x = model_input / 255.
         context_dimension = x.shape[1]
@@ -207,17 +313,8 @@ class ModelParameter(dict):
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
-        if self.token_embedding:
-            input_features = [mtf.Dimension("vocab_size", self.vocab_size)]
-            embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape(input_features + self.feature_dims),
-                                         dtype=tf.float32, initializer=tf.random_normal_initializer())
-            src = mtf.einsum([mtf.one_hot(token_x_input, input_features[0], dtype=tf.float32), embedding],
-                             reduced_dims=input_features,
-                             output_shape=token_x_input.shape + self.feature_dims)
-
-        else:
-            input_features = [src.shape[-1]]
-            src = self._generic_feed_forward(src, input_features, self.feature_dims)
+        input_features = [src.shape[-1]]
+        src = self._generic_feed_forward(src, input_features, self.feature_dims)
 
         src_embedding = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
                                    for dim in src.shape[1:-2]]  # Ex: Shape[Sequence, Width, Height]
