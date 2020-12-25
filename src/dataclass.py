@@ -271,7 +271,7 @@ class ModelParameter(dict):
     def _block_fn(self, block_input):
         self._layer_idx += 1
 
-        if (self._layer_idx % (self.feed_forward_per_attention + 1)) < self.feed_forward_per_attention:
+        if self._layer_idx % 2:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
                 output = self._rezero(self._feed_forward(block_input))
             return output
