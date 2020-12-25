@@ -88,6 +88,7 @@ def train_thread(args, tpu, id, q):
     if proc.returncode == 0:
         print('exited gracefully')
         os.kill(os.getpid(), signal.SIGINT)
+        return
     
     if args.no_delete_tpu:
         print('recreate done, exiting train_thread - not killing tpu!')
