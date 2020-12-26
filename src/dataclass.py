@@ -286,6 +286,7 @@ class ModelParameter(dict):
                               block_input: mtf.Tensor,
                               reduced_dims: typing.List[mtf.Dimension],
                               new_dimensions: typing.List[mtf.Dimension]):
+
         intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
 
         input_dims = ''.join([chr(ord('i') + i) for i in range(len(reduced_dims))])
@@ -293,17 +294,21 @@ class ModelParameter(dict):
         output_dims = ''.join([chr(ord(intermediate_dims[-1]) + i) for i in range(1, 1 + len(new_dimensions))])
 
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
+
             weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
-            block_input = einsum([block_input, weight0],
-                                 f'{self._base_dims}{input_dims},{input_dims}{intermediate_dims}->{self._base_dims}{intermediate_dims}',
-                                 block_input.shape - reduced_dims + intermediate_dimensions)
+            o = f'{self._base_dims}{input_dims},{input_dims}{intermediate_dims}->{self._base_dims}{intermediate_dims}'
+            block_input = einsum([block_input, weight0], o, block_input.shape - reduced_dims + intermediate_dimensions)
+
             if self.dropout_rate > 0:
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
-            block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
+
+            # LiSHT: https://arxiv.org/abs/1901.05894
+            block_input = block_input * mtf.tanh(block_input)
+
             weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
-            block_input = einsum([block_input, weight1],
-                                 f'{self._base_dims}{intermediate_dims},{intermediate_dims}{output_dims}->{self._base_dims}{output_dims}',
-                                 block_input.shape - intermediate_dimensions + new_dimensions)
+            o = f'{self._base_dims}{intermediate_dims},{intermediate_dims}{output_dims}->{self._base_dims}{output_dims}'
+            block_input = einsum([block_input, weight1], o, block_input.shape - intermediate_dimensions+new_dimensions)
+
         return block_input
 
     def _feed_forward(self, x):
@@ -332,10 +337,10 @@ class ModelParameter(dict):
 
             e = f"{self._input_dims},{renamed_input_dims}->{attention_dims}"
 
-            print("LOGITS",e)
+            print("LOGITS", e)
             with tf.variable_scope("logits"):
-                logits = einsum([q, k], e,
-                            q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+                logits = einsum([q, k], e, q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+
             print(logits)
             if idx in self.masked_attention_dimensions:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
@@ -344,12 +349,15 @@ class ModelParameter(dict):
                 j = mtf.broadcast(j, [tmp_dim, dim])
                 bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
                 logits += mtf.broadcast(bias, logits.shape)
+
             weights = mtf.softmax(logits, dim)
             e = f"{attention_dims},{renamed_input_dims}->{self._input_dims}"
             print("ATTENTION",e)
+
             with tf.variable_scope("output"):
                 output = einsum([weights, v], e,
                             q.shape)
+
             output = self._rezero(output)
 
         return output
@@ -367,8 +375,7 @@ class ModelParameter(dict):
         src = self._generic_feed_forward(src, input_features, self.feature_dims)
 
         src_embedding = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
-                                   for dim in src.shape[1:-2]]  # Ex: Shape[Sequence, Width, Height]
-                                  )
+                                   for dim in src.shape[1:-2]])  # Ex: Shape[Sequence, Width, Height]
         src += src_embedding
 
         xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
