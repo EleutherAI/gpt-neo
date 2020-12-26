@@ -58,7 +58,6 @@ class EinsumOperation(mtf.Operation):
             original_dim = self.inputs[idx].shape[input_idx]
             target = dimensions
             if original_dim.name.startswith('_'):
-                print("ORIGINAL STARTS WITH _")
                 original_dim = mtf.Dimension(original_dim.name[1:], original_dim.size)
                 target = split
             mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(original_dim)
@@ -69,7 +68,6 @@ class EinsumOperation(mtf.Operation):
             target.append((None, mesh_axis, dim_idx))
         split = list(set(split))
         dimensions = list(set(dimensions))
-        print("dim", dimensions, split, self.inputs[0].shape, self.inputs[1].shape, self._equation, output_shape)
 
         # call tf.einsum
         def slice_einsum(*slices):
@@ -79,7 +77,6 @@ class EinsumOperation(mtf.Operation):
             if offset > 0 and dimensions[idx - 1][1] is not None:
                 inp = mesh_impl.shift_by_n_processors(inp, dimensions[idx - 1][1], offset, True)
 
-            print("sliceshift", dimensions, idx)
             if idx == len(dimensions):
                 return mesh_impl.slicewise(slice_einsum,
                                            lowering.tensors[self.inputs[0]],
@@ -93,7 +90,6 @@ class EinsumOperation(mtf.Operation):
         if any(d is not None for d in dimensions):
             y = sliceshift(lowering.tensors[self.inputs[1]], 0, 0)
         else:
-            print("not any")
             y = mesh_impl.slicewise(slice_einsum, lowering.tensors[self.inputs[0]], lowering.tensors[self.inputs[1]])
 
         for s in split:
@@ -103,11 +99,9 @@ class EinsumOperation(mtf.Operation):
             print(s, y)
 
         if reduced_mesh_axes:
-            print("reduce")
             y = mtf.LazyAllreduceSum(mesh_impl, y, reduced_mesh_axes,
                                      lambda: lowering.add_counter(f"allreduce/{reduced_mesh_axes}/einsum_op",
                                                                   mesh_impl.laid_out_size(output_shape)))
-        print("\n\n")
         lowering.set_tensor_lowering(self.outputs[0], y)
         lowering.add_counter("einsum", mesh_impl.laid_out_size(input_shape))
         lowering.add_counter("einsum_unique", input_shape.size)
@@ -336,9 +330,11 @@ class ModelParameter(dict):
             k = self._feed_forward(block_input)
             v = self._feed_forward(block_input)
 
+            e = f"{self._input_dims},{renamed_input_dims}->{attention_dims}"
+
+            print("LOGITS",e)
             with tf.variable_scope("logits"):
-                logits = einsum([q, k],
-                            f"{self._input_dims},{renamed_input_dims}->{attention_dims}",
+                logits = einsum([q, k], e,
                             q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
             print(logits)
             if idx in self.masked_attention_dimensions:
@@ -349,9 +345,10 @@ class ModelParameter(dict):
                 bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
                 logits += mtf.broadcast(bias, logits.shape)
             weights = mtf.softmax(logits, dim)
+            e = f"{attention_dims},{renamed_input_dims}->{self._input_dims}"
+            print("ATTENTION",e)
             with tf.variable_scope("output"):
-                output = einsum([weights, v],
-                            f"{attention_dims.replace('a','?').replace(self._space_dims[idx], 'a').replace('?', self._space_dims[idx])},{renamed_input_dims}->{self._input_dims}",
+                output = einsum([weights, v], e,
                             q.shape)
             output = self._rezero(output)
 
