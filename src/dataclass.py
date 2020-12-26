@@ -39,28 +39,75 @@ class EinsumOperation(mtf.Operation):
                        self._equation_inputs[i],
                        xs[i].shape)
                 for i in range(len(self.inputs))]
-
-    def lower(self, lowering):
-        mesh_impl = lowering.mesh_impl(self)
-        input_shape = mtf.Shape(list(set(sum([x.shape.dims for x in self.inputs], []))))
-        output_shape = self.outputs[0].shape
-
-        intersection_shape = mtf.Shape([d for d in output_shape.dims if d in input_shape.dims])
+    def lower(self, lowering: mtf.Lowering):
+        mesh_impl: mtf.simd_mesh_impl.SimdMeshImpl = lowering.mesh_impl(self)
+        input_shape = mtf.Shape(list(set(self.inputs[0].shape.dims + self.inputs[1].shape.dims)))
+        output_shape: mtf.Shape = self.outputs[0].shape
 
         reduced_mesh_axes = [d for i, d in enumerate(input_shape.dims)
                              if d not in output_shape.dims and mesh_impl.tensor_layout(input_shape)[i] is not None]
 
+        dimensions = []
+        split = []
+        shape_overlap = [c for c in list(set(self.inputs[0].shape.dims + self.inputs[1].shape.dims)) if c in self.inputs[0].shape.dims and c in self.inputs[1].shape.dims]
+        for dim_idx, d in enumerate(output_shape.dims):
+            char = self._equation_output[dim_idx]
+            input_idx, idx = self._equation_inputs[0].find(char), 0
+            if input_idx == -1:
+                input_idx, idx = self._equation_inputs[1].find(char), 1
+            original_dim = self.inputs[idx].shape[input_idx]
+            target = dimensions
+            if original_dim.name.startswith('_'):
+                print("ORIGINAL STARTS WITH _")
+                original_dim = mtf.Dimension(original_dim.name[1:], original_dim.size)
+                target = split
+            mesh_axis = mesh_impl.tensor_dimension_to_mesh_axis(original_dim)
+            if d in input_shape.dims:
+                if target == split and d in shape_overlap:
+                     split.append((None, mesh_axis, dim_idx))
+                continue
+            target.append((None, mesh_axis, dim_idx))
+        split = list(set(split))
+        dimensions = list(set(dimensions))
+        print("dim", dimensions, split, self.inputs[0].shape, self.inputs[1].shape, self._equation, output_shape)
+
         # call tf.einsum
-        y = mesh_impl.slicewise(lambda *slices: mesh_impl.einsum(self._equation, *slices),
-                                *[lowering.tensors[x] for x in self.inputs])
+        def slice_einsum(*slices):
+            return mesh_impl.einsum(self._equation, *slices)
+
+        def sliceshift(inp, idx, offset):
+            if offset > 0 and dimensions[idx - 1][1] is not None:
+                inp = mesh_impl.shift_by_n_processors(inp, dimensions[idx - 1][1], offset, True)
+
+            print("sliceshift", dimensions, idx)
+            if idx == len(dimensions):
+                return mesh_impl.slicewise(slice_einsum,
+                                           lowering.tensors[self.inputs[0]],
+                                           inp)
+            if dimensions[idx][1] is not None:
+                return mesh_impl.slicewise(lambda *x: tf.concat(x, dimensions[idx][2]),
+                                           *[sliceshift(inp, idx + 1, offset)
+                                             for offset in range(mesh_impl.shape[dimensions[idx][1]].size)])
+            return sliceshift(inp, idx + 1, 0)
+
+        if any(d is not None for d in dimensions):
+            y = sliceshift(lowering.tensors[self.inputs[1]], 0, 0)
+        else:
+            print("not any")
+            y = mesh_impl.slicewise(slice_einsum, lowering.tensors[self.inputs[0]], lowering.tensors[self.inputs[1]])
+
+        for s in split:
+            if s[1] is None:
+                continue
+            y = mesh_impl.allsplit(y, s[1], s[2])
+            print(s, y)
+
         if reduced_mesh_axes:
+            print("reduce")
             y = mtf.LazyAllreduceSum(mesh_impl, y, reduced_mesh_axes,
                                      lambda: lowering.add_counter(f"allreduce/{reduced_mesh_axes}/einsum_op",
-                                                                  mesh_impl.laid_out_size(intersection_shape)))
-        # broadcast from intersection_shape to output_shape
-        if intersection_shape != output_shape:
-            y = mesh_impl.broadcast_impl(y, intersection_shape, output_shape)
-
+                                                                  mesh_impl.laid_out_size(output_shape)))
+        print("\n\n")
         lowering.set_tensor_lowering(self.outputs[0], y)
         lowering.add_counter("einsum", mesh_impl.laid_out_size(input_shape))
         lowering.add_counter("einsum_unique", input_shape.size)
@@ -281,19 +328,19 @@ class ModelParameter(dict):
             idx = (self._layer_idx // 2) % len(attention_dims)
             dim = attention_dims[idx]
 
-            tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+            tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
             attention_dims = self._base_dims + 'ha'
             renamed_input_dims = self._input_dims.replace(self._space_dims[idx], 'a')
 
             q = self._feed_forward(block_input)
             k = self._feed_forward(block_input)
             v = self._feed_forward(block_input)
-            k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
-            v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
 
-            logits = einsum([q, k],
+            with tf.variable_scope("logits"):
+                logits = einsum([q, k],
                             f"{self._input_dims},{renamed_input_dims}->{attention_dims}",
                             q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+            print(logits)
             if idx in self.masked_attention_dimensions:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
                 j = mtf.range(self.mesh, dim, tf.int32)
@@ -302,8 +349,9 @@ class ModelParameter(dict):
                 bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
                 logits += mtf.broadcast(bias, logits.shape)
             weights = mtf.softmax(logits, dim)
-            output = einsum([weights, v],
-                            f"{attention_dims},{renamed_input_dims}->{self._input_dims}",
+            with tf.variable_scope("output"):
+                output = einsum([weights, v],
+                            f"{attention_dims.replace('a','?').replace(self._space_dims[idx], 'a').replace('?', self._space_dims[idx])},{renamed_input_dims}->{self._input_dims}",
                             q.shape)
             output = self._rezero(output)
 
