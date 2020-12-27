@@ -169,11 +169,13 @@ class ModelParameter(dict):
     def _feed_forward(self, x):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
 
+    def _attention_dims(self, inp):
+        return (inp.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
+
     def _embed(self, inp):
         with tf.variable_scope(random_name("embedding")):
-            axes = (inp.shape - self.feature_dims)[1:]
             embedding = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
-                                   for dim in axes])  # Ex: Shape[Sequence, Width, Height]
+                                   for dim in self._attention_dims(inp)])
         return inp + embedding
 
     def _block_fn(self, block_input):
@@ -181,11 +183,11 @@ class ModelParameter(dict):
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                output = self._rezero(self._feed_forward(block_input))
+                output = self._rezero(self._feed_forward(self._embed(block_input)))
             return output
 
         with tf.variable_scope(f"attention_block_{self._layer_idx}"):
-            attention_dims = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
+            attention_dims = self._attention_dims(block_input)
             idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
             dim = attention_dims[idx]
 
@@ -220,7 +222,6 @@ class ModelParameter(dict):
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
         input_features = [src.shape[-1]]
-        src += self._embed(src, input_features)
         src = self._generic_feed_forward(src, input_features, self.feature_dims)
 
         if self.use_language:
@@ -228,7 +229,6 @@ class ModelParameter(dict):
             embedding = self._get_variable([vocab_dim] + self.feature_dims, tf.random_normal_initializer())
             token_input = mtf.einsum([mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), embedding],
                                      output_shape=token_input.shape + self.feature_dims)
-            token_input += self._embed(token_input, self.feature_dims)
             token_input = self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
 
             src += token_input
