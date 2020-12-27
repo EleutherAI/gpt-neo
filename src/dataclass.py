@@ -237,7 +237,7 @@ class ModelParameter(dict):
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
-        out = xs[0] + xs[2]
+        out = self._rezero(xs[0]) + self._rezero(xs[2])
         src = self._generic_feed_forward(out, self.feature_dims, input_features)
         loss = mtf.reduce_mean(mtf.abs(src - tgt))
 
