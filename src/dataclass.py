@@ -141,8 +141,7 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32,
-                                initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32, initializer=initializer)
 
     def _get_scalar(self, value):
         return self._get_variable([], tf.constant_initializer(value))
