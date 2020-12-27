@@ -215,14 +215,13 @@ class ModelParameter(dict):
         return output
 
     def build(self, model_input, token_input, token_output):
-        # TODO: General cleanup
         x = model_input / self._get_scalar(127.5) + self._get_scalar(0)
         context_dimension = x.shape[1]
+        input_features = x.shape[-1:]
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
-        input_features = [src.shape[-1]]
         src = self._generic_feed_forward(src, input_features, self.feature_dims)
 
         if self.use_language:
@@ -230,9 +229,7 @@ class ModelParameter(dict):
             embedding = self._get_variable([vocab_dim] + self.feature_dims, tf.random_normal_initializer())
             token_input = mtf.einsum([mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), embedding],
                                      output_shape=token_input.shape + self.feature_dims)
-            token_input = self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
-
-            src += token_input
+            src += self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
 
         xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
               self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None)
