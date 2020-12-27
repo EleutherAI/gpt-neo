@@ -143,7 +143,7 @@ class ModelParameter(dict):
                               block_input: mtf.Tensor,
                               reduced: typing.List[mtf.Dimension],
                               new: typing.List[mtf.Dimension],
-                              intermediate_factor: int = 1):
+                              intermediate_factor: float = 1.):
         intermediate = [mtf.Dimension('_intermediate', int(math.prod(dim.size for dim in new) * intermediate_factor))]
         with tf.variable_scope(random_name("feed_forward")):
             weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
@@ -156,7 +156,7 @@ class ModelParameter(dict):
             return mtf.einsum([block_input, weight1],
                               block_input.shape - intermediate + new)
 
-    def _feed_forward(self, x: mtf.Tensor, intermediate_factor: int = 1):
+    def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1.):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims, intermediate_factor)
 
     def _block_fn(self, block_input):
@@ -165,9 +165,9 @@ class ModelParameter(dict):
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                block_input = mtf.add_n([self._feed_forward(block_input, 2 ** (len(attention_dims).bit_length() - 1)) *
-                                         (mtf.range(self.mesh, dim, tf.float32) + 1) /
-                                         dim.size
+                block_input = mtf.add_n([self._feed_forward(block_input, 0.5 ** (len(attention_dims).bit_length() - 1))
+                                         * (mtf.range(self.mesh, dim, tf.float32) + 1)
+                                         / dim.size
                                          for dim in attention_dims] + [block_input])
                 return self._rezero(self._feed_forward(block_input))
 
