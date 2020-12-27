@@ -76,7 +76,6 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
         self.feed_forward_per_attention = 2
-        self.use_language = self.language_token_per_frame > 0
 
         self.mesh = None
 
@@ -91,21 +90,10 @@ class ModelParameter(dict):
         self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.the_batch_size = self.eval_batch_size if self.eval else self.train_batch_size
-
-        if not self.three_axes:
-            self.frame_height_patch = self.frame_height_patch * self.frame_width_patch
-
-    @property
-    def dim_heads(self):
-        return mtf.Dimension("heads", self.n_head)
-
-    @property
-    def key_dim(self):
-        return mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-
-    @property
-    def feature_dims(self):
-        return [self.dim_heads, self.key_dim]
+        self.use_language = self.language_token_per_frame > 0
+        self.dim_heads = mtf.Dimension("heads", self.n_head)
+        self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+        self.feature_dims = [self.dim_heads, self.key_dim]
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
