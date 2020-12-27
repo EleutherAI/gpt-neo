@@ -175,7 +175,7 @@ class ModelParameter(dict):
 
         idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
         dim = attention_dims[idx]
-        tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+        tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
 
         with tf.variable_scope(f"attention_block_{self._layer_idx}"):
             q = self._feed_forward(block_input)
