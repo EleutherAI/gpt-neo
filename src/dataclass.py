@@ -200,9 +200,7 @@ class ModelParameter(dict):
 
         return output
 
-    def build(self, model_input, token_x_input, token_y_input):
-        # TODO: Add support for missing model_input, token_x/y_input
-        # TODO: Rename token_x_input
+    def build(self, model_input, token_input, token_output):
         # TODO: General cleanup
         x = model_input / 255.
         context_dimension = x.shape[1]
@@ -219,17 +217,17 @@ class ModelParameter(dict):
         if self.use_language:
             vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
             embedding = self._get_variable([vocab_dim] + self.feature_dims, tf.random_normal_initializer())
-            token_x_input = mtf.einsum([mtf.one_hot(token_x_input, vocab_dim, dtype=tf.float32), embedding],
-                                       output_shape=token_x_input.shape + self.feature_dims)
+            token_input = mtf.einsum([mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), embedding],
+                                     output_shape=token_input.shape + self.feature_dims)
 
-            tkn_embedding = mtf.add_n([self._get_variable([dim, token_x_input.shape[-1]],
+            tkn_embedding = mtf.add_n([self._get_variable([dim, token_input.shape[-1]],
                                                           tf.random_normal_initializer())
-                                       for dim in token_x_input.shape[1:-2]])  # Ex: Shape[Sequence, Width, Height]
+                                       for dim in token_input.shape[1:-2]])  # Ex: Shape[Sequence, Width, Height]
 
-            token_x_input += tkn_embedding
-            token_x_input = self._generic_feed_forward(token_x_input, self.feature_dims, self.feature_dims)
+            token_input += tkn_embedding
+            token_input = self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
 
-            src += token_x_input
+            src += token_input
 
         xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
               self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None)
@@ -244,7 +242,7 @@ class ModelParameter(dict):
         if self.use_language:
             tkn = self._generic_feed_forward(out, self.feature_dims, [vocab_dim])
             vid_loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                     targets=token_y_input,
+                                                                                     targets=token_output,
                                                                                      vocab_dim=vocab_dim,
                                                                                      z_loss=1e-4))
         self._layer_idx = 0
