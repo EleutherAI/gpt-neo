@@ -175,7 +175,8 @@ class ModelParameter(dict):
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                block_input = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
+                block_input = mtf.add_n([mtf.sin(self._get_variable(self.feature_dims, tf.random_normal_initializer())
+                                                 * mtf.range(self.mesh, dim, tf.float32) / dim.size)
                                          for dim in attention_dims] + [block_input])
                 return self._rezero(self._feed_forward(block_input))
 
