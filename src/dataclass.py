@@ -5,6 +5,10 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
+def random_name(prefix):
+    return f"{prefix}_{random.getrandbits(64):x}"
+
+
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
@@ -137,11 +141,11 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, f"{random.getrandbits(64):x}", shape, dtype=tf.float32,
+        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32,
                                 initializer=initializer)
 
     def _rezero(self, block_input: tf.Tensor):
-        with tf.variable_scope(f'rezero_{random.getrandbits(64):x}'):
+        with tf.variable_scope(random_name("rezero")):
             block_input = block_input * self._get_variable([], tf.constant_initializer(0))
         return block_input
 
@@ -150,7 +154,7 @@ class ModelParameter(dict):
                               reduced_dims: typing.List[mtf.Dimension],
                               new_dimensions: typing.List[mtf.Dimension]):
         intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
-        with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
+        with tf.variable_scope(random_name("feed_forward")):
             weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight0],
                                      block_input.shape - reduced_dims + intermediate_dimensions)
@@ -165,11 +169,12 @@ class ModelParameter(dict):
     def _feed_forward(self, x):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
 
-    def _embed(self, inp, features):
-        axes = (inp.shape - features)[1:]
-        embedding = mtf.add_n([self._get_variable([dim] + features, tf.random_normal_initializer())
-                               for dim in axes])  # Ex: Shape[Sequence, Width, Height]
-        return embedding
+    def _embed(self, inp):
+        with tf.variable_scope(random_name("embedding")):
+            axes = (inp.shape - self.feature_dims)[1:]
+            embedding = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
+                                   for dim in axes])  # Ex: Shape[Sequence, Width, Height]
+        return inp + embedding
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
