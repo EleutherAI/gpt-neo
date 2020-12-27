@@ -76,7 +76,6 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
         self.feed_forward_per_attention = 2
-        self.use_language = self.language_token_per_frame > 0
 
         self.mesh = None
 
@@ -85,6 +84,8 @@ class ModelParameter(dict):
         self._layer_idx = 0
 
         self.__dict__.update(config)
+
+        self.use_language = self.language_token_per_frame > 0
 
         self.time_patch_size = self.n_ctx // self.time_patch
         self.frame_height_patch = self.frame_height // self.patch_size
