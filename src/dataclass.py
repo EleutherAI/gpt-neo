@@ -85,28 +85,15 @@ class ModelParameter(dict):
 
         self.__dict__.update(config)
 
-        self.use_language = self.language_token_per_frame > 0
-
         self.time_patch_size = self.n_ctx // self.time_patch
         self.frame_height_patch = self.frame_height // self.patch_size
         self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.the_batch_size = self.eval_batch_size if self.eval else self.train_batch_size
-
-        if not self.three_axes:
-            self.frame_height_patch = self.frame_height_patch * self.frame_width_patch
-
-    @property
-    def dim_heads(self):
-        return mtf.Dimension("heads", self.n_head)
-
-    @property
-    def key_dim(self):
-        return mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-
-    @property
-    def feature_dims(self):
-        return [self.dim_heads, self.key_dim]
+        self.use_language = self.language_token_per_frame > 0
+        self.dim_heads = mtf.Dimension("heads", self.n_head)
+        self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+        self.feature_dims = [self.dim_heads, self.key_dim]
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -170,22 +157,17 @@ class ModelParameter(dict):
     def _feed_forward(self, x):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
 
-    def _attention_dims(self, inp):
-        return (inp.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
-
-    def _embed(self, inp):
-        with tf.variable_scope(random_name("embedding")):
-            return inp + mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
-                                    for dim in self._attention_dims(inp)])
-
     def _block_fn(self, block_input):
         self._layer_idx += 1
+        attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                return self._rezero(self._feed_forward(self._embed(block_input)))
+                block_input = mtf.add_n([mtf.sin(self._get_variable(self.feature_dims, tf.random_normal_initializer())
+                                                 * mtf.range(self.mesh, dim, tf.float32) / dim.size)
+                                         for dim in attention_dims] + [block_input])
+                return self._rezero(self._feed_forward(block_input))
 
-        attention_dims = self._attention_dims(block_input)
         idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
