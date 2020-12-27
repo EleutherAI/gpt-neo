@@ -164,7 +164,11 @@ class ModelParameter(dict):
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
                 block_input = mtf.add_n([mtf.sin(self._get_variable(self.feature_dims, tf.random_normal_initializer())
-                                                 * mtf.range(self.mesh, dim, tf.float32) / dim.size)
+                                                 * mtf.range(self.mesh, dim, tf.float32) / dim.size
+                                                 + self._get_variable(self.feature_dims, tf.random_normal_initializer())
+                                                 )
+                                         * self._get_variable(self.feature_dims, tf.random_normal_initializer())
+                                         + self._get_variable(self.feature_dims, tf.random_normal_initializer())
                                          for dim in attention_dims] + [block_input])
                 return self._rezero(self._feed_forward(block_input))
 
@@ -207,8 +211,7 @@ class ModelParameter(dict):
                                      output_shape=token_input.shape + self.feature_dims)
             src += self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
 
-        xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
-              self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None)
+        xs = (self._feed_forward(src), None, self._feed_forward(src), None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
