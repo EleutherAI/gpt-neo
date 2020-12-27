@@ -144,9 +144,12 @@ class ModelParameter(dict):
         return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32,
                                 initializer=initializer)
 
+    def _get_scalar(self, value):
+        return self._get_variable([], tf.constant_initializer(value))
+
     def _rezero(self, block_input: tf.Tensor):
         with tf.variable_scope(random_name("rezero")):
-            block_input = block_input * self._get_variable([], tf.constant_initializer(0))
+            block_input = block_input * self._get_scalar(0)
         return block_input
 
     def _generic_feed_forward(self,
@@ -214,7 +217,7 @@ class ModelParameter(dict):
 
     def build(self, model_input, token_input, token_output):
         # TODO: General cleanup
-        x = model_input / self._get_variable([], tf.constant_initializer(127.5)) + self._get_variable([], tf.constant_initializer(0))
+        x = model_input / self._get_scalar(127.5) + self._get_scalar(0)
         context_dimension = x.shape[1]
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
