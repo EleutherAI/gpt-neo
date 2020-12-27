@@ -167,14 +167,14 @@ class ModelParameter(dict):
     def _block_fn(self, block_input):
         self._layer_idx += 1
 
-        if self._layer_idx % 2:
+        if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
                 output = self._rezero(self._feed_forward(block_input))
             return output
 
         with tf.variable_scope(f"attention_block_{self._layer_idx}"):
             attention_dims = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
-            idx = (self._layer_idx // 2) % len(attention_dims)
+            idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
             dim = attention_dims[idx]
 
             tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
