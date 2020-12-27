@@ -136,9 +136,14 @@ class ModelParameter(dict):
     def _get_scalar(self, value):
         return self._get_variable([], tf.constant_initializer(value))
 
-    def _rezero(self, block_input: tf.Tensor):
+    def _rezero(self, block_input: mtf.Tensor):
         with tf.variable_scope(random_name("rezero")):
             return block_input * self._get_scalar(0)
+
+    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
+        with tf.variable_scope(random_name('linear')):
+            return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
+                              block_input.shape - old + new)
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
@@ -150,13 +155,10 @@ class ModelParameter(dict):
                                           * intermediate_factor
                                           * self.intermediate_feed_forward_multiplier))]
         with tf.variable_scope(random_name("feed_forward")):
-            weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
-            block_input = mtf.einsum([block_input, weight0], block_input.shape - reduced + intermediate)
-            if self.dropout_rate > 0:
-                block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
+            block_input = self._linear(block_input, reduced, intermediate)
+            block_input = mtf.dropout(block_input, rate=self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
-            weight1 = self._get_variable(intermediate + new, tf.orthogonal_initializer())
-            return mtf.einsum([block_input, weight1], block_input.shape - intermediate + new)
+            return self._linear(block_input, intermediate, new)
 
     def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1.):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims, intermediate_factor)
@@ -207,10 +209,7 @@ class ModelParameter(dict):
 
         if self.use_language:
             vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
-            embedding = self._get_variable([vocab_dim] + self.feature_dims, tf.random_normal_initializer())
-            token_input = mtf.einsum([mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), embedding],
-                                     output_shape=token_input.shape + self.feature_dims)
-            src += self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
+            src += self._linear(mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
 
         xs = (self._feed_forward(src), None, self._feed_forward(src), None)
 
