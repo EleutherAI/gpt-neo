@@ -199,14 +199,13 @@ class ModelParameter(dict):
             k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
             v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
 
-            logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / tmp_dim.size ** 0.5
+            logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / dim.size ** 0.5
             if idx in self.masked_attention_dimensions:
-                i = mtf.range(self.mesh, tmp_dim, tf.int32) + dim.size - tmp_dim.size
+                i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
                 j = mtf.broadcast(j, [tmp_dim, dim])
-                bias = mtf.cast(mtf.less(i, j), tf.float32) * -1e12
-                logits += mtf.broadcast(bias, logits.shape)
+                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e12
             weights = mtf.softmax(logits, dim)
             output = mtf.einsum([weights, v], q.shape)
             output = self._rezero(output)
@@ -238,20 +237,20 @@ class ModelParameter(dict):
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
+
         out = xs[0] + xs[2]
         src = self._generic_feed_forward(out, self.feature_dims, input_features)
-
-        vid_loss = mtf.reduce_mean(mtf.abs(src - tgt))
+        loss = mtf.reduce_mean(mtf.abs(src - tgt))
 
         if self.use_language:
             tkn = self._generic_feed_forward(out, self.feature_dims, [vocab_dim])
-            vid_loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                     targets=token_output,
-                                                                                     vocab_dim=vocab_dim,
-                                                                                     z_loss=1e-4))
+            loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
+                                                                                 targets=token_output,
+                                                                                 vocab_dim=vocab_dim,
+                                                                                 z_loss=1e-4))
         self._layer_idx = 0
 
-        return src, vid_loss
+        return src, loss
 
     def attribute_accesses(self):
         return {'GET':    self._get_count,
