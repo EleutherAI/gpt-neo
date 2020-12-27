@@ -113,8 +113,8 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
     if params.language_token_per_frame > 0:
         token_dim = [batch_dim, sequence, language_token]
-        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], mtf.Shape(token_dim), "token_x_input")
-        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], mtf.Shape(token_dim), "token_y_input")
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], mtf.Shape(token_dim), "token_input")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], mtf.Shape(token_dim), "token_output")
     else:
         token_x_input = None
         token_y_input = None
