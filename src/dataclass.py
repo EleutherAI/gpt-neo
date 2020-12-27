@@ -196,7 +196,7 @@ class ModelParameter(dict):
             return self._rezero(output)
 
     def build(self, model_input, token_input, token_output):
-        x = model_input / self._get_scalar(127.5) + self._get_scalar(0)
+        x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
 
