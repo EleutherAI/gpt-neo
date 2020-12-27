@@ -151,14 +151,12 @@ class ModelParameter(dict):
                                           * self.intermediate_feed_forward_multiplier))]
         with tf.variable_scope(random_name("feed_forward")):
             weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
-            block_input = mtf.einsum([block_input, weight0],
-                                     block_input.shape - reduced + intermediate)
+            block_input = mtf.einsum([block_input, weight0], block_input.shape - reduced + intermediate)
             if self.dropout_rate > 0:
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
             weight1 = self._get_variable(intermediate + new, tf.orthogonal_initializer())
-            return mtf.einsum([block_input, weight1],
-                              block_input.shape - intermediate + new)
+            return mtf.einsum([block_input, weight1], block_input.shape - intermediate + new)
 
     def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1.):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims, intermediate_factor)
