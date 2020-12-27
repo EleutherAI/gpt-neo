@@ -124,3 +124,6 @@ test/
 
 run_configs/
 /data/channel_video_id_list.json
+
+# intellij
+.idea
