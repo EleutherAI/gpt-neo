@@ -148,8 +148,7 @@ class ModelParameter(dict):
 
     def _rezero(self, block_input: tf.Tensor):
         with tf.variable_scope(random_name("rezero")):
-            block_input = block_input * self._get_scalar(0)
-        return block_input
+            return block_input * self._get_scalar(0)
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
@@ -164,9 +163,8 @@ class ModelParameter(dict):
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
             weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
-            block_input = mtf.einsum([block_input, weight1],
-                                     block_input.shape - intermediate_dimensions + new_dimensions)
-        return block_input
+            return mtf.einsum([block_input, weight1],
+                              block_input.shape - intermediate_dimensions + new_dimensions)
 
     def _feed_forward(self, x):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
@@ -176,25 +174,22 @@ class ModelParameter(dict):
 
     def _embed(self, inp):
         with tf.variable_scope(random_name("embedding")):
-            inp += mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
-                              for dim in self._attention_dims(inp)])
-        return inp
+            return inp + mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
+                                    for dim in self._attention_dims(inp)])
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                output = self._rezero(self._feed_forward(self._embed(block_input)))
-            return output
+                return self._rezero(self._feed_forward(self._embed(block_input)))
+
+        attention_dims = self._attention_dims(block_input)
+        idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
+        dim = attention_dims[idx]
+        tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
 
         with tf.variable_scope(f"attention_block_{self._layer_idx}"):
-            attention_dims = self._attention_dims(block_input)
-            idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
-            dim = attention_dims[idx]
-
-            tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
-
             q = self._feed_forward(block_input)
             k = self._feed_forward(block_input)
             v = self._feed_forward(block_input)
@@ -210,9 +205,7 @@ class ModelParameter(dict):
                 logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e12
             weights = mtf.softmax(logits, dim)
             output = mtf.einsum([weights, v], q.shape)
-            output = self._rezero(output)
-
-        return output
+            return self._rezero(output)
 
     def build(self, model_input, token_input, token_output):
         x = model_input / self._get_scalar(127.5) + self._get_scalar(0)
