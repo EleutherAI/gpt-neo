@@ -165,6 +165,12 @@ class ModelParameter(dict):
     def _feed_forward(self, x):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
 
+    def _embed(self, inp, features):
+        axes = (inp.shape - features)[1:]
+        embedding = mtf.add_n([self._get_variable([dim] + features, tf.random_normal_initializer())
+                               for dim in axes])  # Ex: Shape[Sequence, Width, Height]
+        return embedding
+
     def _block_fn(self, block_input):
         self._layer_idx += 1
 
@@ -209,9 +215,7 @@ class ModelParameter(dict):
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
         input_features = [src.shape[-1]]
-        src_embedding = mtf.add_n([self._get_variable([dim, src.shape[-1]], tf.random_normal_initializer())
-                                   for dim in src.shape[1:-1]])  # Ex: Shape[Sequence, Width, Height]
-        src += src_embedding
+        src += self._embed(src, input_features)
         src = self._generic_feed_forward(src, input_features, self.feature_dims)
 
         if self.use_language:
@@ -219,12 +223,7 @@ class ModelParameter(dict):
             embedding = self._get_variable([vocab_dim] + self.feature_dims, tf.random_normal_initializer())
             token_input = mtf.einsum([mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), embedding],
                                      output_shape=token_input.shape + self.feature_dims)
-
-            tkn_embedding = mtf.add_n([self._get_variable([dim, token_input.shape[-1]],
-                                                          tf.random_normal_initializer())
-                                       for dim in token_input.shape[1:-2]])  # Ex: Shape[Sequence, Width, Height]
-
-            token_input += tkn_embedding
+            token_input += self._embed(token_input, self.feature_dims)
             token_input = self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
 
             src += token_input
