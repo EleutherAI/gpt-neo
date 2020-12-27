@@ -77,6 +77,7 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
         self.feed_forward_per_attention = 2
+        self.intermediate_feed_forward_multiplier = 1
 
         self.mesh = None
 
@@ -144,7 +145,10 @@ class ModelParameter(dict):
                               reduced: typing.List[mtf.Dimension],
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.):
-        intermediate = [mtf.Dimension('_intermediate', int(math.prod(dim.size for dim in new) * intermediate_factor))]
+        intermediate = [mtf.Dimension('_intermediate',
+                                      int(math.prod(dim.size for dim in new)
+                                          * intermediate_factor
+                                          * self.intermediate_feed_forward_multiplier))]
         with tf.variable_scope(random_name("feed_forward")):
             weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight0],
