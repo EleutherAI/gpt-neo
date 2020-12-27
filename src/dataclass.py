@@ -214,7 +214,7 @@ class ModelParameter(dict):
 
     def build(self, model_input, token_input, token_output):
         # TODO: General cleanup
-        x = model_input / 255.
+        x = model_input / self._get_variable([], tf.constant_initializer(127.5)) + self._get_variable([], tf.constant_initializer(0))
         context_dimension = x.shape[1]
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
