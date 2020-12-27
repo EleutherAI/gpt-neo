@@ -174,9 +174,9 @@ class ModelParameter(dict):
 
     def _embed(self, inp):
         with tf.variable_scope(random_name("embedding")):
-            embedding = mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
-                                   for dim in self._attention_dims(inp)])
-        return inp + embedding
+            inp += mtf.add_n([self._get_variable([dim] + self.feature_dims, tf.random_normal_initializer())
+                              for dim in self._attention_dims(inp)])
+        return inp
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
