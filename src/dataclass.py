@@ -2,11 +2,20 @@ import random
 import typing
 
 import mesh_tensorflow as mtf
+import numpy as np
 import tensorflow.compat.v1 as tf
 
 
-def random_name(prefix):
+def random_name(prefix: str):
     return f"{prefix}_{random.getrandbits(64):x}"
+
+
+def anonymize(inp: mtf.Tensor, dim_name: str):
+    return mtf.rename_dimension(inp, dim_name, '_' + dim_name)
+
+
+def unanonymize(inp: mtf.Tensor, dim_name: str):
+    return mtf.rename_dimension(inp, '_' + dim_name, dim_name)
 
 
 class ModelParameter(dict):
@@ -76,6 +85,7 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
         self.feed_forward_per_attention = 2
+        self.intermediate_feed_forward_multiplier = 1
 
         self.mesh = None
 
@@ -134,28 +144,32 @@ class ModelParameter(dict):
     def _get_scalar(self, value):
         return self._get_variable([], tf.constant_initializer(value))
 
-    def _rezero(self, block_input: tf.Tensor):
+    def _rezero(self, block_input: mtf.Tensor, init: float = 0.):
         with tf.variable_scope(random_name("rezero")):
-            return block_input * self._get_scalar(0)
+            return block_input * self._get_scalar(init)
+
+    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
+        with tf.variable_scope(random_name('linear')):
+            return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
+                              block_input.shape - old + new)
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
-                              reduced_dims: typing.List[mtf.Dimension],
-                              new_dimensions: typing.List[mtf.Dimension]):
-        intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
+                              reduced: typing.List[mtf.Dimension],
+                              new: typing.List[mtf.Dimension],
+                              intermediate_factor: float = 1.):
+        intermediate = [mtf.Dimension('_intermediate',
+                                      int(np.prod([dim.size for dim in new])
+                                          * intermediate_factor
+                                          * self.intermediate_feed_forward_multiplier))]
         with tf.variable_scope(random_name("feed_forward")):
-            weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
-            block_input = mtf.einsum([block_input, weight0],
-                                     block_input.shape - reduced_dims + intermediate_dimensions)
-            if self.dropout_rate > 0:
-                block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
+            block_input = self._linear(block_input, reduced, intermediate)
+            block_input = mtf.dropout(block_input, rate=self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
-            weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
-            return mtf.einsum([block_input, weight1],
-                              block_input.shape - intermediate_dimensions + new_dimensions)
+            return self._linear(block_input, intermediate, new)
 
-    def _feed_forward(self, x):
-        return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
+    def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1.):
+        return self._generic_feed_forward(x, self.feature_dims, self.feature_dims, intermediate_factor)
 
     def _block_fn(self, block_input):
         self._layer_idx += 1
@@ -163,23 +177,22 @@ class ModelParameter(dict):
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                block_input = mtf.add_n([mtf.sin(self._get_variable(self.feature_dims, tf.random_normal_initializer())
-                                                 * mtf.range(self.mesh, dim, tf.float32) / dim.size)
+                block_input = mtf.add_n([self._feed_forward(block_input, 0.5 ** (len(attention_dims).bit_length() - 1))
+                                         * (mtf.range(self.mesh, dim, tf.float32) + 1)
+                                         / dim.size
                                          for dim in attention_dims] + [block_input])
                 return self._rezero(self._feed_forward(block_input))
 
         idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
         dim = attention_dims[idx]
-        tmp_dim = mtf.Dimension(f'anonymous_{dim.name}', dim.size)
+        tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
 
         with tf.variable_scope(f"attention_block_{self._layer_idx}"):
             q = self._feed_forward(block_input)
-            k = self._feed_forward(block_input)
-            v = self._feed_forward(block_input)
-            k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
-            v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
+            k = anonymize(self._feed_forward(block_input), dim.name)
+            v = anonymize(self._feed_forward(block_input), dim.name)
 
-            logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / dim.size ** 0.5
+            logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) / dim.size ** 0.5
             if idx in self.masked_attention_dimensions:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
@@ -190,39 +203,47 @@ class ModelParameter(dict):
             output = mtf.einsum([weights, v], q.shape)
             return self._rezero(output)
 
-    def build(self, model_input, token_input, token_output):
-        x = model_input / self._get_scalar(127.5) + self._get_scalar(0)
+    def build(self, model_input, tkn_src, tkn_tgt):
+        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
+
+        x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
+        spatial_ctx = x.shape[2]
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
-        src = self._generic_feed_forward(src, input_features, self.feature_dims)
+        src = self._linear(src, input_features, self.feature_dims)
 
         if self.use_language:
-            vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
-            embedding = self._get_variable([vocab_dim] + self.feature_dims, tf.random_normal_initializer())
-            token_input = mtf.einsum([mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), embedding],
-                                     output_shape=token_input.shape + self.feature_dims)
-            src += self._generic_feed_forward(token_input, self.feature_dims, self.feature_dims)
+            tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
+            src = unanonymize(mtf.concat([anonymize(src, spatial_ctx.name), anonymize(tkn_src, spatial_ctx.name)],
+                                         '_' + spatial_ctx.name),
+                              spatial_ctx.name)
 
-        xs = (self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None,
-              self._generic_feed_forward(src, self.feature_dims, self.feature_dims), None)
+        xs = (src, None, src, None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
-        out = self._rezero(xs[0]) + self._rezero(xs[2])
-        src = self._generic_feed_forward(out, self.feature_dims, input_features)
-        loss = mtf.reduce_mean(mtf.abs(src - tgt))
+        out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
+        loss = 0
 
         if self.use_language:
-            tkn = self._generic_feed_forward(out, self.feature_dims, [vocab_dim])
-            loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                 targets=token_output,
-                                                                                 vocab_dim=vocab_dim,
-                                                                                 z_loss=1e-4))
+            out = anonymize(out, spatial_ctx)
+            tkn = unanonymize(mtf.slice(out, spatial_ctx.size, self.language_token_per_frame, '_' + spatial_ctx.name),
+                              spatial_ctx.name)
+            out = unanonymize(mtf.slice(out, 0, spatial_ctx.size, '_' + spatial_ctx.name), spatial_ctx.name)
+            tkn = self._generic_feed_forward(tkn, self.feature_dims, [vocab_dim])
+            loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
+                                                                                targets=tkn_tgt,
+                                                                                vocab_dim=vocab_dim,
+                                                                                z_loss=1e-4))
+
+        src = self._generic_feed_forward(out, self.feature_dims, input_features)
+        loss += mtf.reduce_mean(mtf.abs(src - tgt))
+
         self._layer_idx = 0
 
         return src, loss
