@@ -209,7 +209,7 @@ class ModelParameter(dict):
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
-        src = self._generic_feed_forward(src, input_features, self.feature_dims)
+        src = self._linear(src, input_features, self.feature_dims)
 
         if self.use_language:
             tkn_src = self._linear(mtf.one_hot(tkn_src, self.vocab_dim, dtype=tf.float32), [self.vocab_dim],
@@ -219,7 +219,7 @@ class ModelParameter(dict):
             src = mtf.concat([src, tkn_src], anonymous_spatial_ctx)
             src = mtf.rename_dimension(src, anonymous_spatial_ctx, spatial_ctx)
 
-        xs = (self._feed_forward(src), None, self._feed_forward(src), None)
+        xs = (src, None, src, None)
 
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
