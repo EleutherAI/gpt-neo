@@ -232,13 +232,14 @@ class ModelParameter(dict):
 
         if self.use_language:
             out = anonymize(out, spatial_ctx)
-            tkn = unanonymize(mtf.slice(out, spatial_ctx.size, self.language_token_per_frame, '_' + spatial_ctx.name), spatial_ctx.name)
+            tkn = unanonymize(mtf.slice(out, spatial_ctx.size, self.language_token_per_frame, '_' + spatial_ctx.name),
+                              spatial_ctx.name)
             out = unanonymize(mtf.slice(out, 0, spatial_ctx.size, '_' + spatial_ctx.name), spatial_ctx.name)
             tkn = self._generic_feed_forward(tkn, self.feature_dims, [vocab_dim])
-            loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                 targets=tkn_tgt,
-                                                                                 vocab_dim=vocab_dim,
-                                                                                 z_loss=1e-4))
+            loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
+                                                                                targets=tkn_tgt,
+                                                                                vocab_dim=vocab_dim,
+                                                                                z_loss=1e-4))
 
         src = self._generic_feed_forward(out, self.feature_dims, input_features)
         loss += mtf.reduce_mean(mtf.abs(src - tgt))
