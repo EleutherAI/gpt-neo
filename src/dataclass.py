@@ -189,10 +189,8 @@ class ModelParameter(dict):
 
         with tf.variable_scope(f"attention_block_{self._layer_idx}"):
             q = self._feed_forward(block_input)
-            k = self._feed_forward(block_input)
-            v = self._feed_forward(block_input)
-            k = anonymize(k, dim.name)
-            v = anonymize(v, dim.name)
+            k = anonymize(self._feed_forward(block_input), dim.name)
+            v = anonymize(self._feed_forward(block_input), dim.name)
 
             logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) / dim.size ** 0.5
             if idx in self.masked_attention_dimensions:
