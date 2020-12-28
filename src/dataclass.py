@@ -1,8 +1,8 @@
-import numpy as np
 import random
 import typing
 
 import mesh_tensorflow as mtf
+import numpy as np
 import tensorflow.compat.v1 as tf
 
 
@@ -94,6 +94,7 @@ class ModelParameter(dict):
         self.the_batch_size = self.eval_batch_size if self.eval else self.train_batch_size
         self.use_language = self.language_token_per_frame > 0
         self.dim_heads = mtf.Dimension("heads", self.n_head)
+        self.vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.feature_dims = [self.dim_heads, self.key_dim]
 
@@ -197,10 +198,13 @@ class ModelParameter(dict):
             output = mtf.einsum([weights, v], q.shape)
             return self._rezero(output)
 
-    def build(self, model_input, token_input, token_output):
+    def build(self, model_input, tkn_src, tkn_tgt):
         x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
+
+        spatial_ctx = x.shape[2].name
+        anonymous_spatial_ctx = '_' + spatial_ctx
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
@@ -208,8 +212,12 @@ class ModelParameter(dict):
         src = self._generic_feed_forward(src, input_features, self.feature_dims)
 
         if self.use_language:
-            vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
-            src += self._linear(mtf.one_hot(token_input, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
+            tkn_src = self._linear(mtf.one_hot(tkn_src, self.vocab_dim, dtype=tf.float32), [self.vocab_dim],
+                                   self.feature_dims)
+            src = mtf.rename_dimension(src, spatial_ctx, anonymous_spatial_ctx)
+            tkn_src = mtf.rename_dimension(tkn_src, spatial_ctx, anonymous_spatial_ctx)
+            src = mtf.concat([src, tkn_src], anonymous_spatial_ctx)
+            src = mtf.rename_dimension(src, anonymous_spatial_ctx, spatial_ctx)
 
         xs = (self._feed_forward(src), None, self._feed_forward(src), None)
 
@@ -217,14 +225,20 @@ class ModelParameter(dict):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
         out = self._rezero(xs[0]) + self._rezero(xs[2])
+
+        if self.use_language:
+            out = mtf.rename_dimension(out, spatial_ctx, anonymous_spatial_ctx)
+            tkn_out = mtf.slice(out, x.shape[2].size, out.shape[2].size - x.shape[2].size, anonymous_spatial_ctx)
+            tkn = self._generic_feed_forward(tkn_out, self.feature_dims, [self.vocab_dim])
+            out = mtf.slice(out, 0, x.shape[2].size, anonymous_spatial_ctx)
+
         src = self._generic_feed_forward(out, self.feature_dims, input_features)
         loss = mtf.reduce_mean(mtf.abs(src - tgt))
 
         if self.use_language:
-            tkn = self._generic_feed_forward(out, self.feature_dims, [vocab_dim])
             loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                 targets=token_output,
-                                                                                 vocab_dim=vocab_dim,
+                                                                                 targets=tkn_tgt,
+                                                                                 vocab_dim=self.vocab_dim,
                                                                                  z_loss=1e-4))
         self._layer_idx = 0
 
