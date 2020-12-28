@@ -137,9 +137,9 @@ class ModelParameter(dict):
     def _get_scalar(self, value):
         return self._get_variable([], tf.constant_initializer(value))
 
-    def _rezero(self, block_input: mtf.Tensor):
+    def _rezero(self, block_input: mtf.Tensor, init: float = 0.):
         with tf.variable_scope(random_name("rezero")):
-            return block_input * self._get_scalar(0)
+            return block_input * self._get_scalar(init)
 
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
         with tf.variable_scope(random_name('linear')):
@@ -224,7 +224,7 @@ class ModelParameter(dict):
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
-        out = self._rezero(xs[0]) + self._rezero(xs[2])
+        out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
 
         if self.use_language:
             out = mtf.rename_dimension(out, spatial_ctx, anonymous_spatial_ctx)
