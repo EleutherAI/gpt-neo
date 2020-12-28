@@ -209,9 +209,7 @@ class ModelParameter(dict):
         x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
-
         spatial_ctx = x.shape[2]
-        anonymous_spatial_ctx = '_' + spatial_ctx.name
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
@@ -220,10 +218,9 @@ class ModelParameter(dict):
 
         if self.use_language:
             tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
-            src = anonymize(src, spatial_ctx.name)
-            tkn_src = anonymize(tkn_src, spatial_ctx.name)
-            src = mtf.concat([src, tkn_src], anonymous_spatial_ctx)
-            src = unanonymize(src, spatial_ctx.name)
+            src = unanonymize(mtf.concat([anonymize(src, spatial_ctx.name), anonymize(tkn_src, spatial_ctx.name)],
+                                         '_' + spatial_ctx.name),
+                              spatial_ctx.name)
 
         xs = (src, None, src, None)
 
@@ -235,11 +232,9 @@ class ModelParameter(dict):
 
         if self.use_language:
             out = anonymize(out, spatial_ctx)
-            tkn_out = mtf.slice(out, spatial_ctx.size, out.shape[2].size - spatial_ctx.size, anonymous_spatial_ctx)
-            out = mtf.slice(out, 0, spatial_ctx.size, anonymous_spatial_ctx)
-            out = unanonymize(out, spatial_ctx)
-            tkn_out = unanonymize(tkn_out, spatial_ctx)
-            tkn = self._generic_feed_forward(tkn_out, self.feature_dims, [vocab_dim])
+            tkn = unanonymize(mtf.slice(out, spatial_ctx.size, self.language_token_per_frame, '_' + spatial_ctx.name), spatial_ctx.name)
+            out = unanonymize(mtf.slice(out, 0, spatial_ctx.size, '_' + spatial_ctx.name), spatial_ctx.name)
+            tkn = self._generic_feed_forward(tkn, self.feature_dims, [vocab_dim])
             loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
                                                                                  targets=tkn_tgt,
                                                                                  vocab_dim=vocab_dim,
