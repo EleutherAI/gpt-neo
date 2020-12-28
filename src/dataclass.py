@@ -1,4 +1,4 @@
-import math
+import numpy as np
 import random
 import typing
 
@@ -151,7 +151,7 @@ class ModelParameter(dict):
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.):
         intermediate = [mtf.Dimension('_intermediate',
-                                      int(math.prod(dim.size for dim in new)
+                                      int(np.prod([dim.size for dim in new])
                                           * intermediate_factor
                                           * self.intermediate_feed_forward_multiplier))]
         with tf.variable_scope(random_name("feed_forward")):
