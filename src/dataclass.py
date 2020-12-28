@@ -223,6 +223,7 @@ class ModelParameter(dict):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
         out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
+        loss = 0
 
         if self.use_language:
             out = mtf.rename_dimension(out, spatial_ctx, anonymous_spatial_ctx)
@@ -231,15 +232,14 @@ class ModelParameter(dict):
             tkn_out = mtf.rename_dimension(tkn_out, anonymous_spatial_ctx, spatial_ctx)
             out = mtf.rename_dimension(out, anonymous_spatial_ctx, spatial_ctx)
             tkn = self._generic_feed_forward(tkn_out, self.feature_dims, [vocab_dim])
-
-        src = self._generic_feed_forward(out, self.feature_dims, input_features)
-        loss = mtf.reduce_mean(mtf.abs(src - tgt))
-
-        if self.use_language:
             loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
                                                                                  targets=tkn_tgt,
                                                                                  vocab_dim=vocab_dim,
                                                                                  z_loss=1e-4))
+
+        src = self._generic_feed_forward(out, self.feature_dims, input_features)
+        loss += mtf.reduce_mean(mtf.abs(src - tgt))
+
         self._layer_idx = 0
 
         return src, loss
