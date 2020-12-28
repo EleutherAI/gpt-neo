@@ -94,7 +94,6 @@ class ModelParameter(dict):
         self.the_batch_size = self.eval_batch_size if self.eval else self.train_batch_size
         self.use_language = self.language_token_per_frame > 0
         self.dim_heads = mtf.Dimension("heads", self.n_head)
-        self.vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.feature_dims = [self.dim_heads, self.key_dim]
 
@@ -210,10 +209,9 @@ class ModelParameter(dict):
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
         src = self._linear(src, input_features, self.feature_dims)
-
+        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
         if self.use_language:
-            tkn_src = self._linear(mtf.one_hot(tkn_src, self.vocab_dim, dtype=tf.float32), [self.vocab_dim],
-                                   self.feature_dims)
+            tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
             src = mtf.rename_dimension(src, spatial_ctx, anonymous_spatial_ctx)
             tkn_src = mtf.rename_dimension(tkn_src, spatial_ctx, anonymous_spatial_ctx)
             src = mtf.concat([src, tkn_src], anonymous_spatial_ctx)
@@ -229,8 +227,10 @@ class ModelParameter(dict):
         if self.use_language:
             out = mtf.rename_dimension(out, spatial_ctx, anonymous_spatial_ctx)
             tkn_out = mtf.slice(out, x.shape[2].size, out.shape[2].size - x.shape[2].size, anonymous_spatial_ctx)
-            tkn = self._generic_feed_forward(tkn_out, self.feature_dims, [self.vocab_dim])
             out = mtf.slice(out, 0, x.shape[2].size, anonymous_spatial_ctx)
+            tkn_out = mtf.rename_dimension(tkn_out, anonymous_spatial_ctx, spatial_ctx)
+            out = mtf.rename_dimension(out, anonymous_spatial_ctx, spatial_ctx)
+            tkn = self._generic_feed_forward(tkn_out, self.feature_dims, [vocab_dim])
 
         src = self._generic_feed_forward(out, self.feature_dims, input_features)
         loss = mtf.reduce_mean(mtf.abs(src - tgt))
@@ -238,7 +238,7 @@ class ModelParameter(dict):
         if self.use_language:
             loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
                                                                                  targets=tkn_tgt,
-                                                                                 vocab_dim=self.vocab_dim,
+                                                                                 vocab_dim=vocab_dim,
                                                                                  z_loss=1e-4))
         self._layer_idx = 0
 
