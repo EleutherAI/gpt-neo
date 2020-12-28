@@ -6,8 +6,16 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 
 
-def random_name(prefix):
+def random_name(prefix: str):
     return f"{prefix}_{random.getrandbits(64):x}"
+
+
+def anonymize(inp: mtf.Tensor, dim_name: str):
+    return mtf.rename_dimension(inp, dim_name, '_' + dim_name)
+
+
+def unanonymize(inp: mtf.Tensor, dim_name: str):
+    return mtf.rename_dimension(inp, '_' + dim_name, dim_name)
 
 
 class ModelParameter(dict):
@@ -183,10 +191,10 @@ class ModelParameter(dict):
             q = self._feed_forward(block_input)
             k = self._feed_forward(block_input)
             v = self._feed_forward(block_input)
-            k = mtf.rename_dimension(k, dim.name, tmp_dim.name)
-            v = mtf.rename_dimension(v, dim.name, tmp_dim.name)
+            k = anonymize(k, dim.name)
+            v = anonymize(v, dim.name)
 
-            logits = mtf.einsum([q, k], q.shape - self.key_dim + tmp_dim) / dim.size ** 0.5
+            logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) / dim.size ** 0.5
             if idx in self.masked_attention_dimensions:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
@@ -198,6 +206,8 @@ class ModelParameter(dict):
             return self._rezero(output)
 
     def build(self, model_input, tkn_src, tkn_tgt):
+        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
+
         x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
@@ -209,13 +219,13 @@ class ModelParameter(dict):
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
 
         src = self._linear(src, input_features, self.feature_dims)
-        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
+
         if self.use_language:
             tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
-            src = mtf.rename_dimension(src, spatial_ctx, anonymous_spatial_ctx)
-            tkn_src = mtf.rename_dimension(tkn_src, spatial_ctx, anonymous_spatial_ctx)
+            src = anonymize(src, spatial_ctx)
+            tkn_src = anonymize(tkn_src, spatial_ctx)
             src = mtf.concat([src, tkn_src], anonymous_spatial_ctx)
-            src = mtf.rename_dimension(src, anonymous_spatial_ctx, spatial_ctx)
+            src = unanonymize(src, spatial_ctx)
 
         xs = (src, None, src, None)
 
@@ -226,11 +236,11 @@ class ModelParameter(dict):
         loss = 0
 
         if self.use_language:
-            out = mtf.rename_dimension(out, spatial_ctx, anonymous_spatial_ctx)
+            out = anonymize(out, spatial_ctx)
             tkn_out = mtf.slice(out, x.shape[2].size, out.shape[2].size - x.shape[2].size, anonymous_spatial_ctx)
             out = mtf.slice(out, 0, x.shape[2].size, anonymous_spatial_ctx)
-            tkn_out = mtf.rename_dimension(tkn_out, anonymous_spatial_ctx, spatial_ctx)
-            out = mtf.rename_dimension(out, anonymous_spatial_ctx, spatial_ctx)
+            out = unanonymize(out, spatial_ctx)
+            tkn_out = unanonymize(tkn_out, spatial_ctx)
             tkn = self._generic_feed_forward(tkn_out, self.feature_dims, [vocab_dim])
             loss += mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
                                                                                  targets=tkn_tgt,
