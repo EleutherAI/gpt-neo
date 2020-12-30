@@ -14,8 +14,6 @@ def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int,
     data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
     data = data.interleave(interleave_func, cycle_length=1, num_parallel_calls=1, block_length=1)
 
-    data = data.repeat()
-
     return data
 
 
@@ -61,6 +59,7 @@ def generic_data(params: ModelParameter):
                            num_parallel_calls=tf.data.experimental.AUTOTUNE,
                            block_length=1)
 
+    data = data.repeat()
     data = data.batch(batch_size)
 
     def frame_cpu(frame: tf.Tensor):
