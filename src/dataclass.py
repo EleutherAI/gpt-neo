@@ -177,10 +177,10 @@ class ModelParameter(dict):
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
-                block_input = mtf.add_n([self._feed_forward(block_input, 0.5 ** (len(attention_dims).bit_length() - 1))
-                                         * (mtf.range(self.mesh, dim, tf.float32) + 1)
-                                         / dim.size
-                                         for dim in attention_dims] + [block_input])
+                #block_input = mtf.add_n([self._feed_forward(block_input, 0.5 ** (len(attention_dims).bit_length() - 1))
+                #                         * (mtf.range(self.mesh, dim, tf.float32) + 1)
+                #                         / dim.size
+                #                         for dim in attention_dims] + [block_input])
                 return self._rezero(self._feed_forward(block_input))
 
         idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
@@ -206,7 +206,7 @@ class ModelParameter(dict):
     def build(self, model_input, tkn_src, tkn_tgt):
         vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
 
-        x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
+        x = model_input / 255.  # / self._get_scalar(127.5) + self._get_scalar(-1)
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
         spatial_ctx = x.shape[2]
@@ -227,7 +227,7 @@ class ModelParameter(dict):
         for layer in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
-        out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
+        out = xs[0] + xs[2] # self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
         loss = 0
 
         if self.use_language:
