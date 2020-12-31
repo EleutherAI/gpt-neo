@@ -198,7 +198,7 @@ class ModelParameter(dict):
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
                 j = mtf.broadcast(j, [tmp_dim, dim])
-                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e12
+                logits += mtf.broadcast(mtf.cast(mtf.less(i, j), tf.float32) * -1e12, logits.shape)
             weights = mtf.softmax(logits, dim)
             output = mtf.einsum([weights, v], q.shape)
             return self._rezero(output)
