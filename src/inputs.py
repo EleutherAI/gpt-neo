@@ -51,9 +51,7 @@ def generic_data(params: ModelParameter):
     else:
         interleave_func = lambda x: x.batch(sequence_length + time_patch, drop_remainder=True)
 
-    path = [f'gs://{bucket_name}/{itm.name}' 
-            for folder in prefix 
-            for itm in storage.client.Client().list_blobs(bucket_name, prefix=folder)]
+    path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
 
     data = tf.data.Dataset.from_tensor_slices(path)
     data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
