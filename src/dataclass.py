@@ -3,20 +3,7 @@ import typing
 
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
-import numpy as np
 
-
-
-def random_name(prefix: str):
-    return f"{prefix}_{random.getrandbits(64):x}"
-
-
-def anonymize(inp: mtf.Tensor, dim_name: str):
-    return mtf.rename_dimension(inp, dim_name, '_' + dim_name)
-
-
-def unanonymize(inp: mtf.Tensor, dim_name: str):
-    return mtf.rename_dimension(inp, '_' + dim_name, dim_name)
 
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
@@ -85,7 +72,6 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.dropout_rate = 0.
         self.token_embedding = False
-        self.intermediate_feed_forward_multiplier = 1
 
         self.mesh = None
 
@@ -147,27 +133,29 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32, initializer=initializer)
+        return mtf.get_variable(self.mesh, f"{random.getrandbits(64):x}", shape, dtype=tf.float32,
+                                initializer=initializer)
 
-    def _rezero(self, block_input: mtf.Tensor, init: float = 0.):
-        return block_input * self._get_variable([], tf.constant_initializer(0))
+    def _rezero(self, block_input: tf.Tensor):
+        with tf.variable_scope(f'rezero_{random.getrandbits(64):x}'):
+            block_input = block_input * self._get_variable([], tf.constant_initializer(0))
+        return block_input
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
-                              reduced: typing.List[mtf.Dimension],
-                              new: typing.List[mtf.Dimension],
-                              intermediate_factor: float = 1.):
-        intermediate = [mtf.Dimension('_' + dim.name, dim.size) for dim in new]
+                              reduced_dims: typing.List[mtf.Dimension],
+                              new_dimensions: typing.List[mtf.Dimension]):
+        intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
-            weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
+            weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight0],
-                                     block_input.shape - reduced + intermediate)
+                                     block_input.shape - reduced_dims + intermediate_dimensions)
             if self.dropout_rate > 0:
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
-            weight1 = self._get_variable(intermediate + new, tf.orthogonal_initializer())
+            weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight1],
-                                     block_input.shape - intermediate + new)
+                                     block_input.shape - intermediate_dimensions + new_dimensions)
         return block_input
 
     def _feed_forward(self, x):
