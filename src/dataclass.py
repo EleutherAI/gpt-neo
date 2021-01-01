@@ -157,10 +157,6 @@ class ModelParameter(dict):
                               reduced: typing.List[mtf.Dimension],
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.):
-        intermediate = [mtf.Dimension('_intermediate',
-                                      int(np.prod([dim.size for dim in new])
-                                          * intermediate_factor
-                                          * self.intermediate_feed_forward_multiplier))]
         intermediate = [mtf.Dimension('_' + dim.name, dim.size) for dim in new]
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
             weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
