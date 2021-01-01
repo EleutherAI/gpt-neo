@@ -149,15 +149,8 @@ class ModelParameter(dict):
     def _get_variable(self, shape, initializer):
         return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32, initializer=initializer)
 
-    def _get_scalar(self, value):
-        return self._get_variable([], tf.constant_initializer(value))
-
     def _rezero(self, block_input: mtf.Tensor, init: float = 0.):
-        return block_input * self._get_scalar(init)
-
-    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
-        return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
-                              block_input.shape - old + new)
+        return block_input * self._get_variable([], tf.constant_initializer(0))
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
