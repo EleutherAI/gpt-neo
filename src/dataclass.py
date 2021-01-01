@@ -5,6 +5,10 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
+def random_name(prefix: str):
+    return f"{prefix}_{random.getrandbits(64):x}"
+
+
 class ModelParameter(dict):
     def __init__(self, config=None, **config_kwargs):
         super().__init__()
@@ -133,8 +137,7 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, f"{random.getrandbits(64):x}", shape, dtype=tf.float32,
-                                initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32, initializer=initializer)
 
     def _rezero(self, block_input: tf.Tensor):
         return block_input * self._get_variable([], tf.constant_initializer(0))
