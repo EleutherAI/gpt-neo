@@ -6,7 +6,7 @@ import tensorflow.compat.v1 as tf
 
 
 def random_name(prefix: str):
-    return f"{prefix}_{random.getrandbits(64):x}"
+    return f"{prefix}"
 
 
 class ModelParameter(dict):
@@ -137,7 +137,7 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32, initializer=initializer)
+        return mtf.get_variable(self.mesh, f"variable_{random.getrandbits(32):x}", shape, dtype=tf.float32, initializer=initializer)
 
     def _rezero(self, block_input: tf.Tensor):
         return block_input * self._get_variable([], tf.constant_initializer(0))
