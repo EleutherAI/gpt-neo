@@ -141,20 +141,22 @@ class ModelParameter(dict):
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
-                              reduced_dims: typing.List[mtf.Dimension],
-                              new_dimensions: typing.List[mtf.Dimension]):
-        intermediate_dimensions = [mtf.Dimension('_' + dim.name, dim.size) for dim in new_dimensions]
+                              reduced: typing.List[mtf.Dimension],
+                              new: typing.List[mtf.Dimension],
+                              intermediate_factor: float = 1.):
+        intermediate = [mtf.Dimension('_' + dim.name, dim.size) for dim in new]
         with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
-            weight0 = self._get_variable(reduced_dims + intermediate_dimensions, tf.orthogonal_initializer())
+            weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight0],
-                                     block_input.shape - reduced_dims + intermediate_dimensions)
+                                     block_input.shape - reduced + intermediate)
             if self.dropout_rate > 0:
                 block_input = mtf.dropout(block_input, 1 - self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
-            weight1 = self._get_variable(intermediate_dimensions + new_dimensions, tf.orthogonal_initializer())
+            weight1 = self._get_variable(intermediate + new, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight1],
-                                     block_input.shape - intermediate_dimensions + new_dimensions)
+                                     block_input.shape - intermediate + new)
         return block_input
+
 
     def _feed_forward(self, x):
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims)
