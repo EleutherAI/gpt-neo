@@ -9,7 +9,7 @@
     "n_head": 8,
     "n_embd": 1024,
     "n_layer": 288,
-    "feed_forward_per_attention": 2,
+    "feed_forward_per_attention": 1,
 
     "buffer_size": 8,
 
@@ -21,7 +21,7 @@
     "layout": "batch:x,heads:y,embd:z,height:h,width:w",
     "prefix": ["datasets/video", "datasets/video_v2"],
 
-    "model_path": "gs://text-datasets/video-transformer/smol-ctx=8-layer=288-heads=8-feat=1024-ffpa=2-timepatch=1-imgpatch=16-no-embd-no-outnorm-no-innorm-3xdata",
+    "model_path": "gs://text-datasets/video-transformer/smol-ctx=8-layer=288-heads=8-feat=1024-ffpa=1-timepatch=1-imgpatch=16-rollback+randname",
 
     "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
