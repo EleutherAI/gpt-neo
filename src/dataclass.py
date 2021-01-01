@@ -137,9 +137,7 @@ class ModelParameter(dict):
                                 initializer=initializer)
 
     def _rezero(self, block_input: tf.Tensor):
-        with tf.variable_scope(f'rezero_{random.getrandbits(64):x}'):
-            block_input = block_input * self._get_variable([], tf.constant_initializer(0))
-        return block_input
+        return block_input * self._get_variable([], tf.constant_initializer(0))
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
