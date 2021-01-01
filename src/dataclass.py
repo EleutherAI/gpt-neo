@@ -1,3 +1,4 @@
+import base64
 import random
 import typing
 
@@ -5,8 +6,9 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def random_name(prefix: str):
-    return f"{prefix}"
+def random_name():
+    return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')).decode().replace("+", "").replace("/", "").replace("=", "")
+
 
 
 class ModelParameter(dict):
@@ -137,7 +139,10 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, f"variable_{random.getrandbits(32):x}", shape, dtype=tf.float32, initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name(),
+                                shape,
+                                dtype=tf.float32,
+                                initializer=initializer)
 
     def _rezero(self, block_input: tf.Tensor):
         return block_input * self._get_variable([], tf.constant_initializer(0))
@@ -148,7 +153,7 @@ class ModelParameter(dict):
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.):
         intermediate = [mtf.Dimension('_' + dim.name, dim.size) for dim in new]
-        with tf.variable_scope(f'feed_forward_{random.getrandbits(64):x}'):
+        with tf.variable_scope(random_name()):
             weight0 = self._get_variable(reduced + intermediate, tf.orthogonal_initializer())
             block_input = mtf.einsum([block_input, weight0],
                                      block_input.shape - reduced + intermediate)
@@ -168,11 +173,11 @@ class ModelParameter(dict):
         self._layer_idx += 1
 
         if self._layer_idx % 2:
-            with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
+            with tf.variable_scope(random_name()):
                 output = self._rezero(self._feed_forward(block_input))
             return output
 
-        with tf.variable_scope(f"attention_block_{self._layer_idx}"):
+        with tf.variable_scope(random_name()):
             attention_dims = block_input.shape[1:-2]  # Ex: Shape[Sequence, Width, Height]
             idx = (self._layer_idx // 2) % len(attention_dims)
             dim = attention_dims[idx]
@@ -211,7 +216,7 @@ class ModelParameter(dict):
 
         if self.token_embedding:
             input_features = [mtf.Dimension("vocab_size", self.vocab_size)]
-            embedding = mtf.get_variable(x.mesh, "embedding", mtf.Shape(input_features + self.feature_dims),
+            embedding = mtf.get_variable(x.mesh, random_name(), mtf.Shape(input_features + self.feature_dims),
                                          dtype=tf.float32, initializer=tf.random_normal_initializer())
             src = mtf.einsum([mtf.one_hot(token_x_input, input_features[0], dtype=tf.float32), embedding],
                              reduced_dims=input_features,
@@ -234,7 +239,7 @@ class ModelParameter(dict):
 
         src = self._generic_feed_forward(xs[0] + xs[2], self.feature_dims, input_features)
 
-        with tf.variable_scope("reduce_mean_final"):
+        with tf.variable_scope(random_name()):
             if self.token_embedding:
                 loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=src, targets=tgt,
                                                                                     vocab_dim=input_features,
