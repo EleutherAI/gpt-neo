@@ -1,15 +1,15 @@
 {
-    "time_patch": 2,
-    "n_ctx": 32,
+    "time_patch": 1,
+    "n_ctx": 8,
 
     "patch_size": 16,
-    "frame_width": 2048,
-    "frame_height": 1152,
+    "frame_width": 320,
+    "frame_height": 176,
 
     "n_head": 8,
-    "n_embd": 256,
-    "n_layer": 64,
-    "attention_types": [[["local"],64]],
+    "n_embd": 1024,
+    "n_layer": 288,
+    "feed_forward_per_attention": 1,
 
     "buffer_size": 8,
 
@@ -17,11 +17,11 @@
     "train_batch_size": 1,
     "recompute_grad": true,
 
-    "mesh_shape": "x:1,y:1,z:1,h:32",
-    "layout": "batch:x,heads:y,embd:z,height:h",
-    "prefix": "datasets/full_hd_video",
+    "mesh_shape": "x:1,y:8,z:1,h:1,w:1",
+    "layout": "batch:x,heads:y,embd:z,height:h,width:w",
+    "prefix": ["datasets/video", "datasets/video_v2"],
 
-    "model_path": "gs://text-datasets/video-transformer/ctx=32-layer=64-heads=8-feat=256",
+    "model_path": "gs://text-datasets/video-transformer/smol-ctx=8-layer=288-heads=8-feat=1024-ffpa=1-timepatch=1-imgpatch=16-rollback+randname",
 
     "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
