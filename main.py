@@ -1,3 +1,9 @@
+import argparse
+
+import tensorflow as tf
+
+from src.main import main
+
 """GPT-like model in Mesh-Tensorflow"""
 
 from functools import partial

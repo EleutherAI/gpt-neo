@@ -1,0 +1,111 @@
+import tensorflow.compat.v1 as tf
+from google.cloud import storage
+
+from .dataclass import ModelParameter
+from .video2tfrecord import get_decoder
+
+
+def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int,
+                      frame_decoder: object, interleave_func: object):
+
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
+    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
+    data = data.interleave(interleave_func, cycle_length=1, num_parallel_calls=1, block_length=1)
+
+    data = data.repeat()
+
+    return data
+
+
+def generic_data(params: ModelParameter):
+    params = ModelParameter(params)
+    sequence_length = params.n_ctx
+    buffer_size = params.buffer_size
+    three_axes = params.three_axes
+    frame_height = params.frame_height
+    frame_width = params.frame_width
+    bucket_name = params.bucket_name
+    time_patch = params.time_patch
+    color_channels = params.color_channels
+    patch_size = params.patch_size
+    batch_size = params.the_batch_size
+    language_token_per_frame = params.language_token_per_frame
+    prefix = params.prefix
+
+    assert not (language_token_per_frame > 0 and time_patch > 1),\
+        ("Time patch and language token are currently not supported together")
+
+    frame_decoder = get_decoder(language_token_num_per_frame=language_token_per_frame,
+                                frame_height=frame_height, frame_width=frame_width, color_channels=color_channels)
+
+    time_patch_size = params.time_patch_size
+    frame_height_patch = params.frame_height_patch
+    frame_width_patch = params.frame_width_patch
+    channel_color_size = params.channel_color_size
+
+    if language_token_per_frame > 0:
+        interleave_func = lambda x, y, z: tf.data.Dataset.zip((x, y, z))\
+            .batch(sequence_length + time_patch, drop_remainder=True)
+    else:
+        interleave_func = lambda x: x.batch(sequence_length + time_patch, drop_remainder=True)
+
+    path = [f'gs://{bucket_name}/{itm.name}' for itm in storage.client.Client().list_blobs(bucket_name, prefix=prefix)]
+
+    data = tf.data.Dataset.from_tensor_slices(path)
+    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
+                           cycle_length=tf.data.experimental.AUTOTUNE,
+                           num_parallel_calls=tf.data.experimental.AUTOTUNE,
+                           block_length=1)
+
+    data = data.batch(batch_size)
+
+    def frame_cpu(frame: tf.Tensor):
+        # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
+        # TODO: use tf.gather
+        frame = tf.reshape(frame, (
+        batch_size, time_patch_size + 1, time_patch, frame_height_patch, patch_size, frame_width_patch, patch_size,
+        color_channels))
+        frame = tf.transpose(frame, [0, 1, 3, 5, 2, 4, 6, 7])
+
+        if three_axes:
+            frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
+                                       channel_color_size))
+        else:
+            frame = frame = tf.reshape(frame, (
+            batch_size, time_patch_size + 1, frame_height_patch * frame_width_patch, channel_color_size))
+
+        return {'frame': frame}
+
+    def with_token(frame: tf.Tensor, token: tf.Tensor, skip: tf.Tensor):
+
+        token = tf.reshape(token, (batch_size, sequence_length + time_patch, language_token_per_frame))
+        token = tf.cast(token, tf.int64)
+
+        token_x = token[:, :sequence_length]
+        token_y = token[:, 1:sequence_length + 1]
+
+        frame = frame_cpu(frame)
+        frame.update({'token_x': token_x, 'token_y': token_y})
+
+        return frame
+
+    def memory_op(x):
+        x['frame'] = tf.cast(x['frame'], tf.float32)
+        return x
+
+
+
+    if language_token_per_frame > 0:
+        data = data.map(with_token, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    else:
+        data = data.map(frame_cpu, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    if buffer_size > 0:
+        print(f"Buffering {buffer_size} elements")
+        data = data.prefetch(buffer_size)
+
+    data = data.map(memory_op)
+
+    return data

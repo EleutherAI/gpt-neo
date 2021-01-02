@@ -112,5 +112,16 @@ test_*
 test/
 .vscode
 
+#Video
+*.mkv
+*.mp4
+*.ogg
+*.webm
+*.avi
+*flv
+*.vtt
+*.tfrecord
 
 run_configs/
+/data/channel_video_id_list.json
+
