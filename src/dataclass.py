@@ -20,18 +20,15 @@ def unanonymize(inp: mtf.Tensor, dim_name: str):
 
 class LishtFunction:
     def __init__(self):
-        self.saved_tensor: typing.Optional[mtf.Tensor] = None
-            
+        self.saved_tensor: typing.Optional[tf.Tensor] = None
     def forward(self, input):
         self.saved_tensor = input
-        return mtf.tanh(input) * input
-    
+        return tf.tanh(input) * input
     def backward(self, grad_output):
-        tanh = mtf.tanh(self.saved_tensor)
-        return tanh + self.saved_tensor * (1 - tanh * tanh)         
-        
-        
-class EinsumOperation(Operation):
+        tanh = tf.tanh(self.saved_tensor)
+        return grad_output * (tanh + self.saved_tensor * (1 - tanh * tanh))
+
+class EinsumOperation(mtf.Operation):
   """Einstein summation (matmul, etc).
   The equation follows the dimensions in the input and output shapes.
   Every dimension must occur in at least two of the input/output Tensors.
@@ -51,34 +48,32 @@ class EinsumOperation(Operation):
     self._input_fn = (identity,) * len(inputs) if _input_fn is None else _input_fn
     self._output_fn = identity if output_fn is None else output_fn[0]
     self._output_fn_grad = identity if output_fn is None else output_fn[1] 
-    self._outputs = [Tensor(self, output_shape, inputs[0].dtype)]
+    self._outputs = [mtf.Tensor(self, output_shape, inputs[0].dtype)]
 
   def gradient(self, grad_ys):
     dy = grad_ys[0]
     xs = self.inputs
-    ret = [EinsumOperation([dy] + xs[:i] + xs[i+1:], xs[i].shape,
-                           _input_fn=(self._output_fn_grad,) + input_fn[:i] + input_fn[i+1:])
+    ret = [einsum([dy] + xs[:i] + xs[i+1:], xs[i].shape,
+                           _input_fn=(self._output_fn_grad,) + self._input_fn[:i] + self._input_fn[i+1:])
           for i in range(len(xs))]
     return ret
 
   def lower(self, lowering):
     mesh_impl = lowering.mesh_impl(self)
-    xs = [fn(x) for fn, x in zip(self.inputs, self._input_fn)]
+    xs = self.inputs
     input_shape_set = set(sum([x.shape.dims for x in xs], []))
     output_shape = self.outputs[0].shape
     intersection_shape = mtf.Shape(
         [d for d in output_shape.dims if d in input_shape_set])
-    einsum_slice_fn, reduced_mesh_axes = mtf._einsum_helper(
+    einsum_slice_fn, reduced_mesh_axes = mtf.ops._einsum_helper(
         [x.shape for x in self.inputs], intersection_shape, mesh_impl)
-    y = mesh_impl.slicewise(
-        einsum_slice_fn, *[lowering.tensors[x] for x in self.inputs])
-    y = self._output_fn(y)
+    y = mesh_impl.slicewise(lambda *xs: self._output_fn(einsum_slice_fn(*[fn(x) for fn, x in zip(self._input_fn, xs)])), *[lowering.tensors[x] for x in self.inputs])
     if reduced_mesh_axes:
       def add_counter_fn():
         lowering.add_counter(
             f"allreduce/{reduced_mesh_axes}/einsum_op",
             mesh_impl.laid_out_size(intersection_shape))
-      y = LazyAllreduceSum(
+      y = mtf.LazyAllreduceSum(
           mesh_impl, y, reduced_mesh_axes, add_counter_fn=add_counter_fn)
     # broadcast from intersection_shape to output_shape
     if intersection_shape != output_shape:
@@ -87,6 +82,9 @@ class EinsumOperation(Operation):
     computation_shape = mtf.Shape(list(input_shape_set))
     lowering.add_counter("einsum", mesh_impl.laid_out_size(computation_shape))
     lowering.add_counter("einsum_unique", computation_shape.size)
+
+def einsum(inputs, output_shape, output_fn=None, name=None, _input_fn=None):
+    return EinsumOperation(inputs, output_shape, output_fn, name, _input_fn).outputs[0]
 
 
 class ModelParameter(dict):
@@ -221,10 +219,10 @@ class ModelParameter(dict):
 
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension],
                 activate=None):
-        with tf.variable_scope(random_name('linear')):
-            return EinsumOperation([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
-                                   block_input.shape - old + new,
-                                   activate)
+        with tf.variable_scope(random_name()):
+            return einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
+                          block_input.shape - old + new,
+                          activate)
 
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
@@ -236,7 +234,7 @@ class ModelParameter(dict):
                                           * intermediate_factor
                                           * self.intermediate_feed_forward_multiplier))]
         lisht = LishtFunction()
-        with tf.variable_scope(random_name("feed_forward")):
+        with tf.variable_scope(random_name()):
             block_input = self._linear(block_input, reduced, intermediate, (lisht.forward, lisht.backward))
             return self._linear(block_input, intermediate, new)
 
