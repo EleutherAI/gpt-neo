@@ -380,6 +380,8 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
+                moe_params.add_hparam("moe_min_expert_capacity", 1)
+                moe_params.add_hparam("moe_use_experts_attention", False)
 
                 # Override defaults
                 for k, v in params["moe_params"].items():
@@ -392,7 +394,8 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                                                                            mesh_shape=params["mesh_shape"],
                                                                            layout=params["layout"],
                                                                            activation=params.get("moe_activation", "relu"),
-                                                                           variable_dtype=variable_dtype)
+                                                                           variable_dtype=variable_dtype,
+                                                                           num_microbatches=params["num_microbatches"])
                 m = mtf.dropout(m, rate=params["res_dropout"], name="moe_dropout")
             else:
 
