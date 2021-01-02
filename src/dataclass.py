@@ -165,7 +165,6 @@ class ModelParameter(dict):
                                           * self.intermediate_feed_forward_multiplier))]
         with tf.variable_scope(random_name()):
             block_input = self._linear(block_input, reduced, intermediate)
-            block_input = mtf.dropout(block_input, rate=self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
             return self._linear(block_input, intermediate, new)
 
@@ -207,13 +206,13 @@ class ModelParameter(dict):
     def build(self, model_input, tkn_src, tkn_tgt):
         vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
 
-        x = model_input / self._get_scalar(127.5) + self._get_scalar(-1)
+        x = model_input
         context_dimension = x.shape[1]
         input_features = x.shape[-1:]
         spatial_ctx = x.shape[2]
 
         tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
-        src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
+        src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name) / self._get_scalar(127.5) + self._get_scalar(-1)
 
         src = self._linear(src, input_features, self.feature_dims)
 
