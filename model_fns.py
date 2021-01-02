@@ -135,16 +135,16 @@ def model_fn(features, labels, mode, params):
     # We're not predicting, so we better be training or evaluating
     assert (mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL)
 
-    # Gets number of microbatches per batch for serialized training
-    # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
-    num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
-                                                                        sequence_length=sequence_length_dict,
-                                                                        mesh_shape=mesh_shape,
-                                                                        layout_rules=layout_rules,
-                                                                        tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
-    params["num_microbatches"] = num_microbatches  # Add num microbatches to params
-    
-    if num_microbatches > 1:
+    if mode == tf.estimator.ModeKeys.TRAIN and num_microbatches > 1:
+        # Gets number of microbatches per batch for serialized training
+        # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
+        num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
+                                                                            sequence_length=sequence_length_dict,
+                                                                            mesh_shape=mesh_shape,
+                                                                            layout_rules=layout_rules,
+                                                                            tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
+        params["num_microbatches"] = num_microbatches  # Add num microbatches to params
+        
         # For serialize_training_step we need to modify the model to output results in a dict
         def serialized_fn(mtf_features):
             if params["model"] == "GPT":
@@ -195,6 +195,7 @@ def model_fn(features, labels, mode, params):
         # This has to be done before lowering or they will not be included in the graph
         mean_logits = mtf.reduce_mean(logits, reduced_dim=vocab_dim)
         max_logits = mtf.argmax(logits, vocab_dim)
+        del logits
         fully_replicated_mean_logits = mtf.anonymize(mean_logits)
         fully_replicated_max_logits = mtf.anonymize(max_logits)
         fully_replicated_loss_batch = mtf.anonymize(loss_batch)
