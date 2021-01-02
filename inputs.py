@@ -1,127 +1,232 @@
-import os
+import numpy as np
+import tensorflow.compat.v1 as tf
+from functools import partial
+from data.encoders import encode
 
-import tensorflow as tf
+def generic_text(params, eval=False, sample_text_fn=None):
+    i = 0 if not eval else 1
+    print('##############################')
+    print(params["datasets"])
+    print('##############################')
 
-# Expects .tfrecords files as produced by the script in datasets in a google storage bucket
+    weights = []
+    datasets = []
 
-# Standard openwebtext
-def openwebtext(params, eval=False, batch=True):
-    if not eval:
-        numbers = [0, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, # 32, (32 is empty)
-                33, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 59, 63, 64,
-                65, 66, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90, 91, 92]
-    else:
-        numbers = [1, 2, 11, 12, 16, 34, 36, 58, 60, 61, 62, 67, 83]
-    files = [os.path.join(params["data_path"], "openwebtext-newspaper_{}.tfrecords".format(str(i))) for i in numbers]
+    for dataset in params["datasets"]:
+        dataset_id, stitch, datatype, weight = dataset
 
-    return bpe_text(params["batch_size"], files, amount=params["n_ctx"], iterations=params["iterations"], stitch=42, batch=batch)
+        assert dataset_id in params['dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
+        dataset_config = params['dataset_configs'][dataset_id]
 
-# Only samples that are at least 512 tokens long
-def openwebtext_long(params, eval=False, batch=True):
-    if not eval:
-        numbers = [0, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, # 32, (32 is empty)
-                33, 35, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 59, 63, 64,
-                65, 66, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90, 91, 92]
-    else:
-        numbers = [1, 2, 11, 12, 16, 34, 36, 58, 60, 61, 62, 67, 83]
-    files = [os.path.join(params["data_path"], "openwebtext-newspaper-long_{}.tfrecords".format(str(i))) for i in numbers]
+        path_key = 'path' if not eval else 'eval_path'
+        path = dataset_config[path_key]
 
-    return bpe_text(params["batch_size"], files, amount=params["n_ctx"], iterations=params["iterations"], stitch=2, batch=batch)
+        datasets.append(text_dataset(
+            tf.io.gfile.glob(path),
+            params,
+            stitch = stitch,
+            datatype = datatype,
+            batch = False,
+            sample_text_fn = sample_text_fn
+        ))
 
-# Mixture of short and long where there is a 70% bias towards taking longer sample
-def openwebtext_longbiased(params, eval=False):
-    datasets = [openwebtext(params, eval=eval, batch=False), openwebtext_long(params, eval=eval, batch=False)]
-    weights = [0.3, 0.7]
+        weights.append(weight)
 
-    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["batch_size"], drop_remainder=True).prefetch(params["iterations"])
+    batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
+    seed = params.get('seed', None)
+    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=seed)
+    dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
     return dataset
 
-def bundestag(params, eval=False):
-    files = tf.io.gfile.glob(os.path.join(params["data_path"], "bundestag_*.tfrecords"))
+def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
+    seed = params.get('seed', None)
+    deterministic =  seed is not None
+    num_parallel_calls = 1 if deterministic else tf.data.experimental.AUTOTUNE
 
-    return bpe_text(params["batch_size"], files, amount=params["n_ctx"], iterations=params["iterations"], stitch=5)
-
-# A generic function to take in any tfrecords files filled with the correct BPE text
-def generic_text(params):
-    # params["datasets"] = [([files], weight)]
-    datasets = [bpe_text(params["batch_size"], dataset[0], amount=params["n_ctx"], iterations=params["iterations"], stitch=params["stitch"], batch=False)
-                for dataset in params["dataset"]]
-    weights = [dataset[1] for dataset in params["dataset"]]
-
-    dataset = tf.data.experimental.sample_from_datasets(datasets, weights=weights)
-    dataset = dataset.batch(params["batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
-
-    return dataset
-
-def bpe_text(batch_size, files, iterations, stitch, amount=1024, batch=True):
     dataset = tf.data.Dataset.from_tensor_slices(files)
-    dataset = dataset.apply(tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=True))
 
-    def _parse_function(example_proto):
-        features = {
-            "hash": tf.VarLenFeature(tf.string),
-            "text": tf.VarLenFeature(tf.int64)
-        }
-        parsed_features = tf.parse_single_example(example_proto, features)
-        return parsed_features["text"], parsed_features["text"].dense_shape[0]
+    if deterministic:
+        dataset = dataset.interleave(tf.data.TFRecordDataset, cycle_length=4)
+    else:
+        dataset = dataset.apply(
+            tf.data.experimental.parallel_interleave(tf.data.TFRecordDataset, cycle_length=4, sloppy=False))
 
-    dataset = dataset.map(_parse_function, num_parallel_calls=1).shuffle(1000 * stitch)
+    if "documents" in datatype:
+        def _parse_function(example_proto):
+            features = {
+                # "hash": tf.VarLenFeature(tf.string),
+                "text": tf.VarLenFeature(tf.int64)
+            }
+            parsed_features = tf.parse_single_example(example_proto, features)
+            return parsed_features["text"], parsed_features["text"].dense_shape[0]
+    else:
+        def _parse_function(example_proto):
+            features = {
+                "text": tf.VarLenFeature(tf.int64)
+            }
+            parsed_features = tf.parse_single_example(example_proto, features)
+            return parsed_features["text"]  # Assuming the text is not sparse
 
-    # Since samples can be less than the correct length, and TPUs don't like variable lengths, this function stitches together enough samples
-    # to have a text at least 1024 tokens long. For this to work the stitch parameter must be correctly tuned so that
-    # stitch * min(characters_in_text) >= amount
-    def _stitch_text(x, y):
-        x = tf.sparse.to_dense(x)
+    dataset = dataset.map(_parse_function, num_parallel_calls=1)
 
-        def _get_x(i):
-            return tf.gather(x[i], tf.range(y[i]))
+    # Subsample method
+    if "documents" in datatype:
+        # Since samples can be less than the correct length, and TPUs don't like variable lengths, this function stitches together enough samples
+        # to have a text at least 1024 tokens long. For this to work the stitch parameter must be correctly tuned so that
+        # stitch * min(characters_in_text) >= amount
+        def _stitch_text(x, y):
+            x = tf.sparse.to_dense(x)
 
-        out = _get_x(0)
-        for i in range(1, stitch):
-            out = tf.concat([out, [50256], _get_x(i)], axis=0) # text1<|endoftext|>text2
+            def _get_x(i):
+                return tf.gather(x[i], tf.range(y[i]))
 
-        return out
+            out = _get_x(0)
+            eos_id = params['eos_id']
 
-    # Hack-y way to stitch together multiple texts
-    dataset = dataset.batch(stitch, drop_remainder=True).map(_stitch_text, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+            for i in range(1, stitch):
+                out = tf.concat([out, [eos_id], _get_x(i)], axis=0)  # text1<|endoftext|>text2
 
-    # Sample 1024(+1) tokens from the stitched together text
-    def _sample_text(x):
-        s = tf.size(x)
-        # r = tf.random.uniform([], maxval=s-(amount+1), dtype=tf.dtypes.int32)
-        # r = 0
-        # r1 = tf.range(r, r+amount)
-        # r2 = tf.range(r+1, (r+1)+amount)
-        # r1 = tf.reshape(r1, [amount]) # Somehow, this makes the compiler happy
-        # r2 = tf.reshape(r2, [amount]) # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
-        vals1 = x[:amount]#tf.gather(x, r1)
-        vals2 = x[1:amount+1]#tf.gather(x, r2)
+            return out
 
-        vals1 = tf.reshape(vals1, [amount])
-        vals2 = tf.reshape(vals2, [amount])
-        return vals1, vals2
+        # Hack-y way to stitch together multiple texts
+
+        dataset = dataset.shuffle(1000 * stitch, seed=seed).batch(stitch, drop_remainder=True).map(_stitch_text,
+                                                                                        num_parallel_calls=num_parallel_calls)
+
+        # Sample 1024(+1) tokens from the stitched together text
+        is_random_documents = datatype == "documents_random"
+        if sample_text_fn is not None:
+            _sample_text = partial(sample_text_fn, random_documents = is_random_documents)
+        else:
+            _sample_text = autoregressive_sample_text_random_documents if is_random_documents else autoregressive_sample_text
+            _sample_text = partial(_sample_text, params)
+
+        dataset = dataset.map(_sample_text, num_parallel_calls=num_parallel_calls)
 
     if batch:
-        dataset = dataset.apply(tf.data.experimental.map_and_batch(
-            map_func=_sample_text, batch_size=batch_size,
-            num_parallel_calls=tf.data.experimental.AUTOTUNE,
-            drop_remainder=True))
-        dataset = dataset.repeat().prefetch(iterations)
+        dataset = dataset.batch(params["train_batch_size"], drop_remainder=True).prefetch(params["iterations"] * 2)
 
+    dataset = dataset.repeat()
+
+    return dataset
+
+def autoregressive_sample_text(params, x):
+    vals1 = x[:params["n_ctx"]]
+    vals2 = x[1:params["n_ctx"] + 1]
+
+    vals1 = tf.reshape(vals1, [params["n_ctx"]])
+    vals2 = tf.reshape(vals2, [params["n_ctx"]])
+    vals1 = tf.cast(vals1, dtype=tf.int32)
+    vals2 = tf.cast(vals2, dtype=tf.int32)
+    return vals1, vals2
+
+def autoregressive_sample_text_random_documents(params, x):
+    seed = params.get('seed', None)
+    s = tf.size(x)
+    r = tf.random.uniform([], maxval=s - (params["n_ctx"] + 1), dtype=tf.dtypes.int32, seed=seed)
+    r1 = tf.range(r, r + params["n_ctx"])
+    r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
+    r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
+    r2 = tf.reshape(r2, [params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
+    vals1 = tf.gather(x, r1)
+    vals2 = tf.gather(x, r2)
+
+    vals1 = tf.reshape(vals1, [params["n_ctx"]])
+    vals2 = tf.reshape(vals2, [params["n_ctx"]])
+    vals1 = tf.cast(vals1, dtype=tf.int32)
+    vals2 = tf.cast(vals2, dtype=tf.int32)
+    return vals1, vals2
+
+def mlm_sample_text(params, x, random_documents = False):
+    seed = params.get('seed', None)
+    ctx_len = params["n_ctx"]
+    assert 'mlm_mask_id' in params, 'the key `mlm_mask_id` must be set on your config to do masked language model training, specifying the id of the reserved mask token'
+
+    mask_id = params['mlm_mask_id']
+    mask_prob = params.get('mlm_mask_prob', 0.15)
+    same_token_prob = params.get('mlm_same_token_prob', 0.10)
+
+    mask_ignore_ids = params.get('mlm_mask_ignore_ids', [])
+
+    if random_documents:
+        s = tf.size(x)
+        r = tf.random.uniform([], maxval=s - ctx_len, dtype=tf.dtypes.int32, seed=seed)
+        r1 = tf.range(r, r + ctx_len)
+        r1 = tf.reshape(r1, [ctx_len])
+        features = tf.gather(x, r1)
     else:
-        dataset = dataset.map(_sample_text, num_parallel_calls=tf.data.experimental.AUTOTUNE).repeat()
+        features = x[:ctx_len]
 
-    return dataset
+    features = tf.cast(features, dtype=tf.int32)
+    shape = features.shape
 
-# Create a batch of text
-def gpt2_pred_input(params, text=None):
-    from models.gpt2 import encoder
-    enc = encoder.get_encoder(params["encoder_path"])
-    tokens = enc.encode(text)
-    if len(tokens) > 1024:
-        tokens = tokens[:1024]
-    t = tf.broadcast_to(tokens, [params["batch_size"], len(tokens)])
+    # determine which tokens are mask-able
+    can_mask = tf.not_equal(features, 0)
+    for ignore_id in mask_ignore_ids:
+        can_mask &= tf.not_equal(features, ignore_id)
+
+    # generate boolean mask for masking ids
+    mask_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed), mask_prob)
+    mask_mask &= can_mask
+
+    # generate mask for actually replacing the tokens, for allowing a small number of tokens to stay the same
+    replace_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed), 1 - same_token_prob)
+
+    # mask the tokens
+    mask_tokens = tf.ones(shape, dtype=tf.int32) * mask_id
+    masked_features = tf.where(mask_mask & replace_mask, features, mask_tokens)
+
+    # labels will be set to 0 for all non-masked tokens
+    labels = tf.where(not mask_mask, features, tf.zeros(shape, dtype=tf.int32))
+
+    masked_features, labels = map(lambda t: tf.reshape(t, [ctx_len]), (masked_features, labels))
+    return masked_features, labels
+
+
+def pred_input(params, logger, enc=None,
+               path_to_prompt=""):
+
+    unicorns = "In a shocking finding, scientists discovered a herd of unicorns living in a remote, " \
+               "previously unexplored valley, in the Andes Mountains. Even more surprising to the " \
+               "researchers was the fact that the unicorns spoke perfect English."
+
+    text = unicorns if path_to_prompt == "" else open(path_to_prompt, "r").read()
+    tokens = encode(enc, text)
+
+    if len(tokens) > params["n_ctx"]:
+        logger.info("The length of your input prompt is longer than the model's context length - truncating input.")
+        tokens = tokens[len(tokens) - params["n_ctx"]:]
+    if len(tokens) < params["n_ctx"]:
+        tokens = tf.pad(tokens, [[0, params["n_ctx"] - len(tokens)]], constant_values=params["padding_id"])
+    t = tf.broadcast_to(tokens, [params["batch_size"], params["n_ctx"]])
     dataset = tf.data.Dataset.from_tensors(t)
+
+    def _dummy_labels(x):
+        return x, x
+
+    dataset = dataset.map(_dummy_labels)
     return dataset
+
+
+def handle_pred_output(predictions, logger, enc, params, out_name="test"):
+    with tf.gfile.Open(f"{out_name}.txt", "a") as f:
+        for i, p in enumerate(predictions):
+            p = p["outputs"]
+
+            # remove eos + padding ids from output
+            idx = np.argmax(p == params['eos_id'])
+            if idx > 0:
+                p = p[:idx]
+            idx = np.argmax(p == params['padding_id'])
+            if idx > 0:
+                p = p[:idx]
+
+            text = enc.decode(p)
+            f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+            f.write(text)
+            f.write("\n" + "=" * 80 + "\n")
+
+            logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+            logger.info(text)
+            logger.info("\n" + "=" * 80 + "\n")
