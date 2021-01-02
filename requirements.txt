@@ -1,13 +1,13 @@
 google-api-python-client
 jsonlines
 lm_dataformat
-mesh-tensorflow==0.1.16
+mesh-tensorflow==0.1.18
 numpy
 oauth2client
 ortools
 pytest
 sacred
-tensorflow>=1.15.2,<2.0
+tensorflow==2.4.0
 tensorflow-datasets==3.2.1
 tokenizers==0.8.1.rc2
 transformers
