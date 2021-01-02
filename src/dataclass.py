@@ -1,3 +1,4 @@
+import base64
 import random
 import typing
 
@@ -6,8 +7,8 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 
 
-def random_name(prefix: str):
-    return f"{prefix}_{random.getrandbits(64):x}"
+def random_name():
+    return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')).decode().replace("+", "").replace("/", "").replace("=", "")
 
 
 def anonymize(inp: mtf.Tensor, dim_name: str):
@@ -139,17 +140,17 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, random_name("variable"), shape, dtype=tf.float32, initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name(), shape, dtype=tf.float32, initializer=initializer)
 
     def _get_scalar(self, value):
         return self._get_variable([], tf.constant_initializer(value))
 
     def _rezero(self, block_input: mtf.Tensor, init: float = 0.):
-        with tf.variable_scope(random_name("rezero")):
+        with tf.variable_scope(random_name()):
             return block_input * self._get_scalar(init)
 
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
-        with tf.variable_scope(random_name('linear')):
+        with tf.variable_scope(random_name()):
             return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
                               block_input.shape - old + new)
 
@@ -162,7 +163,7 @@ class ModelParameter(dict):
                                       int(np.prod([dim.size for dim in new])
                                           * intermediate_factor
                                           * self.intermediate_feed_forward_multiplier))]
-        with tf.variable_scope(random_name("feed_forward")):
+        with tf.variable_scope(random_name()):
             block_input = self._linear(block_input, reduced, intermediate)
             block_input = mtf.dropout(block_input, rate=self.dropout_rate)
             block_input = block_input * mtf.tanh(block_input)  # LiSHT: https://arxiv.org/abs/1901.05894
@@ -176,7 +177,7 @@ class ModelParameter(dict):
         attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
-            with tf.variable_scope(f"feed_forward_block_{self._layer_idx}"):
+            with tf.variable_scope(random_name()):
                 block_input = mtf.add_n([self._feed_forward(block_input, 0.5 ** (len(attention_dims).bit_length() - 1))
                                          * (mtf.range(self.mesh, dim, tf.float32) + 1)
                                          / dim.size
@@ -187,7 +188,7 @@ class ModelParameter(dict):
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
 
-        with tf.variable_scope(f"attention_block_{self._layer_idx}"):
+        with tf.variable_scope(random_name()):
             q = self._feed_forward(block_input)
             k = anonymize(self._feed_forward(block_input), dim.name)
             v = anonymize(self._feed_forward(block_input), dim.name)
