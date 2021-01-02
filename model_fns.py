@@ -135,7 +135,7 @@ def model_fn(features, labels, mode, params):
     # We're not predicting, so we better be training or evaluating
     assert (mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL)
 
-    if mode == tf.estimator.ModeKeys.TRAIN and num_microbatches > 1:
+    if mode == tf.estimator.ModeKeys.TRAIN:
         # Gets number of microbatches per batch for serialized training
         # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
         num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
@@ -143,6 +143,10 @@ def model_fn(features, labels, mode, params):
                                                                             mesh_shape=mesh_shape,
                                                                             layout_rules=layout_rules,
                                                                             tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
+    else:
+        num_microbatches = 1
+        
+    if num_microbatches > 1:
         params["num_microbatches"] = num_microbatches  # Add num microbatches to params
         
         # For serialize_training_step we need to modify the model to output results in a dict
