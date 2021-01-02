@@ -381,6 +381,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                 moe_params = mtf.transformer.moe.HParams()
                 mtf.transformer.moe.set_default_moe_hparams(moe_params)
                 moe_params.add_hparam("moe_min_expert_capacity", 1)
+                moe_params.add_hparam("moe_use_experts_attention", False)
 
                 # Override defaults
                 for k, v in params["moe_params"].items():
