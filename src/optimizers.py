@@ -53,8 +53,7 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
                                                       params.beta1,
                                                       params.beta2,
                                                       params.epsilon,
-                                                      [norm", "bias"],
-                                                      variable_dtype
+                                                      ["norm", "bias"]
                                                      )
 
     if params.gradient_clipping is not None:

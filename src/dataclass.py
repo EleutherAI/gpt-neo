@@ -224,21 +224,26 @@ class ModelParameter(dict):
                           block_input.shape - old + new,
                           activate)
 
+    def _intermediate_dimensions(self, dimensions, intermediate_factor: float = 1.):
+        return [mtf.Dimension('_intermediate',
+                              int(np.prod([dim.size for dim in dimensions])
+                                  * intermediate_factor
+                                  * self.intermediate_feed_forward_multiplier))]
+        
     def _generic_feed_forward(self,
                               block_input: mtf.Tensor,
                               reduced: typing.List[mtf.Dimension],
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.):
-        intermediate = [mtf.Dimension('_intermediate',
-                                      int(np.prod([dim.size for dim in new])
-                                          * intermediate_factor
-                                          * self.intermediate_feed_forward_multiplier))]
+        intermediate = self._intermediate_dimensions(new, intermediate_factor)
         lisht = LishtFunction()
         with tf.variable_scope(random_name()):
             block_input = self._linear(block_input, reduced, intermediate, (lisht.forward, lisht.backward))
             return self._linear(block_input, intermediate, new)
 
-    def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1.):
+    def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1., grouped=False):
+        if grouped:
+            return self._generic_feed_forward(x, [self.key_dim], [self.key_dim], intermediate_factor / self.intermediate_feed_forward_multiplier)
         return self._generic_feed_forward(x, self.feature_dims, self.feature_dims, intermediate_factor)
 
     def _block_fn(self, block_input):
@@ -247,20 +252,18 @@ class ModelParameter(dict):
 
         if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
             with tf.variable_scope(random_name()):
-                block_input = mtf.add_n([self._feed_forward(block_input, 0.5 ** (len(attention_dims).bit_length() - 1))
-                                         * (mtf.range(self.mesh, dim, tf.float32) + 1)
-                                         / dim.size
-                                         for dim in attention_dims] + [block_input])
-                return self._rezero(self._feed_forward(block_input))
+                return self._rezero(self._feed_forward(block_input, grouped=True))
 
         idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
 
         with tf.variable_scope(random_name()):
-            q = self._feed_forward(block_input)
-            k = anonymize(self._feed_forward(block_input), dim.name)
-            v = anonymize(self._feed_forward(block_input), dim.name)
+            intermediate = self._intermediate_dimensions(self.feature_dims)
+            base = self._linear(block_input, self.feature_dims, intermediate)
+            q = self._linear(base, intermediate, self.feature_dims)
+            k = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
+            v = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
 
             logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) / dim.size ** 0.5
             if idx in self.masked_attention_dimensions:
