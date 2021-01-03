@@ -127,3 +127,6 @@ run_configs/
 
 # intellij
 .idea
+
+creds.json
+creds.*

@@ -18,5 +18,5 @@ absl-py
 ftfy
 opencv-python
 Pillow
-youtube-dl
+-e git://github.com/ytdl-org/youtube-dl.git
 google-cloud-storage
