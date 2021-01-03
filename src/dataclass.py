@@ -281,7 +281,7 @@ class ModelParameter(dict):
         input_features = x.shape[-1:]
         spatial_ctx = x.shape[2]
 
-        tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name)
+        tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name) / 255
         src = mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name) / self._get_scalar(127.5) + self._get_scalar(-1)
 
         src = self._linear(src, input_features, self.feature_dims)
@@ -311,7 +311,7 @@ class ModelParameter(dict):
                                                                                 vocab_dim=vocab_dim,
                                                                                 z_loss=1e-4))
 
-        src = self._generic_feed_forward(out, self.feature_dims, input_features)
+        src = mtf.sigmoid(self._generic_feed_forward(out, self.feature_dims, input_features))
         loss += mtf.reduce_mean(mtf.abs(src - tgt))
 
         self._layer_idx = 0
