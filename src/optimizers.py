@@ -7,14 +7,6 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def clip_by_global_norm(grads, clip_norm):
-    """Clip the grads by global norm."""
-    global_norm = mtf.sqrt(mtf.add_n([mtf.reduce_sum(mtf.square(t)) for t in grads if t is not None]))
-    multiplier = clip_norm / mtf.maximum(global_norm, clip_norm)
-    clipped_grads = [None if t is None else t * multiplier for t in grads]
-    return clipped_grads, global_norm
-
-
 def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
@@ -56,111 +48,19 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
     learning_rate = mtf.import_fully_replicated(mesh, learning_rate, mtf.Shape([]), name="learning_rate")
     mtf.scalar_summary("lr", learning_rate)
 
-    if params.opt_name.lower() == "adam":
-        optimizer = AdamWeightDecayOptimizer(
-            learning_rate=learning_rate,
-            weight_decay_rate=params.weight_decay,
-            beta_1=params.beta1,
-            beta_2=params.beta2,
-            epsilon=params.epsilon,
-            exclude_from_weight_decay=["norm", "bias"],
-            variable_dtype=variable_dtype
-        )
-    else:
-        optimizer = mtf.optimize.AdafactorOptimizer(
-            learning_rate=params.lr,
-            decay_rate=params.weight_decay,
-            beta1=params.beta1,
-            epsilon1=params.ada_epsilon1,
-            epsilon2=params.ada_epsilon2
-        )
+    optimizer = mtf.optimize.AdamWeightDecayOptimizer(learning_rate,
+                                                      params.weight_decay,
+                                                      params.beta1,
+                                                      params.beta2,
+                                                      params.epsilon,
+                                                      [norm", "bias"],
+                                                      variable_dtype
+                                                     )
 
     if params.gradient_clipping is not None:
-        (var_grads_fp, _) = clip_by_global_norm(var_grads_fp, clip_norm=clip_value)
+        global_norm = mtf.sqrt(mtf.add_n([mtf.reduce_sum(mtf.square(t)) for t in var_grads_fp if t is not None]))
+        multiplier = clip_value / mtf.maximum(global_norm, clip_value)
+        var_grads_fp = [None if t is None else t * multiplier for t in var_grads_fp]
 
     update_ops = optimizer.apply_grads(var_grads_fp, mesh.graph.trainable_variables)
     return learning_rate, update_ops, var_grads_fp
-
-
-class AdamWeightDecayOptimizer(mtf.optimize.Optimizer):
-    """A basic Adam optimizer that includes "correct" L2 weight decay."""
-
-    def __init__(self,
-                 learning_rate,
-                 weight_decay_rate=0.0,
-                 beta_1=0.9,
-                 beta_2=0.999,
-                 epsilon=1e-6,
-                 exclude_from_weight_decay=None,
-                 variable_dtype=None):
-        """Constructs a AdamWeightDecayOptimizer."""
-
-        self.learning_rate = learning_rate
-        self.weight_decay_rate = weight_decay_rate
-        self.beta_1 = beta_1
-        self.beta_2 = beta_2
-        self.epsilon = epsilon
-        self.exclude_from_weight_decay = exclude_from_weight_decay
-        self.variable_dtype = variable_dtype
-
-    def apply_grad(self, grad, var):
-        """See base class."""
-        if grad is None:
-            tf.logging.warning("Gradient is None for variable %s" % var.name)
-            return []
-
-        grad = mtf.to_float(grad)
-
-        assignments = []
-
-        m = mtf.get_variable(
-            var.mesh, var.name + "/adam_m", var.shape,
-            initializer=tf.zeros_initializer(),
-            # master_dtype=self.variable_dtype.master_dtype,
-            # slice_dtype=self.variable_dtype.slice_dtype,
-            # activation_dtype=self.variable_dtype.activation_dtype,
-            trainable=False)
-
-        v = mtf.get_variable(
-            var.mesh, var.name + "/adam_v", var.shape,
-            initializer=tf.zeros_initializer(),
-            # master_dtype=self.variable_dtype.master_dtype,
-            # slice_dtype=self.variable_dtype.slice_dtype,
-            # activation_dtype=self.variable_dtype.activation_dtype,
-            trainable=False)
-
-        # Standard Adam update.
-        next_m = self.beta_1 * m + (1.0 - self.beta_1) * grad
-        next_v = self.beta_2 * v + (1.0 - self.beta_2) * mtf.square(grad)
-
-        update = next_m / (mtf.sqrt(next_v) + self.epsilon)
-
-        # Just adding the square of the weights to the loss function is *not*
-        # the correct way of using L2 regularization/weight decay with Adam,
-        # since that will interact with the m and v parameters in strange ways.
-        #
-        # Instead we want to decay the weights in a manner that doesn't interact
-        # with the m/v parameters. This is equivalent to adding the square
-        # of the weights to the loss with plain (non-momentum) SGD.
-        if self._do_use_weight_decay(var.name):
-            update += mtf.to_float(var.value) * self.weight_decay_rate
-
-        update_with_lr = self.learning_rate * update
-
-        var_update = mtf.assign_sub(var, update_with_lr)
-
-        assignments.extend(
-            [var_update,
-             mtf.assign(m, next_m),
-             mtf.assign(v, next_v)])
-        return assignments
-
-    def _do_use_weight_decay(self, param_name):
-        """Whether to use L2 weight decay for `param_name`."""
-        if not self.weight_decay_rate:
-            return False
-        if self.exclude_from_weight_decay:
-            for r in self.exclude_from_weight_decay:
-                if re.search(r, param_name) is not None:
-                    return False
-        return True
