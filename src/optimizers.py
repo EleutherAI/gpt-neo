@@ -7,12 +7,12 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
+def get_optimizer(mesh, loss, params, inp_var_grads=None):
     """Creates and returns an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
 
-    learning_rate = tf.constant(value=params.lr, shape=[], dtype=variable_dtype.slice_dtype)
-    clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=variable_dtype.slice_dtype)
+    learning_rate = tf.constant(value=params.lr, shape=[], dtype=tf.float32)
+    clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=tf.float32)
 
     if inp_var_grads is None:
         var_grads = mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
@@ -20,7 +20,7 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
         var_grads = inp_var_grads
 
     # Cast to full precision
-    var_grads_fp = [mtf.cast(v, variable_dtype.slice_dtype) for v in var_grads]
+    var_grads_fp = [mtf.cast(v, tf.float32) for v in var_grads]
 
     learning_rate = tf.train.cosine_decay(
         learning_rate,
@@ -33,7 +33,7 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
         global_steps_int = tf.cast(global_step, tf.int32)
         warmup_steps_int = tf.constant(params.warmup_steps, dtype=tf.int32)
 
-        dtype = variable_dtype.slice_dtype
+        dtype = tf.float32
 
         global_steps_float = tf.cast(global_steps_int, dtype)
         warmup_steps_float = tf.cast(warmup_steps_int, dtype)
@@ -50,9 +50,9 @@ def get_optimizer(mesh, loss, params, variable_dtype, inp_var_grads=None):
 
     optimizer = mtf.optimize.AdamWeightDecayOptimizer(learning_rate,
                                                       params.weight_decay,
-                                                      params.beta1,
-                                                      params.beta2,
-                                                      params.epsilon,
+                                                      0.9,
+                                                      0.95,
+                                                      1e-6,
                                                       ["norm", "bias"]
                                                      )
 

@@ -27,9 +27,7 @@ def main(args: argparse.Namespace):
     params.num_cores = mesh_shape.size
     params.use_tpu = True if not args.tpu is None else False
     params.gpu_ids = args.gpu_ids
-    params.steps_per_checkpoint = args.steps_per_checkpoint
     # Expand attention types param
-    params.predict_batch_size = params.get("predict_batch_size", 1)  # Default to 1
     params.predict = args.predict
     params.model = params.get("model", "GPT")  # Default model selection to GPT since it's the only option for now
 
@@ -59,7 +57,7 @@ def main(args: argparse.Namespace):
             model_fn=model_fn,
             config=config,
             train_batch_size=params.train_batch_size,
-            predict_batch_size=params.predict_batch_size,
+            predict_batch_size=1,
             params=params.dict())
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))

@@ -1,0 +1,24 @@
+{
+    "time_patch": 1,
+    "n_ctx": 1024,
+
+    "n_vocab": 50257,
+    "n_head": 16,
+    "n_embd": 8192,
+    "n_layer": 72,
+    "feed_forward_per_attention": 2,
+    "intermediate_feed_forward_multiplier": 0.5,
+
+    "buffer_size": 8,
+
+    "lr": 0.00005,
+    "train_batch_size": 1,
+    "use_video": false,
+
+    "language_token_per_frame": 1,
+
+    "mesh_shape": "x:1,y:8,z:1,h:1,w:1",
+    "layout": "batch:x,heads:y,embd:z,height:h,width:w",
+    "prefix": ["neo-datasets/openwebtext2_new_inputs"],
+    "model_path": "gs://text-datasets/video-transformer/text-gpt-heads=16-embd=8192-layer=72-ffpa=2-iffm=0dot5-ctx=1024-batch=1"
+}

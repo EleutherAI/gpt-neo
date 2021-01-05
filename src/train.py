@@ -61,7 +61,6 @@ def create_host_call(model_dir):
 
 
 def model_fn(features: tf.Tensor, mode: str, params: dict):
-
     # Get global step
     params = ModelParameter(params)
     global_step = tf.train.get_global_step()
@@ -88,43 +87,44 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
     # Build mtf mesh object
-    mesh = mtf.Mesh(graph, "the_mesh", var_placer)
+    mesh = mtf.Mesh(graph, "mesh", var_placer)
     params.mesh = mesh
 
     # Build mtf_features & seq length dict for getting number of microbatches
     # We need to pack inputs into a dict to pass into serialize_training_step
     params.mode = mode
-    batch_dim = mtf.Dimension("batch", params.the_batch_size)
-    sequence_plus = mtf.Dimension("sequence", params.time_patch_size + 1)
-    sequence = mtf.Dimension("sequence", params.time_patch_size)
-    language_token = mtf.Dimension("height", params.language_token_per_frame)
-    length_dim = mtf.Dimension("color_channels", params.channel_color_size)
+    batch_dim = mtf.Dimension("batch", params.train_batch_size)
 
-    batch_dims = [batch_dim, sequence_plus]
+    frame_input = None
+    token_x_input = None
+    token_y_input = None
 
-    if params.three_axes:
-        batch_dims = batch_dims + [mtf.Dimension("height", params.frame_height_patch),
-                                   mtf.Dimension("width", params.frame_width_patch)]
-    else:
-        batch_dims = batch_dims + [mtf.Dimension("height", params.frame_height_patch * params.frame_width_patch)]
+    if params.use_video:
+        frame_input = mtf.import_fully_replicated(mesh,
+                                                  features['frame'],
+                                                  mtf.Shape([batch_dim,
+                                                             mtf.Dimension("sequence", params.time_patch_size + 1)] +
+                                                            ([mtf.Dimension("height", params.frame_height_patch),
+                                                              mtf.Dimension("width", params.frame_width_patch)]
+                                                             if params.three_axes else
+                                                             [mtf.Dimension("height",
+                                                                            params.frame_height_patch
+                                                                            * params.frame_width_patch)]) +
+                                                            [mtf.Dimension("color_channels", params.channel_color_size)]
+                                                            ),
+                                                  "frame_input")
 
-    batch_dims = batch_dims + [length_dim]
-    frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(batch_dims), "frame_input")
-
-    if params.language_token_per_frame > 0:
-        token_dim = [batch_dim, sequence, language_token]
-        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], mtf.Shape(token_dim), "tkn_src")
-        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], mtf.Shape(token_dim), "tkn_tgt")
-    else:
-        token_x_input = None
-        token_y_input = None
-
+    if params.use_language:
+        token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size)] +
+                              ([mtf.Dimension("height", params.language_token_per_frame)] if params.use_video else []))
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "tkn_src")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "tkn_tgt")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
             logits, loss = params.build(frame_input, token_x_input, token_y_input)
 
-    _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=None)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params, inp_var_grads=None)
 
     mtf.scalar_summary("loss", loss)
 
@@ -168,7 +168,6 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     train_op = tf.group(tf_update_ops)
 
     with mtf.utils.outside_all_rewrites():
-        print(params.attribute_accesses())
         restore_hook = mtf.MtfRestoreHook(lowering)
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
