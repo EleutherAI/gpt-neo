@@ -279,25 +279,37 @@ class ModelParameter(dict):
         for _ in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
+     
+        video_loss = 0
+        token_loss = 0
+
+      
+
         tkn = out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
         loss = 0
 
         if self.use_video and self.use_language:
             out = anonymize(out, spatial_ctx)
+
             tkn = unanonymize(mtf.slice(out, spatial_ctx.size, self.language_token_per_frame, '_' + spatial_ctx.name),
                               spatial_ctx.name)
             out = unanonymize(mtf.slice(out, 0, spatial_ctx.size, '_' + spatial_ctx.name), spatial_ctx.name)
 
         if self.use_language:
             tkn = self._generic_feed_forward(tkn, self.feature_dims, [vocab_dim])
-            loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
+            token_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
                                                                                 targets=tkn_tgt,
                                                                                 vocab_dim=vocab_dim,
                                                                                 z_loss=1e-4))
+
+
+
+
         if self.use_video:
             src = mtf.sigmoid(self._generic_feed_forward(out, self.feature_dims, input_features))
-            loss += mtf.reduce_mean(mtf.abs(src - tgt))
+            video_loss += mtf.reduce_mean(mtf.abs(src - tgt))
 
         self._layer_idx = 0
 
-        return src, loss
+        return src, (video_loss + token_loss), video_loss, token_loss
+

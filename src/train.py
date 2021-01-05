@@ -122,11 +122,15 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss = params.build(frame_input, token_x_input, token_y_input)
+            logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, inp_var_grads=None)
 
-    mtf.scalar_summary("loss", loss)
+    if params.use_video:
+        mtf.scalar_summary("video_loss", video_loss)
+
+    if params.use_language:
+        mtf.scalar_summary("token_loss", token_loss)
 
     total_parameters = 0
     for variable in graph.trainable_variables:
