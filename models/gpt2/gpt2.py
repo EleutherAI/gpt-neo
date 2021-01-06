@@ -286,9 +286,9 @@ def get_activation_fn(params):
         return mtf.cos
     elif activation_fn == "sign":
         return mtf.sign
-    elif activation_fn == "triangle relax":
+    elif activation_fn == "triangle_relax":
         return lambda x: mtf.sin(x)-mtf.sin(3*x)/9+mtf.sin(5*x)/25-mtf.sin(7*x)/49
-    elif activation_fn == "square relax":
+    elif activation_fn == "square_relax":
         return lambda x: mtf.cos(x)-mtf.cos(3*x)/3+mtf.cos(5*x)/5-mtf.cos(7*x)/7
     elif activation_fn == "spike":
         return lambda x: 1/(1+x**2)
