@@ -264,6 +264,15 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
 def get_activation_fn(params):
     activation_fn = params.get("activation_fn", "gelu")
+    
+    
+    def _arcsinh(x):
+        return mtf.log(x + mtf.sqrt(1 + x ** 2))
+    def _var(x, init):
+        return mtf.get_variable(x.mesh, f"activation-{random.randint(0, 2**32):x}", [], initializer=tf.constant_initializer(init), dtype=x.dtype)
+    def _pos_var(x, val):
+        return mtf.softplus(_var(x, 0)) + val
+    
     if activation_fn == "gelu": # https://arxiv.org/abs/1606.08415
         return mtf.gelu
     elif activation_fn == "relu":
@@ -324,19 +333,12 @@ def get_activation_fn(params):
     
     elif activation_fn == "silu": # https://arxiv.org/abs/1710.05941
         return mtf.swish
-
-    def _arcsinh(x):
-        return mtf.log(x + mtf.sqrt(1 + x ** 2))
     
     elif activation_fn == "arcsinh":
         return _arcsinh
     
     
     # parametric
-    def _var(x, init):
-        return mtf.get_variable(x.mesh, f"activation-{random.randint(0, 2**32):x}", [], initializer=tf.constant_initializer(init), dtype=x.dtype)
-    def _pos_var(x, val):
-        return mtf.softplus(_var(x, 0)) + val
     elif activation_fn == "aria":  # https://arxiv.org/abs/1805.08878
         return lambda x: x * (_var(x, 0) + _var(x, 1) / (_pos_var(x, 0) + _var(x, 1) * mtf.exp(_var(x, -1) * x) ** (1 / _pos_var(x, 1))))
     elif activation_fn == "prelu":  # https://arxiv.org/abs/1502.01852
