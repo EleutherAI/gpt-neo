@@ -193,6 +193,8 @@ All you need to do is edit the dataset id as described above, and edit `model_pa
     "activation_function": "gelu",
     "recompute_grad": true,
     "gradient_clipping": 1.0,
+    "normalization_name": "layer",
+    "spacenorm_width": 3,
     "tokens_per_mb_per_replica": 2048
 }
 ```
@@ -307,6 +309,8 @@ Pick a valid config from `/configs` and tweak the parameters as needed:
     + Choose from: `linear`, `global`, `local` or `none`. We have found a 50/50 mix of `global` and `linear` to work well. `none` allows you to create feed-forward only layers for more efficient [PAR Transformer](https://arxiv.org/abs/2009.04534) models.
 - `precision`: `float32` or `bfloat16`.
 - `tokens_per_mb_per_replica`: If not None, will split the batch up into smaller microbatches containing `tokens_per_mb_per_replica` tokens to avoid OOMs. Gradients are accumulated locally and reduced once. IMPORTANT: mb refers to *minibatch* not megabyte here. 
+- `normalization_name`: name of the pre-norm used. can be either `batch`, `layer`, `instance` or `space`.
+- `spacenorm_width`: in case of space norm, a width in token has to be defined, as it's normalizing itself based on the space around itself.
 
 **Mixture of Experts**
 
