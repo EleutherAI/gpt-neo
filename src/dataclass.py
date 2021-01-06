@@ -7,9 +7,8 @@ import typing
 
 
 def random_name():
-    return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')).decode().replace("+",
-                                                                                                              "").replace(
-        "/", "").replace("=", "")
+    return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')
+                            ).decode().replace("+", "").replace("/", "").replace("=", "")
 
 
 def anonymize(inp: mtf.Tensor, dim_name: str):
@@ -20,80 +19,8 @@ def unanonymize(inp: mtf.Tensor, dim_name: str):
     return mtf.rename_dimension(inp, '_' + dim_name, dim_name)
 
 
-class LishtFunction:
-    def __init__(self):
-        self.saved_tensor: typing.Optional[tf.Tensor] = None
-
-    def forward(self, input):
-        self.saved_tensor = input
-        return tf.tanh(input) * input
-
-    def backward(self, grad_output):
-        tanh = tf.tanh(self.saved_tensor)
-        return grad_output * (tanh + self.saved_tensor * (1 - tanh * tanh))
-
-
-class EinsumOperation(mtf.Operation):
-    """Einstein summation (matmul, etc).
-    The equation follows the dimensions in the input and output shapes.
-    Every dimension must occur in at least two of the input/output Tensors.
-    i.e. no new dimensions in the output, and no reduction of dimensions that
-    occur in only one input.
-    """
-
-    def __init__(self, inputs, output_shape, output_fn=None, name=None, _input_fn=None):
-        super(EinsumOperation, self).__init__(inputs, name=name or "einsum")
-        if not inputs:
-            raise ValueError("Einsum needs at least one input")
-        for x in inputs:
-            if x.dtype != inputs[0].dtype:
-                raise ValueError("Input dtypes must be equal got %s"
-                                 % ([y.dtype for y in inputs],))
-        identity = lambda x: x
-        self._input_fn = (identity,) * len(inputs) if _input_fn is None else _input_fn
-        self._output_fn = identity if output_fn is None else output_fn[0]
-        self._output_fn_grad = identity if output_fn is None else output_fn[1]
-        self._outputs = [mtf.Tensor(self, output_shape, inputs[0].dtype)]
-
-    def gradient(self, grad_ys):
-        dy = grad_ys[0]
-        xs = self.inputs
-        ret = [einsum([dy] + xs[:i] + xs[i + 1:], xs[i].shape,
-                      _input_fn=(self._output_fn_grad,) + self._input_fn[:i] + self._input_fn[i + 1:])
-               for i in range(len(xs))]
-        return ret
-
-    def lower(self, lowering):
-        mesh_impl = lowering.mesh_impl(self)
-        xs = self.inputs
-        input_shape_set = set(sum([x.shape.dims for x in xs], []))
-        output_shape = self.outputs[0].shape
-        intersection_shape = mtf.Shape(
-                [d for d in output_shape.dims if d in input_shape_set])
-        einsum_slice_fn, reduced_mesh_axes = mtf.ops._einsum_helper(
-                [x.shape for x in self.inputs], intersection_shape, mesh_impl)
-        y = mesh_impl.slicewise(
-            lambda *xs: self._output_fn(einsum_slice_fn(*[fn(x) for fn, x in zip(self._input_fn, xs)])),
-            *[lowering.tensors[x] for x in self.inputs])
-        if reduced_mesh_axes:
-            def add_counter_fn():
-                lowering.add_counter(
-                        f"allreduce/{reduced_mesh_axes}/einsum_op",
-                        mesh_impl.laid_out_size(intersection_shape))
-
-            y = mtf.LazyAllreduceSum(
-                    mesh_impl, y, reduced_mesh_axes, add_counter_fn=add_counter_fn)
-        # broadcast from intersection_shape to output_shape
-        if intersection_shape != output_shape:
-            y = mesh_impl.broadcast_impl(y, intersection_shape, output_shape)
-        lowering.set_tensor_lowering(self.outputs[0], y)
-        computation_shape = mtf.Shape(list(input_shape_set))
-        lowering.add_counter("einsum", mesh_impl.laid_out_size(computation_shape))
-        lowering.add_counter("einsum_unique", computation_shape.size)
-
-
-def einsum(inputs, output_shape, output_fn=None, name=None, _input_fn=None):
-    return EinsumOperation(inputs, output_shape, output_fn, name, _input_fn).outputs[0]
+def activate(block_input):
+    return mtf.tanh(block_input) * block_input
 
 
 class ModelParameter(dict):
@@ -106,6 +33,7 @@ class ModelParameter(dict):
             config = config_kwargs
 
         self.use_video = True
+        self.use_language = True
         self.time_patch = 1
         self.n_ctx = 32
         self.patch_size = 16
@@ -119,7 +47,9 @@ class ModelParameter(dict):
         self.n_head = 8
         self.n_embd = 256
         self.n_layer = 64
-        self.buffer_size = 8
+        self.buffer_size = 4
+        self.shuffle_buffer = 16
+        self.interleaved_datasets = 256
         self.lr = 5e-5
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,z:1,h:32"
@@ -148,7 +78,6 @@ class ModelParameter(dict):
         self.frame_height_patch = self.frame_height // self.patch_size
         self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
-        self.use_language = self.language_token_per_frame > 0
         self.dim_heads = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.feature_dims = [self.dim_heads, self.key_dim]
@@ -184,13 +113,10 @@ class ModelParameter(dict):
         with tf.variable_scope(random_name()):
             return block_input * self._get_scalar(init)
 
-    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension],
-                activate=False):
-        lisht = LishtFunction()
+    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
         with tf.variable_scope(random_name()):
-            return einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
-                          block_input.shape - old + new,
-                          (lisht.forward, lisht.backward) if activate else None)
+            return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
+                              block_input.shape - old + new)
 
     def _intermediate_dimensions(self, dimensions, intermediate_factor: float = 1.):
         return [mtf.Dimension('_intermediate',
@@ -206,7 +132,8 @@ class ModelParameter(dict):
                               experts: typing.List[mtf.Dimension] = tuple()):
         intermediate = self._intermediate_dimensions([dim for dim in new if dim not in experts], intermediate_factor)
         with tf.variable_scope(random_name()):
-            block_input = self._linear(block_input, reduced, intermediate, True)
+            block_input = self._linear(block_input, reduced, intermediate)
+            block_input = activate(block_input)
             return self._linear(block_input, intermediate, new)
 
     def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1., grouped=False):
@@ -231,7 +158,7 @@ class ModelParameter(dict):
         intermediate = self._intermediate_dimensions(self.feature_dims)
 
         with tf.variable_scope(random_name()):
-            base = self._linear(block_input, self.feature_dims, intermediate, True)
+            base = activate(self._linear(block_input, self.feature_dims, intermediate))
             q = (self._linear(base, intermediate, self.feature_dims)
                  + self._get_variable([dim] + self.feature_dims, tf.orthogonal_initializer()))
             k = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
@@ -267,7 +194,7 @@ class ModelParameter(dict):
             tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
 
         if self.use_video and self.use_language:
-            spatial_ctx = tkn_src.shape[-1]
+            spatial_ctx = tkn_tgt.shape[-1]
             src = unanonymize(mtf.concat([anonymize(src, spatial_ctx.name), anonymize(tkn_src, spatial_ctx.name)],
                                          '_' + spatial_ctx.name),
                               spatial_ctx.name)
@@ -289,11 +216,10 @@ class ModelParameter(dict):
         loss = 0
 
         if self.use_video and self.use_language:
-            out = anonymize(out, spatial_ctx)
-
-            tkn = unanonymize(mtf.slice(out, spatial_ctx.size, self.language_token_per_frame, '_' + spatial_ctx.name),
+            out = anonymize(out, spatial_ctx.name)
+            tkn = unanonymize(mtf.slice(out, tgt.shape[2].size, self.language_token_per_frame, '_' + spatial_ctx.name),
                               spatial_ctx.name)
-            out = unanonymize(mtf.slice(out, 0, spatial_ctx.size, '_' + spatial_ctx.name), spatial_ctx.name)
+            out = unanonymize(mtf.slice(out, 0, tgt.shape[2].size, '_' + spatial_ctx.name), spatial_ctx.name)
 
         if self.use_language:
             tkn = self._generic_feed_forward(tkn, self.feature_dims, [vocab_dim])

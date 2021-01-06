@@ -6,7 +6,7 @@
     "frame_width": 320,
     "frame_height": 176,
 
-    "language_token_per_frame": 64,
+    "language_token_per_frame": 0,
     "n_head": 16,
     "n_embd": 4096,
     "n_layer": 30,
@@ -24,7 +24,7 @@
     "layout": "batch:x,heads:y,embd:z,height:h,width:w",
     "prefix": ["datasets/video_with_language_v3"],
 
-    "model_path": "gs://text-datasets/video-transformer/smol-ctx=256-layer=30-heads=16-feat=4096-ffpa=2-iffm=0dot25-timepatch=1-imgpatch=16-2d_data_v3-shuffle-lang",
+    "model_path": "gs://text-datasets/video-transformer/smol-ctx=256-layer=30-heads=16-feat=4096-ffpa=2-iffm=0dot25-timepatch=1-imgpatch=16-2d_data_v3-shuffle",
 
     "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,

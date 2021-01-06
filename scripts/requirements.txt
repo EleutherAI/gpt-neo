@@ -1,0 +1,8 @@
+tensorflow
+google-api-python-client
+oauth2client
+opencv-python
+Pillow
+git+https://github.com/ytdl-org/youtube-dl.git
+google-cloud-storage
+transformers

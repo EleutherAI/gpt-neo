@@ -1,8 +1,10 @@
+import random
+
 import tensorflow.compat.v1 as tf
 from google.cloud import storage
 
 from .dataclass import ModelParameter
-from .video2tfrecord import get_decoder
+from scripts.video2tfrecord import get_decoder
 
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int,
@@ -57,14 +59,16 @@ def generic_data(params: ModelParameter):
     path = [f'gs://{bucket_name}/{itm.name}'
             for folder in prefix
             for itm in storage.client.Client().list_blobs(bucket_name, prefix=folder)]
+    random.shuffle(path)
+
 
     data = tf.data.Dataset.from_tensor_slices(path)
-    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
-                           cycle_length=tf.data.experimental.AUTOTUNE,
-                           num_parallel_calls=tf.data.experimental.AUTOTUNE,
-                           block_length=1)
+    data = data.apply(tf.data.experimental.parallel_interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
+                           cycle_length=params.interleaved_datasets,
+                           block_length=1, sloppy=True))
 
     data = data.repeat()
+    data = data.shuffle(params.shuffle_buffer)
     data = data.batch(batch_size)
 
     def with_token(*args):
