@@ -275,6 +275,10 @@ def get_activation_fn(params):
         return mtf.selu
     elif activation_fn == "elu": # https://arxiv.org/abs/1511.07289
         return mtf.elu
+    elif activation_fn == "lrelu(0.01)":
+        return lambda x: mtf.leaky_relu(x, alpha = 0.01)
+    elif activation_fn == "lrelu(0.20)":
+        return mtf.leaky_relu()
 
     elif activation_fn == "abs": 
         return mtf.abs
@@ -318,8 +322,14 @@ def get_activation_fn(params):
         return _elish_fn
     
     # swish activations
-    elif activation_fn == "swish": # https://arxiv.org/abs/1710.05941
+    elif activation_fn == "silu": # https://arxiv.org/abs/1710.05941
         return mtf.swish
+    elif activation_fn == "swish":
+        def _swish_fn(x):
+            beta = mtf.get_variable(x.mesh, "beta", [], initializer=tf.constant_initializer(0), dtype=dtype)
+            return x * sigmoid (beta * x)
+        return _swish_fn
+
     
     # https://arxiv.org/abs/1710.05941, https://arxiv.org/abs/1901.02671
     elif activation_fn == "maxsig": 
