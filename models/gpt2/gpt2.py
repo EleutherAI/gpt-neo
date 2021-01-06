@@ -325,15 +325,29 @@ def get_activation_fn(params):
     elif activation_fn == "silu": # https://arxiv.org/abs/1710.05941
         return mtf.swish
 
+    def _arcsinh(x):
+        return mtf.log(x + mtf.sqrt(1 + x ** 2))
+    
+    elif activation_fn == "arcsinh":
+        return _arcsinh
+    
+    
     # parametric
     def _var(x, init):
         return mtf.get_variable(x.mesh, f"activation-{random.randint(0, 2**32):x}", [], initializer=tf.constant_initializer(init), dtype=x.dtype)
-    elif activation_fn == "aria":
-        return lambda x: x * (_var(x, 0) + _var(x, 1) / (_var(x, 0) + _var(x, 1) * mtf.exp(_var(x, -1) * x) ** (1 / _var(x, 1))))
-    elif activation_fn == "prelu":
+    def _pos_var(x, val):
+        return mtf.softplus(_var(x, 0)) + val
+    elif activation_fn == "aria":  # https://arxiv.org/abs/1805.08878
+        return lambda x: x * (_var(x, 0) + _var(x, 1) / (_pos_var(x, 0) + _var(x, 1) * mtf.exp(_var(x, -1) * x) ** (1 / _pos_var(x, 1))))
+    elif activation_fn == "prelu":  # https://arxiv.org/abs/1502.01852
         return lambda x: mtf.leaky_relu(x, alpha=_var(x, 0.2))
-
-    
+    elif activation_fn == "parcsinh":
+        return lambda x: _var(x, 1) * _arcsinh(x * _pos_var(x, 1))
+    elif activation_fn == "psoftplus":
+        return lambda x: _var(x, 1) * mtf.softplus(x * _var(x, 1)) + _var(x, 0)
+    elif activation_fn == "proottanh":
+        return lambda x: (x ** _pos_var(x, 2) + _pos_var(x, 1)) ** (1 / _pos_var(x, 3)) * mtf.tanh(x)
+     
     # https://arxiv.org/abs/1710.05941, https://arxiv.org/abs/1901.02671
     elif activation_fn == "maxsig": 
         return lambda x: mtf.maximum(x, mtf.sigmoid(x))
