@@ -6,6 +6,9 @@ import tensorflow.compat.v1 as tf
 import typing
 
 
+random.seed(65537)
+
+
 def random_name():
     return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')
                             ).decode().replace("+", "").replace("/", "").replace("=", "")
@@ -50,6 +53,7 @@ class ModelParameter(dict):
         self.buffer_size = 4
         self.shuffle_buffer = 16
         self.interleaved_datasets = 256
+        self.depthwise_kernel = 15
         self.lr = 5e-5
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,z:1,h:32"
@@ -63,7 +67,7 @@ class ModelParameter(dict):
         self.warmup_steps = 3000
         self.iterations = 2500
         self.gradient_clipping = 1.0
-        self.feed_forward_per_attention = 2
+        self.revblock_pattern = {"feed-forward": 1, "depthwise-convolution": 1, "attention": 1}
         self.intermediate_feed_forward_multiplier = 1
 
         self.mesh = None
@@ -81,6 +85,8 @@ class ModelParameter(dict):
         self.dim_heads = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.feature_dims = [self.dim_heads, self.key_dim]
+        self.cum_revblock_pattern = dict(zip(self.revblock_pattern.keys(), np.cumsum(self.reblock_pattern.values())))
+        self.revblock_pattern_size = max(cum_revblock_pattern.values())
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -145,18 +151,27 @@ class ModelParameter(dict):
                                           [self.dim_heads] if grouped else [])
 
     def _block_fn(self, block_input):
+        layer_type = self._layer_idx % self.revblock_pattern_size
         self._layer_idx += 1
-        attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
-
-        if self._layer_idx % (self.feed_forward_per_attention + 1) < self.feed_forward_per_attention:
+        
+        if layer_type < self.cum_revblock_pattern['feed-forward']:
             with tf.variable_scope(random_name()):
                 return self._rezero(self._feed_forward(block_input, grouped=True))
 
+        attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
         idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
         intermediate = self._intermediate_dimensions(self.feature_dims)
-
+        autoregressive = idx in self.masked_attention_dimensions
+        
+        if layer_type < self.cum_revblock_pattern['depthwise-conv']:
+            with tf.variable_scope(random_name()):
+                return self._rezero(mtf.add_n([mtf.slice(x, i, dim, False) for i in range(self.depthwise_kernel, -1, -1) * 
+                                               self._get_variable([self.feature_dims], tf.random_uniform_initializer())] + 
+                                              [mtf.slice(x, i, dim, False) for i in range(-self.depthwise_kernel, 0) * 
+                                               self._get_variable([self.feature_dims], tf.random_uniform_initializer())] * (not autoregressive)))
+        
         with tf.variable_scope(random_name()):
             base = activate(self._linear(block_input, self.feature_dims, intermediate))
             q = (self._linear(base, intermediate, self.feature_dims)
@@ -165,7 +180,7 @@ class ModelParameter(dict):
             v = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
 
             logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) / dim.size ** 0.5
-            if idx in self.masked_attention_dimensions:
+            if autoregressive:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
