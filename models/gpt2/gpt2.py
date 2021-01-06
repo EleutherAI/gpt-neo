@@ -276,8 +276,7 @@ def get_activation_fn(params):
     elif activation_fn == "elu": # https://arxiv.org/abs/1511.07289
         return mtf.elu
 
-    #meme activations
-    elif activation_fn == "abs": #AI_WAIFU's abs
+    elif activation_fn == "abs": 
         return mtf.abs
     elif activation_fn == "id":
         return lambda x: x
@@ -293,7 +292,7 @@ def get_activation_fn(params):
         return lambda x: mtf.cos(x)-mtf.cos(3*x)/3+mtf.cos(5*x)/5-mtf.cos(7*x)/7
     elif activation_fn == "spike":
         return lambda x: 1/(1+x**2)
-    elif activation_fn == "spike2":# electric boogaloo
+    elif activation_fn == "spike2":
         return lambda x: mtf.exp(-x**2)
     
     elif activation_fn == "tanhshrink":
