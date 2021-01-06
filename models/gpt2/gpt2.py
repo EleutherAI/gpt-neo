@@ -276,6 +276,28 @@ def get_activation_fn(params):
     elif activation_fn == "elu": # https://arxiv.org/abs/1511.07289
         return mtf.elu
     
+    elif activation_fn == "tanhshrink":
+        return lambda x: x - tanh(x)
+    elif activation_fn == "softsign":
+        return lambda x: x / (mtf.abs(x) + 1)
+    elif activation_fn == "softmax":
+        return lambda x: mtf.softmax(x, x.shape[-1])
+    elif activation_fn == "logsoftmax":
+        return lambda x: mtf.log_softmax(x, x.shape[-1])
+    elif activation_fn == "bipolarsigmoid":
+        return lambda x: mtf.sigmoid(x) * 2 - 1
+    elif activation_fn == "rrelu":
+        def _rrelu_fn(x):
+            negative_scale = random.random()
+            return (negative_scale * mtf.abs(x) + x) / (1 + negative_scale)
+        return _rrelu_fn
+    elif activation_fn == "elish":
+        def _elish_fn(x):
+            cond = mtf.cast(mtf.greater(x, 0), x.dtype)
+            exp = mtf.exp(x)
+            return cond * x / (1 + exp) + (1 - cond) * (exp - 1) / (1 / exp + 1)
+        return _elish_fn
+    
     # swish activations
     elif activation_fn == "swish": # https://arxiv.org/abs/1710.05941
         return mtf.swish
@@ -302,6 +324,10 @@ def get_activation_fn(params):
         return lambda x: mtf.log(1 + x ** 2)
     elif activation_fn == "snake": # https://arxiv.org/abs/2006.08195
         return lambda x: x + mtf.sin(x) ** 2
+    
+    elif activation_fn == "roottanh":
+        return lambda x: (x ** 2 + 1) ** (1/3) * mtf.tanh(x)
+    
     else:
         raise ValueError('unknown activation function "activation_fn" in config')
 
