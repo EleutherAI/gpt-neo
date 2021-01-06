@@ -286,6 +286,10 @@ def get_activation_fn(params):
         return lambda x: mtf.log_softmax(x, x.shape[-1])
     elif activation_fn == "bipolarsigmoid":
         return lambda x: mtf.sigmoid(x) * 2 - 1
+    elif activation_fn == "abs":
+        return mtf.abs
+    elif activation_fn == "square":
+        return lambda x: x*x
     elif activation_fn == "rrelu":  # https://arxiv.org/abs/1505.00853
         def _rrelu_fn(x):
             negative_scale = random.random()
