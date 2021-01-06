@@ -275,6 +275,25 @@ def get_activation_fn(params):
         return mtf.selu
     elif activation_fn == "elu": # https://arxiv.org/abs/1511.07289
         return mtf.elu
+
+    elif activation_fn == "abs": 
+        return mtf.abs
+    elif activation_fn == "id":
+        return lambda x: x
+    elif activation_fn == "sin":
+        return mtf.sin
+    elif activation_fn == "cos":
+        return mtf.cos
+    elif activation_fn == "sign":
+        return mtf.sign
+    elif activation_fn == "triangle_relax":
+        return lambda x: mtf.sin(x)-mtf.sin(3*x)/9+mtf.sin(5*x)/25-mtf.sin(7*x)/49
+    elif activation_fn == "square_relax":
+        return lambda x: mtf.cos(x)-mtf.cos(3*x)/3+mtf.cos(5*x)/5-mtf.cos(7*x)/7
+    elif activation_fn == "spike":
+        return lambda x: 1/(1+x**2)
+    elif activation_fn == "spike2":
+        return lambda x: mtf.exp(-x**2)
     
     elif activation_fn == "tanhshrink":
         return lambda x: x - tanh(x)
