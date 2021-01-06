@@ -75,12 +75,12 @@ def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
 def select_norm(params):
     #  params["mode"] == "train"
     instance = lambda x: (x - mtf.reduce_mean(x, reduced_dim=x.shape[1])) * mtf.rsqrt(mtf.reduce_mean(mtf.square(x - mean), reduced_dim=x.shape[1]), 1e-6)
-    tmp = mtf.Dimension("temporary_spacenorm_dimension", params["spacenorm_width"])
+    tmp = mtf.Dimension("temporary_spacenorm_dimension", params.get("spacenorm_width", 3))
     norm = {"layer": lambda x: mtf.layer_norm(x, x.shape[-1]),
             "batch": lambda x: mtf.batch_norm(x, params["mode"] == "train", 0.1),
             "instance": instance,
             "space": lambda x: instance(x + mtf.reduce_max(mtf.stack([mtf.shift(x, i, x.shape[1], False) for i in range(params["spacenorm_width"])], tmp.name), reduced_dim=tmp))
-           }[params['normalization_name']]
+           }[params.get('normalization_name', 'layer')]
     def _normalize(x, scope):
         with tf.variable_scope(scope):
             return norm(x)
