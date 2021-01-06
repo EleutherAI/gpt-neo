@@ -286,12 +286,12 @@ def get_activation_fn(params):
         return lambda x: mtf.log_softmax(x, x.shape[-1])
     elif activation_fn == "bipolarsigmoid":
         return lambda x: mtf.sigmoid(x) * 2 - 1
-    elif activation_fn == "rrelu":
+    elif activation_fn == "rrelu":  # https://arxiv.org/abs/1505.00853
         def _rrelu_fn(x):
             negative_scale = random.random()
             return (negative_scale * mtf.abs(x) + x) / (1 + negative_scale)
         return _rrelu_fn
-    elif activation_fn == "elish":
+    elif activation_fn == "elish":  # https://arxiv.org/abs/1808.00783v1
         def _elish_fn(x):
             cond = mtf.cast(mtf.greater(x, 0), x.dtype)
             exp = mtf.exp(x)
@@ -325,8 +325,10 @@ def get_activation_fn(params):
     elif activation_fn == "snake": # https://arxiv.org/abs/2006.08195
         return lambda x: x + mtf.sin(x) ** 2
     
-    elif activation_fn == "roottanh":
+    elif activation_fn == "roottanh":  # made up
         return lambda x: (x ** 2 + 1) ** (1/3) * mtf.tanh(x)
+    elif activation_fn == "softplusmone":  # made up
+        return lambda x: mtf.softplus(x) - 1
     
     else:
         raise ValueError('unknown activation function "activation_fn" in config')
