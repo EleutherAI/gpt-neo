@@ -72,6 +72,19 @@ def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
         return x
 
 
+def select_norm(params):
+    #  params["mode"] == "train"
+    instance = lambda x: (x - mtf.reduce_mean(x, reduced_dim=x.shape[1])) * mtf.rsqrt(mtf.reduce_mean(mtf.square(x - mean), reduced_dim=x.shape[1]), 1e-6)
+    if params['normalization_name'] == "layer":
+        return lambda x: mtf.layer_norm(x, x.shape[-1])
+    if params['normalization_name'] == "batch":
+        return lambda x: mtf.batch_norm(x, params["mode"] == "train", 0.1)
+    if params['normalization_name'] == "instance":
+        return instance
+    if params['normalization_name'] == "space":
+        tmp = mtf.Dimension("temporary_spacenorm_dimension", params["spacenorm_width"])
+        return lambda x: instance(x + mtf.reduce_max(mtf.stack([mtf.shift(x, i, x.shape[1], False) for i in range(params["spacenorm_width"])], tmp.name), reduced_dim=tmp))
+    
 def linear_attention(q, k, v):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
     q = mtf.rename_dimension(q, "features_per_head", "features_per_head_in")
@@ -256,8 +269,7 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
                                  activation_dtype=variable_dtype.activation_dtype)
             a += b
 
-        if params["mode"] == "train" and params["res_dropout"] > 0:
-            a = mtf.dropout(a, rate=params["res_dropout"], name="res_dropout")
+        a = mtf.dropout(a, rate=params["res_dropout"] * (params["mode"] == "train"), name="res_dropout")
         return a
 
 
@@ -365,6 +377,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
     use_moe = exists(params["moe_layers"]) and (layer_num in params["moe_layers"])
     use_rezero = params["rezero"] == True
     macaron_attention = params["macaron"] == True
+    norm = select_norm(params)
 
     def fn(x):
         with tf.variable_scope(scope):
@@ -394,7 +407,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                 mult = 1
 
             if attention_type != "none":
-                res_x = prenorm(x, "norm_1", variable_dtype=variable_dtype, params=params)
+                res_x = norm(x)
                 a = attn(res_x, "attn", nx, attention_type=attention_type,
                          params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
                          variable_dtype=variable_dtype, context=context)
@@ -403,7 +416,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
 
             x = x + pre_residual_fn(a, "norm_rezero_1", dtype=variable_dtype)
 
-            res_x = prenorm(x, "norm_2", variable_dtype=variable_dtype, params=params)
+            res_x = norm(x)
 
             if use_moe:
                 moe_params = mtf.transformer.moe.HParams()
