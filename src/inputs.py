@@ -48,7 +48,7 @@ def generic_data(params: ModelParameter):
     frame_width_patch = params.frame_width_patch
     channel_color_size = params.channel_color_size
 
-    if params.use_language and params.use_video:
+    if params.use_video and params.language_token_per_frame > 0:
         interleave_func = lambda x, y, z: tf.data.Dataset.zip((x, y, z)) \
             .batch(sequence_length + time_patch, drop_remainder=True)
     elif params.use_video:
