@@ -327,7 +327,7 @@ def get_activation_fn(params):
     elif activation_fn == "swish":
         def _swish_fn(x):
             beta = mtf.get_variable(x.mesh, "beta", [], initializer=tf.constant_initializer(0), dtype=dtype)
-            return x * sigmoid (beta * x)
+            return x * mtf.sigmoid (beta * x)
         return _swish_fn
 
     
