@@ -633,8 +633,8 @@ def worker(work: list,
                                     bpe_list.pop(0)
                                     stamp.pop(0)
 
-                                for i in range(0, len(token_buffer), language_tokens_per_frame):
-                                    buffer = token_buffer[i:i + language_tokens_per_frame]
+                                for i in range(0, len(token_buffer), (language_tokens_per_frame - 1)):
+                                    buffer = token_buffer[i:i + (language_tokens_per_frame - 1)]
                                     mask = len(buffer)
                                     buffer += [padding_token] * (language_tokens_per_frame - mask)
                                     skip_buffer = i > 0
