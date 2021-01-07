@@ -54,6 +54,7 @@ class ModelParameter(dict):
         self.shuffle_buffer = 16
         self.interleaved_datasets = 256
         self.depthwise_kernel = 15
+        self.token_patch_size = 4
         self.lr = 5e-5
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,z:1,h:32"
@@ -62,6 +63,7 @@ class ModelParameter(dict):
         self.model_path = "gs://text-datasets/video-transformer/ctx=32-layer=64-heads=8-feat=256"
         self.language_token_per_frame = 0
         self.warmup_steps = 3000
+        self.memory_token = [0, 0, 0]
         self.weight_decay = 0.1
         self.train_steps = 572300
         self.warmup_steps = 3000
@@ -164,15 +166,15 @@ class ModelParameter(dict):
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
         intermediate = self._intermediate_dimensions(self.feature_dims)
         autoregressive = idx in self.masked_attention_dimensions
-        
+
         if layer_type < self.cum_revblock_pattern['depthwise-convolution']:
             with tf.variable_scope(random_name()):
                 return self._rezero(mtf.add_n([mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
                                                for i in range(self.depthwise_kernel, -1, -1)] +
-                                              [] if autoregressive else 
+                                              [] if autoregressive else
                                               [mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
                                                for i in range(-self.depthwise_kernel, 0)]))
-        
+
         with tf.variable_scope(random_name()):
             base = activate(self._linear(block_input, self.feature_dims, intermediate))
             q = (self._linear(base, intermediate, self.feature_dims)
@@ -187,7 +189,7 @@ class ModelParameter(dict):
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
                 j = mtf.broadcast(j, [tmp_dim, dim])
-                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e4
+                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e12
             weights = mtf.softmax(logits, tmp_dim)
             output = mtf.einsum([weights, v], q.shape)
             return self._rezero(output)
@@ -208,45 +210,56 @@ class ModelParameter(dict):
             src = self._linear(src, input_features, self.feature_dims)
 
         if self.use_language:
-            tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], self.feature_dims)
+            spatial_ctx = tkn_src.shape[2]
+            tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], [self.dim_heads, mtf.Dimension('_' + self.key_dim.name, 2 * self.key_dim.size // self.token_patch_size)])
+            tkn_src = self._linear(tkn_src, tkn_src.shape[3:4] + tkn_src.shape[-1:], [self.key_dim])
 
         if self.use_video and self.use_language:
-            spatial_ctx = tkn_tgt.shape[-1]
+            spatial_ctx = tkn_src.shape[2]
             src = unanonymize(mtf.concat([anonymize(src, spatial_ctx.name), anonymize(tkn_src, spatial_ctx.name)],
                                          '_' + spatial_ctx.name),
                               spatial_ctx.name)
         elif not self.use_video:
             src = tkn_src
 
+        for pad, dim in zip(self.memory_token, src.shape[1:-2]):
+            if pad > 0:
+                pad_dim = mtf.Dimension('_' + dim.name, pad)
+                src = mtf.concat([anonymize(src, dim.name),
+                                  mtf.broadcast(self._get_variable([pad_dim] + self.feature_dims, tf.orthogonal_initializer()),
+                                                [mtf.Dimension('_' + dim.name, pad) if d.name == dim.name else d for d in src.shape])],
+                                 '_' + dim.name)
+                src = unanonymize(src, dim.name)
+
         xs = (src, None, src, None)
 
         for _ in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
-     
         video_loss = 0
         token_loss = 0
-
-      
 
         tkn = out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
         loss = 0
 
+        for pad, dim in zip(self.memory_token, src.shape[1:-2]):
+            if pad > 0:
+                out = anonymize(out, dim.name)
+                out = mtf.slice(out, pad, dim.size - pad, '_' + dim.name)
+                out = unanonymize(out, dim.name)
+
         if self.use_video and self.use_language:
             out = anonymize(out, spatial_ctx.name)
-            tkn = unanonymize(mtf.slice(out, tgt.shape[2].size, self.language_token_per_frame, '_' + spatial_ctx.name),
+            tkn = unanonymize(mtf.slice(out, 0, tkn_src.shape[2].size, '_' + spatial_ctx.name),
                               spatial_ctx.name)
-            out = unanonymize(mtf.slice(out, 0, tgt.shape[2].size, '_' + spatial_ctx.name), spatial_ctx.name)
+            out = unanonymize(mtf.slice(out, tkn_src.shape[2].size, out.shape[2].size - tkn_src.shape[2].size, '_' + spatial_ctx.name), spatial_ctx.name)
 
         if self.use_language:
-            tkn = self._generic_feed_forward(tkn, self.feature_dims, [vocab_dim])
+            tkn = self._generic_feed_forward(tkn, self.feature_dims, [tkn_tgt.shape[-1], vocab_dim])
             token_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
                                                                                 targets=tkn_tgt,
                                                                                 vocab_dim=vocab_dim,
                                                                                 z_loss=1e-4))
-
-
-
 
         if self.use_video:
             src = mtf.sigmoid(self._generic_feed_forward(out, self.feature_dims, input_features))

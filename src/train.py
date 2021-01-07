@@ -115,8 +115,9 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
                                                   "frame_input")
 
     if params.use_language:
-        token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size)] +
-                              ([mtf.Dimension("height", params.language_token_per_frame)] if params.use_video else []))
+        token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size // (self.token_patch_size if not params.use_video else 1))] +
+                              ([mtf.Dimension("height", params.language_token_per_frame // params.token_patch_size),
+                                mtf.Dimension("token_patch", params.token_patch_size)] if params.use_video else []))
         token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "tkn_src")
         token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "tkn_tgt")
 

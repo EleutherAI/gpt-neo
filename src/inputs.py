@@ -90,6 +90,9 @@ def generic_data(params: ModelParameter):
             token_x = token[:, :sequence_length]
             token_y = token[:, 1:sequence_length + 1]
 
+            token_x = tf.reshape(token_x, token_x.shape.as_list()[:-1] + [token_x.shape.as_list()[-1] // params.token_patch_size, params.token_patch_size])
+            token_y = tf.reshape(token_y, token_y.shape.as_list()[:-1] + [token_y.shape.as_list()[-1] // params.token_patch_size, params.token_patch_size])
+
         if params.use_video:
             # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
             frame = tf.reshape(frame, (
