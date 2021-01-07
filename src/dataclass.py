@@ -85,8 +85,8 @@ class ModelParameter(dict):
         self.dim_heads = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.feature_dims = [self.dim_heads, self.key_dim]
-        self.cum_revblock_pattern = dict(zip(self.revblock_pattern.keys(), np.cumsum(self.reblock_pattern.values())))
-        self.revblock_pattern_size = max(cum_revblock_pattern.values())
+        self.cum_revblock_pattern = dict(zip(self.revblock_pattern.keys(), np.cumsum(list(self.revblock_pattern.values()))))
+        self.revblock_pattern_size = max(self.cum_revblock_pattern.values())
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -165,12 +165,13 @@ class ModelParameter(dict):
         intermediate = self._intermediate_dimensions(self.feature_dims)
         autoregressive = idx in self.masked_attention_dimensions
         
-        if layer_type < self.cum_revblock_pattern['depthwise-conv']:
+        if layer_type < self.cum_revblock_pattern['depthwise-convolution']:
             with tf.variable_scope(random_name()):
-                return self._rezero(mtf.add_n([mtf.slice(x, i, dim, False) for i in range(self.depthwise_kernel, -1, -1) * 
-                                               self._get_variable([self.feature_dims], tf.random_uniform_initializer())] + 
-                                              [mtf.slice(x, i, dim, False) for i in range(-self.depthwise_kernel, 0) * 
-                                               self._get_variable([self.feature_dims], tf.random_uniform_initializer())] * (not autoregressive)))
+                return self._rezero(mtf.add_n([mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
+                                               for i in range(self.depthwise_kernel, -1, -1)] +
+                                              [] if autoregressive else 
+                                              [mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
+                                               for i in range(-self.depthwise_kernel, 0)]))
         
         with tf.variable_scope(random_name()):
             base = activate(self._linear(block_input, self.feature_dims, intermediate))
@@ -179,14 +180,15 @@ class ModelParameter(dict):
             k = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
             v = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
 
-            logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) / dim.size ** 0.5
+            logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) * self._get_scalar(dim.size ** -0.5)
+            # Looks unstable, but that's how TF does it: https://github.com/tensorflow/tensorflow/blob/v2.4.0/tensorflow/python/keras/layers/dense_attention.py#L349
             if autoregressive:
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
                 j = mtf.broadcast(j, [tmp_dim, dim])
-                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e12
-            weights = mtf.softmax(logits, dim)
+                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e4
+            weights = mtf.softmax(logits, tmp_dim)
             output = mtf.einsum([weights, v], q.shape)
             return self._rezero(output)
 
