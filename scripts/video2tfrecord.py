@@ -635,8 +635,8 @@ def worker(work: list,
 
                                 for i in range(0, len(token_buffer), language_tokens_per_frame):
                                     buffer = token_buffer[i:i + language_tokens_per_frame]
-                                    mask = language_tokens_per_frame - len(buffer)
-                                    buffer += [padding_token] * mask
+                                    mask = len(buffer)
+                                    buffer += [padding_token] * (language_tokens_per_frame - mask)
                                     skip_buffer = i > 0
 
                                     proto.append(frame_encoder(pading_frame if skip_buffer else frame,
