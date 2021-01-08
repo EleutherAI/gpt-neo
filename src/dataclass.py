@@ -53,7 +53,7 @@ class ModelParameter(dict):
         self.buffer_size = 4
         self.shuffle_buffer = 16
         self.interleaved_datasets = 256
-        self.depthwise_kernel = 15
+        self.depthwise_kernel = 14
         self.token_patch_size = 4
         self.lr = 5e-5
         self.train_batch_size = 1
