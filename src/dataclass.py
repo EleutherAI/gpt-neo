@@ -137,7 +137,7 @@ class ModelParameter(dict):
                               reduced: typing.List[mtf.Dimension],
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.,
-                              experts: typing.List[mtf.Dimension] = tuple()):
+                              experts: typing.List[mtf.Dimension] = []):
         intermediate = experts + self._intermediate_dimensions([dim for dim in new if dim not in experts], intermediate_factor)
         with tf.variable_scope(random_name()):
             block_input = self._linear(block_input, reduced, intermediate)
