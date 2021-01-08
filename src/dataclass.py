@@ -123,7 +123,7 @@ class ModelParameter(dict):
 
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
         with tf.variable_scope(random_name()):
-            return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
+            return mtf.einsum([block_input, self._get_variable(list(set(old + new)), tf.orthogonal_initializer())],
                               block_input.shape - old + new)
 
     def _intermediate_dimensions(self, dimensions, intermediate_factor: float = 1.):
@@ -138,7 +138,7 @@ class ModelParameter(dict):
                               new: typing.List[mtf.Dimension],
                               intermediate_factor: float = 1.,
                               experts: typing.List[mtf.Dimension] = tuple()):
-        intermediate = self._intermediate_dimensions([dim for dim in new if dim not in experts], intermediate_factor)
+        intermediate = experts + self._intermediate_dimensions([dim for dim in new if dim not in experts], intermediate_factor)
         with tf.variable_scope(random_name()):
             block_input = self._linear(block_input, reduced, intermediate)
             block_input = activate(block_input)
