@@ -168,7 +168,7 @@ class ModelParameter(dict):
         autoregressive = idx in self.masked_attention_dimensions
 
         if layer_type < self.cum_revblock_pattern['depthwise-convolution']:
-            conv_dim = mtf.Dimension("_conv_dim", 1 + self.depthwise_kernel * (1 + autoregressive))
+            conv_dim = mtf.Dimension("_conv_dim", 1 + self.depthwise_kernel * (1 + not autoregressive))
             anonymous_feature_dims = [self.dim_heads, mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)]
             with tf.variable_scope(random_name()):
                 conv = mtf.stack([mtf.shift(block_input, i, dim, False) for i in range(self.depthwise_kernel, -1, -1)] +
