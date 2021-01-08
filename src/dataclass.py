@@ -1,29 +1,10 @@
-import base64
-import mesh_tensorflow as mtf
-import numpy as np
-import random
-import tensorflow.compat.v1 as tf
 import typing
 
+import mesh_tensorflow as mtf
+import numpy as np
+import tensorflow.compat.v1 as tf
 
-random.seed(65537)
-
-
-def random_name():
-    return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')
-                            ).decode().replace("+", "").replace("/", "").replace("=", "")
-
-
-def anonymize(inp: mtf.Tensor, dim_name: str):
-    return mtf.rename_dimension(inp, dim_name, '_' + dim_name)
-
-
-def unanonymize(inp: mtf.Tensor, dim_name: str):
-    return mtf.rename_dimension(inp, '_' + dim_name, dim_name)
-
-
-def activate(block_input):
-    return mtf.tanh(block_input) * block_input
+from .utils import activate, anonymize, concat, default, random_name, slice
 
 
 class ModelParameter(dict):
@@ -53,9 +34,9 @@ class ModelParameter(dict):
         self.buffer_size = 4
         self.shuffle_buffer = 16
         self.interleaved_datasets = 256
-        self.depthwise_kernel = 15
         self.token_patch_size = 4
         self.lr = 5e-5
+        self.dtype = tf.float32
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,z:1,h:32"
         self.layout = "batch:x,heads:y,embd:z,height:h"
@@ -69,7 +50,6 @@ class ModelParameter(dict):
         self.warmup_steps = 3000
         self.iterations = 2500
         self.gradient_clipping = 1.0
-        self.revblock_pattern = {"feed-forward": 1, "depthwise-convolution": 1, "attention": 1}
         self.intermediate_feed_forward_multiplier = 1
 
         self.mesh = None
@@ -84,11 +64,15 @@ class ModelParameter(dict):
         self.frame_height_patch = self.frame_height // self.patch_size
         self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
-        self.dim_heads = mtf.Dimension("heads", self.n_head)
+        self.head_dim = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-        self.feature_dims = [self.dim_heads, self.key_dim]
-        self.cum_revblock_pattern = dict(zip(self.revblock_pattern.keys(), np.cumsum(list(self.revblock_pattern.values()))))
-        self.revblock_pattern_size = max(self.cum_revblock_pattern.values())
+        self.feature_dims = [self.head_dim, self.key_dim]
+        self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
+        self.intermediate = [mtf.Dimension('_intermediate',
+                                           int(np.prod([dim.size for dim in self.feature_dims])
+                                               * self.intermediate_feed_forward_multiplier))]
+        self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
+        self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -112,160 +96,125 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer):
-        return mtf.get_variable(self.mesh, random_name(), shape, dtype=tf.float32, initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name(), shape, dtype=self.dtype, initializer=initializer)
 
-    def _get_scalar(self, value):
-        return self._get_variable([], tf.constant_initializer(value))
+    def _orthogonal_var(self, shape):
+        return self._get_variable(shape, tf.orthogonal_initializer())
 
-    def _rezero(self, block_input: mtf.Tensor, init: float = 0.):
+    def _constant_var(self, shape, value):
+        return self._get_variable(shape, tf.constant_initializer(value))
+
+    def _scalar(self, value):
+        return self._constant_var([], value)
+
+    def _rezero(self, block_input: mtf.Tensor, init):
         with tf.variable_scope(random_name()):
-            return block_input * self._get_scalar(init)
+            return block_input * self._scalar(init)
 
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
         with tf.variable_scope(random_name()):
-            return mtf.einsum([block_input, self._get_variable(old + new, tf.orthogonal_initializer())],
-                              block_input.shape - old + new)
+            return mtf.einsum([block_input, self._orthogonal_var(list(set(old + new)))], block_input.shape - old + new)
 
-    def _intermediate_dimensions(self, dimensions, intermediate_factor: float = 1.):
-        return [mtf.Dimension('_intermediate',
-                              int(np.prod([dim.size for dim in dimensions])
-                                  * intermediate_factor
-                                  * self.intermediate_feed_forward_multiplier))]
+    def _linear_to_features(self, block_input: mtf.Tensor, old: typing.Optional[typing.List[mtf.Dimension]] = None):
+        return self._linear(block_input, default(old, self.intermediate), self.feature_dims)
 
-    def _generic_feed_forward(self,
-                              block_input: mtf.Tensor,
-                              reduced: typing.List[mtf.Dimension],
-                              new: typing.List[mtf.Dimension],
-                              intermediate_factor: float = 1.,
-                              experts: typing.List[mtf.Dimension] = tuple()):
-        intermediate = self._intermediate_dimensions([dim for dim in new if dim not in experts], intermediate_factor)
-        with tf.variable_scope(random_name()):
-            block_input = self._linear(block_input, reduced, intermediate)
-            block_input = activate(block_input)
-            return self._linear(block_input, intermediate, new)
-
-    def _feed_forward(self, x: mtf.Tensor, intermediate_factor: float = 1., grouped=False):
-        return self._generic_feed_forward(x,
-                                          self.feature_dims,
-                                          self.feature_dims,
-                                          intermediate_factor / (self.intermediate_feed_forward_multiplier
-                                                                 if grouped else 1),
-                                          [self.dim_heads] if grouped else [])
+    def _linear_from_features(self, block_input: mtf.Tensor, new: typing.Optional[typing.List[mtf.Dimension]] = None):
+        return self._linear(block_input, self.feature_dims, default(new, self.intermediate))
 
     def _block_fn(self, block_input):
-        layer_type = self._layer_idx % self.revblock_pattern_size
         self._layer_idx += 1
-        
-        if layer_type < self.cum_revblock_pattern['feed-forward']:
-            with tf.variable_scope(random_name()):
-                return self._rezero(self._feed_forward(block_input, grouped=True))
 
         attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
-        idx = (self._layer_idx // (self.feed_forward_per_attention + 1)) % len(attention_dims)
+        idx = self._layer_idx % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
-        intermediate = self._intermediate_dimensions(self.feature_dims)
-        autoregressive = idx in self.masked_attention_dimensions
 
-        if layer_type < self.cum_revblock_pattern['depthwise-convolution']:
-            with tf.variable_scope(random_name()):
-                return self._rezero(mtf.add_n([mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
-                                               for i in range(self.depthwise_kernel, -1, -1)] +
-                                              [] if autoregressive else
-                                              [mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
-                                               for i in range(-self.depthwise_kernel, 0)]))
+        attention_scale = (dim.size + self.intermediate[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
-            base = activate(self._linear(block_input, self.feature_dims, intermediate))
-            q = (self._linear(base, intermediate, self.feature_dims)
-                 + self._get_variable([dim] + self.feature_dims, tf.orthogonal_initializer()))
-            k = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
-            v = anonymize(self._linear(base, intermediate, self.feature_dims), dim.name)
+            base = activate(self._linear_from_features(block_input))
+            context_qry = (self._linear_to_features(base) + self._orthogonal_var([dim] + self.feature_dims))
+            feature_qry = self._linear_to_features(base)
+            context_key = anonymize(self._linear_to_features(base), dim.name)
+            context_val = anonymize(self._linear_to_features(base), dim.name)
 
-            logits = mtf.einsum([q, k], reduced_dims=[self.key_dim]) * self._get_scalar(dim.size ** -0.5)
-            # Looks unstable, but that's how TF does it: https://github.com/tensorflow/tensorflow/blob/v2.4.0/tensorflow/python/keras/layers/dense_attention.py#L349
-            if autoregressive:
+            learned_key = self._orthogonal_var(self.intermediate + self.feature_dims)
+            learned_val = self._orthogonal_var(self.intermediate + self.feature_dims)
+
+            context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
+            feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
+
+            if idx in self.masked_attention_dimensions:  # it's auto-regressive
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
                 j = mtf.broadcast(j, [tmp_dim, dim])
-                logits += mtf.cast(mtf.less(i, j), tf.float32) * -1e12
-            weights = mtf.softmax(logits, tmp_dim)
-            output = mtf.einsum([weights, v], q.shape)
-            return self._rezero(output)
+                context_logits += mtf.cast(mtf.less(i, j), self.dtype) * -1e12
+
+            max_logits = mtf.maximum(mtf.reduce_max(mtf.stop_gradient(context_logits), reduced_dim=tmp_dim),
+                                     mtf.reduce_max(mtf.stop_gradient(feature_logits), reduced_dim=self.intermediate[0])
+                                     )
+            logsumexp = mtf.log(mtf.reduce_sum(mtf.exp(context_logits - max_logits), reduced_dim=tmp_dim) +
+                                mtf.reduce_sum(mtf.exp(feature_logits - max_logits), reduced_dim=self.intermediate[0])
+                                ) - max_logits
+            output = (mtf.einsum([mtf.exp(context_logits - logsumexp), context_val], context_qry.shape) +
+                      mtf.einsum([mtf.exp(feature_logits - logsumexp), learned_val], context_qry.shape))
+
+            return self._rezero(output, 0)
 
     def build(self, model_input, tkn_src, tkn_tgt):
-        vocab_dim = mtf.Dimension("vocab_size", self.vocab_size)
-
         x = model_input
+        video_loss = 0
+        token_loss = 0
+
+        spatial_ctx = tkn_tgt.shape[-2] if self.use_language else model_input.shape[2]
+
         if self.use_video:
             context_dimension = x.shape[1]
             input_features = x.shape[-1:]
-
-            tgt = mtf.slice(x, 1, context_dimension.size - 1, context_dimension.name) / 255
-            src = (mtf.slice(x, 0, context_dimension.size - 1, context_dimension.name)
-                   / self._get_scalar(127.5)
-                   + self._get_scalar(-1))
-
-            src = self._linear(src, input_features, self.feature_dims)
+            tgt = slice(x, 1, context_dimension.size, context_dimension) / 255
+            src = slice(x, 0, context_dimension.size - 1, context_dimension) / self._scalar(127.5) + self._scalar(-1)
+            src = self._linear_to_features(src, input_features)
 
         if self.use_language:
-            spatial_ctx = tkn_src.shape[2]
-            tkn_src = self._linear(mtf.one_hot(tkn_src, vocab_dim, dtype=tf.float32), [vocab_dim], [self.dim_heads, mtf.Dimension('_' + self.key_dim.name, 2 * self.key_dim.size // self.token_patch_size)])
-            tkn_src = self._linear(tkn_src, tkn_src.shape[3:4] + tkn_src.shape[-1:], [self.key_dim])
+            tkn_src = self._linear_to_features(mtf.one_hot(tkn_src, self.vocab_dim, dtype=self.dtype), [self.vocab_dim])
+            tkn_src = self._linear(tkn_src, [tkn_tgt.shape[-1], self.key_dim], [self.key_dim])
 
         if self.use_video and self.use_language:
-            spatial_ctx = tkn_src.shape[2]
-            src = unanonymize(mtf.concat([anonymize(src, spatial_ctx.name), anonymize(tkn_src, spatial_ctx.name)],
-                                         '_' + spatial_ctx.name),
-                              spatial_ctx.name)
+            src = concat([src, tkn_src], spatial_ctx)
         elif not self.use_video:
             src = tkn_src
 
-        for pad, dim in zip(self.memory_token, src.shape[1:-2]):
+        for pad, (name, _) in zip(self.memory_token, src.shape[1:-2]):
             if pad > 0:
-                pad_dim = mtf.Dimension('_' + dim.name, pad)
-                src = mtf.concat([anonymize(src, dim.name),
-                                  mtf.broadcast(self._get_variable([pad_dim] + self.feature_dims, tf.orthogonal_initializer()),
-                                                [mtf.Dimension('_' + dim.name, pad) if d.name == dim.name else d for d in src.shape])],
-                                 '_' + dim.name)
-                src = unanonymize(src, dim.name)
+                anonymous_name = '_' + name
+                memory = mtf.broadcast(self._orthogonal_var([mtf.Dimension(anonymous_name, pad)] + self.feature_dims),
+                                       [mtf.Dimension(anonymous_name, pad) if d.name == name else d for d in src.shape])
+                src = concat([src, memory], name)
 
         xs = (src, None, src, None)
 
         for _ in range(self.n_layer):
             xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
 
-        video_loss = 0
-        token_loss = 0
+        out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
 
-        tkn = out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
-        loss = 0
-
-        for pad, dim in zip(self.memory_token, src.shape[1:-2]):
-            if pad > 0:
-                out = anonymize(out, dim.name)
-                out = mtf.slice(out, pad, dim.size - pad, '_' + dim.name)
-                out = unanonymize(out, dim.name)
-
-        if self.use_video and self.use_language:
-            out = anonymize(out, spatial_ctx.name)
-            tkn = unanonymize(mtf.slice(out, 0, tkn_src.shape[2].size, '_' + spatial_ctx.name),
-                              spatial_ctx.name)
-            out = unanonymize(mtf.slice(out, tkn_src.shape[2].size, out.shape[2].size - tkn_src.shape[2].size, '_' + spatial_ctx.name), spatial_ctx.name)
+        for pad, (name, size) in zip(self.memory_token, src.shape[1:-2]):
+            out = slice(out, pad, size, name)
 
         if self.use_language:
-            tkn = self._generic_feed_forward(tkn, self.feature_dims, [tkn_tgt.shape[-1], vocab_dim])
+            tkn = slice(out, 0, self.token_patch_count, spatial_ctx)
+            tkn = self._linear_from_features(tkn, [tkn_tgt.shape[-1], self.vocab_dim])
             token_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                targets=tkn_tgt,
-                                                                                vocab_dim=vocab_dim,
-                                                                                z_loss=1e-4))
+                                                                                      targets=tkn_tgt,
+                                                                                      vocab_dim=self.vocab_dim,
+                                                                                      z_loss=1e-4))
 
         if self.use_video:
-            src = mtf.sigmoid(self._generic_feed_forward(out, self.feature_dims, input_features))
-            video_loss += mtf.reduce_mean(mtf.abs(src - tgt))
+            out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
+            src = mtf.sigmoid(self._linear_from_features(out, input_features))
+            video_loss = mtf.reduce_mean(mtf.abs(src - tgt))
 
         self._layer_idx = 0
 
         return src, (video_loss + token_loss), video_loss, token_loss
-
