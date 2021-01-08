@@ -168,12 +168,15 @@ class ModelParameter(dict):
         autoregressive = idx in self.masked_attention_dimensions
 
         if layer_type < self.cum_revblock_pattern['depthwise-convolution']:
+            conv_dim = mtf.Dimension("_conv_dim", 1 + self.depthwise_kernel * (1 + autoregressive))
+            anonymous_feature_dims = [self.dim_heads, mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)]
             with tf.variable_scope(random_name()):
-                return self._rezero(mtf.add_n([mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
-                                               for i in range(self.depthwise_kernel, -1, -1)] +
-                                              [] if autoregressive else
-                                              [mtf.shift(block_input, i, dim, False) * self._get_variable(self.feature_dims, tf.random_uniform_initializer())
-                                               for i in range(-self.depthwise_kernel, 0)]))
+                conv = mtf.stack([mtf.shift(block_input, i, dim, False) for i in range(self.depthwise_kernel, -1, -1)] +
+                                 [] if autoregressive else
+                                 [mtf.shift(block_input, i, dim, False) for i in range(-self.depthwise_kernel, 0)],
+                                conv_dim.name, -1)
+                return self._rezero(self._linear(activate(self._linear(conv, self.feature_dims + [conv_dim], anonymous_feature_dims)),
+                                                 anonymous_feature_dims, self.feature_dims))
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear(block_input, self.feature_dims, intermediate))
