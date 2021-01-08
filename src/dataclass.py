@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, concat, default, random_name, slice
+from .utils import activate, anonymize, concat, default, random_name, slice, new_dim
 
 
 class ModelParameter(dict):
@@ -51,6 +51,7 @@ class ModelParameter(dict):
         self.iterations = 2500
         self.gradient_clipping = 1.0
         self.intermediate_feed_forward_multiplier = 1
+        self.feed_forward_attention_factor = 4
 
         self.mesh = None
 
@@ -71,6 +72,8 @@ class ModelParameter(dict):
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
+        self.learned_dim = [new_dim(self.intermediate[0],
+                                    self.intermediate[0].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
 
@@ -138,8 +141,8 @@ class ModelParameter(dict):
             context_key = anonymize(self._linear_to_features(base), dim.name)
             context_val = anonymize(self._linear_to_features(base), dim.name)
 
-            learned_key = self._orthogonal_var(self.intermediate + self.feature_dims)
-            learned_val = self._orthogonal_var(self.intermediate + self.feature_dims)
+            learned_key = self._orthogonal_var(self.learned_dim + self.feature_dims)
+            learned_val = self._orthogonal_var(self.learned_dim + self.feature_dims)
 
             context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
             feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
@@ -152,10 +155,10 @@ class ModelParameter(dict):
                 context_logits += mtf.cast(mtf.less(i, j), self.dtype) * -1e12
 
             max_logits = mtf.maximum(mtf.reduce_max(mtf.stop_gradient(context_logits), reduced_dim=tmp_dim),
-                                     mtf.reduce_max(mtf.stop_gradient(feature_logits), reduced_dim=self.intermediate[0])
+                                     mtf.reduce_max(mtf.stop_gradient(feature_logits), reduced_dim=self.learned_dim[0])
                                      )
             logsumexp = mtf.log(mtf.reduce_sum(mtf.exp(context_logits - max_logits), reduced_dim=tmp_dim) +
-                                mtf.reduce_sum(mtf.exp(feature_logits - max_logits), reduced_dim=self.intermediate[0])
+                                mtf.reduce_sum(mtf.exp(feature_logits - max_logits), reduced_dim=self.learned_dim[0])
                                 ) - max_logits
             output = (mtf.einsum([mtf.exp(context_logits - logsumexp), context_val], context_qry.shape) +
                       mtf.einsum([mtf.exp(feature_logits - logsumexp), learned_val], context_qry.shape))
