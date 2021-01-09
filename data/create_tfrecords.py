@@ -44,7 +44,7 @@ def _int64_feature(value):
     """
     Returns an int64_list from a bool / enum / int / uint.
     """
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=value))
+    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
 
 def write_to_file(writer, data):
     """
@@ -55,7 +55,7 @@ def write_to_file(writer, data):
     }
     tf_example = tf.train.Example(features=tf.train.Features(feature=feature))
     writer.write(tf_example.SerializeToString())
-    
+
 def split_list(l, n):
     # splits list/string into n size chunks
     return [l[i:i+n] for i in range(0, len(l), n)]
@@ -67,7 +67,7 @@ def archive_to_tokens(f, args):
     for doc in reader.stream_data(threaded=False):
         if args.ftfy: # fix text with ftfy if specified
             doc = ftfy.fix_text(doc, normalization='NFKC')
-        yield doc.encode() + bytes([args.separator])
+        yield doc.encode() + bytes(args.separator)
 
 def write_files(files_byte, files_per, output_dir, out_name, start_no, write_remainder=False, process_no=None):
     # writes a list of files to .tfrecords
@@ -103,7 +103,6 @@ def read_checkpoint(checkpoint_path, resume_from_checkpoint=True):
 def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_checkpoints=False, resume_from_checkpoint=False, display_pbar=False):
     # iterates through files in input_dir, splitting into <args.chunk_size> chunks and saving a tfrecords file every <args.files_per> chunks.
     files, args, process_no = params
-    enc = get_tokenizer(args) # get tokenizer
 
     # init metadata
     discarded_files = 0
