@@ -49,7 +49,7 @@ class ModelParameter(dict):
         self.train_steps = 572300
         self.warmup_steps = 3000
         self.iterations = 2500
-        self.label_smoothing = 0.9
+        self.label_smoothing = 0.1
         self.z_loss = 0.01
         self.gradient_clipping = 1.0
         self.intermediate_feed_forward_multiplier = 1
@@ -214,11 +214,13 @@ class ModelParameter(dict):
             tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
                                              [tkn_tgt.shape[-1], self.vocab_dim])
             max_logits = mtf.reduce_max(mtf.stop_gradient(tkn), reduced_dim=self.vocab_dim)
-            token_loss = (mtf.reduce_sum(self.z_loss * mtf.square(tkn)) / self.vocab_dim.size
-                          + mtf.reduce_sum(tkn * mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype))
-                          - mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits))))
-                          - mtf.reduce_sum(max_logits)
-                          ) / (tkn.shape.size - self.vocab_dim.size)
+            token_loss = mtf.add_n([mtf.reduce_sum(self.z_loss * mtf.square(tkn)) / self.vocab_dim.size,
+                                    mtf.reduce_sum(tkn
+                                                   * mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
+                                                   * (1 - self.label_smoothing)
+                                                   + self.label_smoothing / self.vocab_dim),
+                                    -mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits)))),
+                                    -mtf.reduce_sum(max_logits)]) / tkn.shape.size - self.vocab_dim.size
 
         if self.use_video:
             out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
