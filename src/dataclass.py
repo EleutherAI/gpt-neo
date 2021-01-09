@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, concat, default, random_name, slice, new_dim
+from .utils import activate, anonymize, concat, default, new_dim, random_name, slice
 
 
 class ModelParameter(dict):
@@ -49,6 +49,8 @@ class ModelParameter(dict):
         self.train_steps = 572300
         self.warmup_steps = 3000
         self.iterations = 2500
+        self.label_smoothing = 0.9
+        self.z_loss = 0.01
         self.gradient_clipping = 1.0
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
@@ -98,33 +100,36 @@ class ModelParameter(dict):
     def dict(self):
         return self.__dict__
 
-    def _get_variable(self, shape, initializer):
+    def _get_variable(self, shape, initializer) -> mtf.Tensor:
         return mtf.get_variable(self.mesh, random_name(), shape, dtype=self.dtype, initializer=initializer)
 
-    def _orthogonal_var(self, shape):
+    def _orthogonal_var(self, shape) -> mtf.Tensor:
         return self._get_variable(shape, tf.orthogonal_initializer())
 
-    def _constant_var(self, shape, value):
+    def _constant_var(self, shape, value) -> mtf.Tensor:
         return self._get_variable(shape, tf.constant_initializer(value))
 
-    def _scalar(self, value):
+    def _scalar(self, value) -> mtf.Tensor:
         return self._constant_var([], value)
 
-    def _rezero(self, block_input: mtf.Tensor, init):
+    def _rezero(self, block_input: mtf.Tensor, init) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
             return block_input * self._scalar(init)
 
-    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension], new: typing.List[mtf.Dimension]):
+    def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension],
+                new: typing.List[mtf.Dimension]) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
             return mtf.einsum([block_input, self._orthogonal_var(list(set(old + new)))], block_input.shape - old + new)
 
-    def _linear_to_features(self, block_input: mtf.Tensor, old: typing.Optional[typing.List[mtf.Dimension]] = None):
+    def _linear_to_features(self, block_input: mtf.Tensor,
+                            old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
         return self._linear(block_input, default(old, self.intermediate), self.feature_dims)
 
-    def _linear_from_features(self, block_input: mtf.Tensor, new: typing.Optional[typing.List[mtf.Dimension]] = None):
+    def _linear_from_features(self, block_input: mtf.Tensor,
+                              new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
         return self._linear(block_input, self.feature_dims, default(new, self.intermediate))
 
-    def _block_fn(self, block_input):
+    def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
 
         attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
@@ -165,7 +170,7 @@ class ModelParameter(dict):
 
             return self._rezero(output, 0)
 
-    def build(self, model_input, tkn_src, tkn_tgt):
+    def build(self, model_input, tkn_src, tkn_tgt) -> typing.List[mtf.Tensor]:
         x = model_input
         video_loss = 0
         token_loss = 0
@@ -206,12 +211,14 @@ class ModelParameter(dict):
             out = slice(out, pad, size, name)
 
         if self.use_language:
-            tkn = slice(out, 0, self.token_patch_count, spatial_ctx)
-            tkn = self._linear_from_features(tkn, [tkn_tgt.shape[-1], self.vocab_dim])
-            token_loss = mtf.reduce_mean(mtf.layers.softmax_cross_entropy_with_logits(logits=tkn,
-                                                                                      targets=tkn_tgt,
-                                                                                      vocab_dim=self.vocab_dim,
-                                                                                      z_loss=1e-4))
+            tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
+                                             [tkn_tgt.shape[-1], self.vocab_dim])
+            max_logits = mtf.reduce_max(mtf.stop_gradient(tkn), reduced_dim=self.vocab_dim)
+            token_loss = (mtf.reduce_sum(self.z_loss * mtf.square(tkn)) / self.vocab_dim.size
+                          + mtf.reduce_sum(tkn * mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype))
+                          - mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits))))
+                          - mtf.reduce_sum(max_logits)
+                          ) / (tkn.shape.size - self.vocab_dim.size)
 
         if self.use_video:
             out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
