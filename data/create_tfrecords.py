@@ -44,7 +44,6 @@ if not args.output_dir.endswith("/"):
     args.output_dir = args.output_dir + "/"
 if not args.input_dir.endswith("/"):
     args.input_dir = args.input_dir + "/"
-assert len(args.separator) == 1
 
 
 def _int64_feature(value):
