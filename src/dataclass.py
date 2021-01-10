@@ -170,7 +170,8 @@ class ModelParameter(dict):
 
             return self._rezero(output, 0)
 
-    def build(self, model_input, tkn_src, tkn_tgt) -> typing.List[mtf.Tensor]:
+    def build(self, model_input, tkn_src, tkn_tgt) -> typing.Tuple[
+        mtf.Tensor, typing.Union[int, mtf.Tensor], mtf.Tensor, mtf.Tensor]:
         x = model_input
         video_loss = 0
         token_loss = 0
@@ -191,7 +192,7 @@ class ModelParameter(dict):
         if self.use_video and self.use_language:
             src = concat([src, tkn_src], spatial_ctx)
         elif not self.use_video:
-            src = tkn_src
+            src: mtf.Tensor = tkn_src
 
         for pad, (name, _) in zip(self.memory_token, src.shape[1:-2]):
             if pad > 0:
@@ -214,18 +215,18 @@ class ModelParameter(dict):
             tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
                                              [tkn_tgt.shape[-1], self.vocab_dim])
             max_logits = mtf.reduce_max(mtf.stop_gradient(tkn), reduced_dim=self.vocab_dim)
-            token_loss = mtf.add_n([mtf.reduce_sum(self.z_loss * mtf.square(tkn)) / self.vocab_dim.size,
-                                    mtf.reduce_sum(tkn
-                                                   * mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
-                                                   * (1 - self.label_smoothing)
-                                                   + self.label_smoothing / self.vocab_dim),
-                                    -mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits)))),
-                                    -mtf.reduce_sum(max_logits)]) / tkn.shape.size - self.vocab_dim.size
+            token_loss: mtf.Tensor = mtf.add_n([mtf.reduce_sum(self.z_loss * mtf.square(tkn)) / self.vocab_dim.size,
+                                                mtf.reduce_sum(tkn
+                                                               * mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
+                                                               * (1 - self.label_smoothing)
+                                                               + self.label_smoothing / self.vocab_dim),
+                                                -mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits)))),
+                                                -mtf.reduce_sum(max_logits)]) / tkn.shape.size - self.vocab_dim.size
 
         if self.use_video:
             out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
-            video_loss = mtf.reduce_mean(mtf.abs(src - tgt))
+            video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt))
 
         self._layer_idx = 0
 
