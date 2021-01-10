@@ -107,7 +107,8 @@ class Ranger(mtf.optimize.Optimizer):
                 initializer=tf.zeros_initializer(), trainable=False)
         slow_buffer = slow_buffer_ptr = mtf.get_variable(
                 var.mesh, var.name + "/ranger/slow_buffer", var.shape,
-                initializer=var, trainable=False)
+                initializer=tf.zeros_initializer(), trainable=False)
+        slow_buffer = slow_buffer + var * (self.global_steps_float == 0)
 
         if self.use_gc and self.gc_loc and var.shape.ndims > 1:
             var -= mtf.reduce_mean(var, output_shape=[var.shape[0]])
@@ -133,7 +134,7 @@ class Ranger(mtf.optimize.Optimizer):
 
         var = var - G_grad * step_size * self.learning_rate
 
-        look_ahead = self.global_steps_float % self.k
+        look_ahead = (self.global_steps_float % self.k) == (self.global_steps_float - 1)
         slow_buffer = slow_buffer + (var - look_ahead) * self.alpha
         var = slow_buffer * look_ahead + var * (1 - look_ahead)
 
