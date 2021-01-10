@@ -215,7 +215,7 @@ class ModelParameter(dict):
             tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
                                              [tkn_tgt.shape[-1], self.vocab_dim])
             token_loss: mtf.Tensor = mtf.add_n([mtf.reduce_sum(mtf.square(tkn) * (self.z_loss / self.vocab_size)),
-                                                mtf.reduce_logsumexp(tkn, self.vocab_dim),
+                                                mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim)),
                                                 -mtf.reduce_sum(tkn
                                                                 * (mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
                                                                    * ((1 - self.label_smoothing) / self.vocab_size)
