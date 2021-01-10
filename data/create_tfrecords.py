@@ -128,7 +128,7 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
     resume_files_processed, tfrecord_count = read_checkpoint(checkpoint_path, resume_from_checkpoint)
 
     data_to_prepend = []
-    tokenized_files_bytes = b""
+    tokenized_files_bytes = [] if args.tokenize else b""
 
     for f in files:
         for tokenized_files in archive_to_tokens(f, args):
@@ -141,7 +141,7 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
                 pbar.update(1) # update progress bar
                 pbar.set_description(f"Writing TFRecord Files to {args.output_dir}. Parsed {files_processed} input files. files_written ")
                 tfrecord_count += 1
-                tokenized_files_bytes = b""
+                tokenized_files_bytes = [] if args.tokenize else b""
                 with open(checkpoint_path, "w") as checkpoint_file:
                     checkpoint_file.write(f"{files_processed}, {tfrecord_count}")
 
