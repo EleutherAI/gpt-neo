@@ -9,7 +9,6 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
     global_step = tf.train.get_or_create_global_step()
 
     learning_rate = tf.constant(value=params.lr, shape=[], dtype=tf.float32)
-    clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=tf.float32)
 
     if inp_var_grads is None:
         var_grads = mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
@@ -56,8 +55,9 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
                        )
 
     if params.gradient_clipping is not None:
+        clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=tf.float32)
         var_grads_fp = [None if t is None else
-                        t * clip_value / mtf.maximum(mtf.sqrt(mtf.reduce_sum(mtf.square(t))), clip_value)
+                        mtf.minimum(mtf.maximum(t, -clip_value), clip_value)
                         for t in var_grads_fp if t is not None]
 
     update_ops = optimizer.apply_grads(var_grads_fp, mesh.graph.trainable_variables)
