@@ -54,6 +54,7 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
+        self.sigmoid_init = 3
 
         self.mesh = None
 
@@ -112,9 +113,9 @@ class ModelParameter(dict):
     def _scalar(self, value) -> mtf.Tensor:
         return self._constant_var([], value)
 
-    def _rezero(self, block_input: mtf.Tensor, init) -> mtf.Tensor:
+    def _rezero(self, block_input: mtf.Tensor, positive) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
-            return block_input * self._scalar(init)
+            return block_input * mtf.sigmoid(self._scalar(2 * self.sigmoid_init * positive - self.sigmoid_init))
 
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension],
                 new: typing.List[mtf.Dimension]) -> mtf.Tensor:
@@ -160,8 +161,7 @@ class ModelParameter(dict):
                 context_logits += mtf.cast(mtf.less(i, j), self.dtype) * -1e12
 
             max_logits = mtf.maximum(mtf.reduce_max(mtf.stop_gradient(context_logits), reduced_dim=tmp_dim),
-                                     mtf.reduce_max(mtf.stop_gradient(feature_logits), reduced_dim=self.learned_dim[0])
-                                     )
+                                     mtf.reduce_max(mtf.stop_gradient(feature_logits), reduced_dim=self.learned_dim[0]))
             logsumexp = mtf.log(mtf.reduce_sum(mtf.exp(context_logits - max_logits), reduced_dim=tmp_dim) +
                                 mtf.reduce_sum(mtf.exp(feature_logits - max_logits), reduced_dim=self.learned_dim[0])
                                 ) - max_logits
