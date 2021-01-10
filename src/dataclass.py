@@ -49,8 +49,8 @@ class ModelParameter(dict):
         self.train_steps = 572300
         self.warmup_steps = 3000
         self.iterations = 2500
-        self.label_smoothing = 0.1
-        self.z_loss = 0.01
+        self.label_smoothing = 0.2
+        self.z_loss = 0.1
         self.gradient_clipping = 1.0
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
