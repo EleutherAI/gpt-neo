@@ -45,7 +45,7 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
     learning_rate = mtf.import_fully_replicated(mesh, learning_rate, mtf.Shape([]), name="learning_rate")
     mtf.scalar_summary("lr", learning_rate)
 
-    optimizer = mtf.optimize.Ranger(learning_rate,
+    optimizer = Ranger(learning_rate,
                                     params.weight_decay,
                                     0.9,
                                     0.95,
