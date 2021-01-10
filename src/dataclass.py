@@ -222,7 +222,7 @@ class ModelParameter(dict):
                                                                 * (mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)
                                                                    * (1 - self.label_smoothing)
                                                                    + self.label_smoothing / self.vocab_size ** 1))]
-                                               ) / (tkn.shape.size - self.vocab_size)
+                                               ) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
             out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
