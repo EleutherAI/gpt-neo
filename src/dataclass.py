@@ -170,29 +170,31 @@ class ModelParameter(dict):
 
             return self._rezero(output, 0)
 
-    def build(self, model_input, tkn_src, tkn_tgt) -> typing.Tuple[
-        mtf.Tensor, typing.Union[int, mtf.Tensor], mtf.Tensor, mtf.Tensor]:
-        x = model_input
-        video_loss = 0
-        token_loss = 0
+    def build(self,
+              vid: typing.Optional[mtf.Tensor],
+              txt_src: typing.Optional[mtf.Tensor],
+              txt_tgt: typing.Optional[mtf.Tensor]
+              ) -> typing.Tuple[mtf.Tensor, typing.Union[int, mtf.Tensor], mtf.Tensor, mtf.Tensor]:
+        video_loss: typing.Union[int, mtf.Tensor] = 0
+        token_loss: typing.Union[int, mtf.Tensor] = 0
 
-        spatial_ctx = tkn_tgt.shape[-2] if self.use_language else model_input.shape[2]
+        spatial_ctx = txt_tgt.shape[-2] if self.use_language else vid.shape[2]
 
         if self.use_video:
-            context_dimension = x.shape[1]
-            input_features = x.shape[-1:]
-            tgt = slice(x, 1, context_dimension.size, context_dimension) / 255
-            src = slice(x, 0, context_dimension.size - 1, context_dimension) / self._scalar(127.5) + self._scalar(-1)
+            context_dimension = vid.shape[1]
+            input_features = vid.shape[-1:]
+            tgt = slice(vid, 1, context_dimension.size, context_dimension) / 255
+            src = slice(vid, 0, context_dimension.size - 1, context_dimension) / self._scalar(127.5) + self._scalar(-1)
             src = self._linear_to_features(src, input_features)
 
         if self.use_language:
-            tkn_src = self._linear_to_features(mtf.one_hot(tkn_src, self.vocab_dim, dtype=self.dtype), [self.vocab_dim])
-            tkn_src = self._linear(tkn_src, [tkn_tgt.shape[-1], self.key_dim], [self.key_dim])
+            txt_src = self._linear_to_features(mtf.one_hot(txt_src, self.vocab_dim, dtype=self.dtype), [self.vocab_dim])
+            txt_src = self._linear(txt_src, [txt_tgt.shape[-1], self.key_dim], [self.key_dim])
 
         if self.use_video and self.use_language:
-            src = concat([src, tkn_src], spatial_ctx)
+            src = concat([src, txt_src], spatial_ctx)
         elif not self.use_video:
-            src: mtf.Tensor = tkn_src
+            src: mtf.Tensor = txt_src
 
         for pad, (name, _) in zip(self.memory_token, src.shape[1:-2]):
             if pad > 0:
@@ -201,23 +203,23 @@ class ModelParameter(dict):
                                        [mtf.Dimension(anonymous_name, pad) if d.name == name else d for d in src.shape])
                 src = concat([src, memory], name)
 
-        xs = (src, None, src, None)
+        input_list = (src, None, src, None)
 
         for _ in range(self.n_layer):
-            xs = mtf.layers.reversible_half_residual_and_swap(*xs, self._block_fn)
+            input_list = mtf.layers.reversible_half_residual_and_swap(*input_list, self._block_fn)
 
-        out = self._rezero(xs[0], 1) + self._rezero(xs[2], 1)
+        out = self._rezero(input_list[0], 1) + self._rezero(input_list[2], 1)
 
         for pad, (name, size) in zip(self.memory_token, src.shape[1:-2]):
             out = slice(out, pad, size, name)
 
         if self.use_language:
             tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
-                                             [tkn_tgt.shape[-1], self.vocab_dim])
+                                             [txt_tgt.shape[-1], self.vocab_dim])
             token_loss: mtf.Tensor = mtf.add_n([mtf.reduce_sum(mtf.square(tkn) * (self.z_loss / self.vocab_size)),
                                                 mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim)),
                                                 -mtf.reduce_sum(tkn
-                                                                * (mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
+                                                                * (mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)
                                                                    * (1 - self.label_smoothing)
                                                                    + self.label_smoothing / self.vocab_size ** 1))]
                                                ) / (tkn.shape.size - self.vocab_size)
