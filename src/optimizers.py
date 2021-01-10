@@ -46,11 +46,11 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
     mtf.scalar_summary("lr", learning_rate)
 
     optimizer = Ranger(learning_rate,
-                                    params.weight_decay,
-                                    0.9,
-                                    0.95,
-                                    global_steps_float=global_steps_float
-                                    )
+                       params.weight_decay,
+                       0.9,
+                       0.95,
+                       global_steps_float=global_steps_float
+                       )
 
     if params.gradient_clipping is not None:
         global_norm = mtf.sqrt(mtf.add_n([mtf.reduce_sum(mtf.square(t)) for t in var_grads_fp if t is not None]))
@@ -90,14 +90,14 @@ class Ranger(mtf.optimize.Optimizer):
         self.epsilon = epsilon
         self.global_steps_float = global_steps_float
 
-    def apply_grad(self, grad, var):
+    def apply_grad(self, grad, var: mtf.Variable):
         """See base class."""
         if grad is None:
             tf.logging.warning("Gradient is None for variable %s" % var.name)
             return []
         grad = mtf.to_float(grad)
         var_ptr = var
-
+        var = var.value
         exp_avg = exp_avg_ptr = mtf.get_variable(
                 var.mesh, var.name + "/ranger/exp_avg", var.shape,
                 initializer=tf.zeros_initializer(), trainable=False)
