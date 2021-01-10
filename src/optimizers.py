@@ -9,7 +9,7 @@ from .utils import default
 def get_optimizer(mesh, loss, params, var_grads=None):
     """Creates and returns an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
-    dtype = tf.float64
+    dtype = tf.float32
     learning_rate = tf.constant(value=params.lr, shape=[], dtype=tf.float32)
     global_steps_float = tf.cast(global_step, tf.float32)
     # Cast to full precision
@@ -27,12 +27,12 @@ def get_optimizer(mesh, loss, params, var_grads=None):
                                            name=name)
 
     learning_rate = mtf.import_fully_replicated(mesh, tf.cast(learning_rate, dtype), [], "learning_rate")
-    global_steps_float = mtf.import_fully_replicated(mesh, tf.cast(global_step, dtype), [], "learning_rate")
+    global_steps_float = mtf.import_fully_replicated(mesh, tf.cast(global_step, dtype), [], "global_steps_float")
     beta1 = import_constant("beta1", 0.9)
     beta2 = import_constant("beta2", 0.95)
     mtf.scalar_summary("lr", learning_rate)
 
-    optimizer = Ranger(learning_rate, params.weight_decay, beta1, beta2, global_steps_float)
+    optimizer = Ranger(learning_rate, params.weight_decay, beta1, beta2,global_steps_float)
 
     clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=dtype)
     var_grads = [None if t is None else mtf.minimum(mtf.maximum(mtf.cast(t, dtype), -clip_value), clip_value)
@@ -45,7 +45,7 @@ def get_optimizer(mesh, loss, params, var_grads=None):
 
 
 class Ranger(mtf.optimize.Optimizer):
-    """A basic Adam optimizer that includes "correct" L2 weight decay."""
+    """WIP Ranger - Highly unstable"""
 
     def __init__(self,
                  learning_rate: mtf.Tensor,
