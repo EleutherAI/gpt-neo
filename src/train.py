@@ -125,7 +125,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
         with tf.variable_scope('jannet'):
             logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input)
 
-    _, update_ops, var_grads = get_optimizer(mesh, loss, params, inp_var_grads=None)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params, var_grads=None)
 
     if params.use_video:
         mtf.scalar_summary("video_loss", video_loss)

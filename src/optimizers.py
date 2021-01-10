@@ -4,42 +4,19 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 
-def get_optimizer(mesh, loss, params, inp_var_grads=None):
+def get_optimizer(mesh, loss, params, var_grads=None):
     """Creates and returns an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
-
     learning_rate = tf.constant(value=params.lr, shape=[], dtype=tf.float32)
-
-    if inp_var_grads is None:
-        var_grads = mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
-    else:
-        var_grads = inp_var_grads
-
     # Cast to full precision
-    var_grads_fp = [mtf.cast(v, tf.float32) for v in var_grads]
-
-    learning_rate = tf.train.cosine_decay(
-            learning_rate,
-            global_step,
-            params.train_steps,
-            alpha=0.1  # Alpha is min lr value as a fraction of init lr.
-            )
-
+    learning_rate = tf.train.cosine_decay(learning_rate, global_step, params.train_steps, alpha=0.1)
+    # Alpha is min lr value as a fraction of init lr.
     dtype = tf.float32
-    global_steps_int = tf.cast(global_step, tf.int32)
-    global_steps_float = tf.cast(global_steps_int, dtype)
-
+    global_steps_float = tf.cast(global_step, dtype)
     if params.warmup_steps > 0:
-        warmup_steps_int = tf.constant(params.warmup_steps, dtype=tf.int32)
-
-        warmup_steps_float = tf.cast(warmup_steps_int, dtype)
-
-        warmup_percent_done = global_steps_float / warmup_steps_float
-        warmup_learning_rate = learning_rate * warmup_percent_done
-
-        is_warmup = tf.cast(global_steps_int < warmup_steps_int, dtype)
-        learning_rate = ((1.0 - is_warmup) * learning_rate +
-                         is_warmup * warmup_learning_rate)
+        warmup_steps_float = tf.constant(params.warmup_steps, dtype=dtype)
+        is_warmup = tf.cast(global_steps_float < warmup_steps_float, dtype)
+        learning_rate = (learning_rate * (is_warmup * global_steps_float / warmup_steps_float + (1 - is_warmup)))
 
     learning_rate = mtf.import_fully_replicated(mesh, learning_rate, mtf.Shape([]), name="learning_rate")
     global_steps_float = mtf.import_fully_replicated(mesh, global_steps_float, mtf.Shape([]), name="global_steps_float")
@@ -47,21 +24,16 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
     beta2 = mtf.import_fully_replicated(mesh, 0.95, mtf.Shape([]), name="beta2")
     mtf.scalar_summary("lr", learning_rate)
 
-    optimizer = Ranger(learning_rate,
-                       params.weight_decay,
-                       beta1,
-                       beta2,
-                       global_steps_float
-                       )
+    optimizer = Ranger(learning_rate, params.weight_decay, beta1, beta2, global_steps_float)
 
-    if params.gradient_clipping is not None:
-        clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=tf.float32)
-        var_grads_fp = [None if t is None else
-                        mtf.minimum(mtf.maximum(t, -clip_value), clip_value)
-                        for t in var_grads_fp if t is not None]
+    clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=tf.float32)
+    var_grads = [None if t is None else mtf.minimum(mtf.maximum(mtf.cast(t, tf.float32), -clip_value), clip_value)
+                 for t in (mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
+                           if var_grads is None else var_grads)
+                 if t is not None]
+    update_ops = optimizer.apply_grads(var_grads, mesh.graph.trainable_variables)
 
-    update_ops = optimizer.apply_grads(var_grads_fp, mesh.graph.trainable_variables)
-    return learning_rate, update_ops, var_grads_fp
+    return learning_rate, update_ops, var_grads
 
 
 class Ranger(mtf.optimize.Optimizer):
@@ -93,7 +65,7 @@ class Ranger(mtf.optimize.Optimizer):
         self.epsilon = epsilon
         self.global_steps_float = global_steps_float
 
-    def apply_grad(self, grad, var: mtf.Variable):
+    def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
         """See base class."""
         if grad is None:
             tf.logging.warning("Gradient is None for variable %s" % var.name)
