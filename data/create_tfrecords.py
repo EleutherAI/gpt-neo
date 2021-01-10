@@ -26,11 +26,18 @@ parser.add_argument("--output_dir", type=str, default="./tfrecords", help="Where
 parser.add_argument("--encoder_path", type=str, help="Path to encoder files, or leave unspecified to use GPT2 tokenizer")
 parser.add_argument("--minimum_size", type=int, default=100, help="Minimum size a document has to be to be included")
 parser.add_argument("--ftfy", action="store_false", help="normalize with ftfy")
-parser.add_argument("--separator", nargs="+", type=int, default=[0], help="separator to place between files in chunk mode")
+parser.add_argument("--separator", nargs="+", type=int, default=-1, help="separator to place between files in chunk mode."
+                                                                         "Default is 0 (Null) in case of byte encodings, "
+                                                                         "50256 for tokenized texts")
 parser.add_argument("--chunk_size", type=int, default=2048, help="How big a chunk should be in chunk mode. "
                                                                  "Should equal your model's context size")
 parser.add_argument("--write_dataset_config", action="store_true", help="Write the dataset config file on completion")
 parser.add_argument("--processes", type=int, default=0, help="Number of processes to use. Defaults to cpu count.")
+parser.add_argument("--tokenize", type=bool, default=False, help="Legacy support for tokenization. "
+                                                                  "WARNING: Always use character level"
+                                                                  "embeddings as demonstrated in CharBERT"
+                                                                  "(https://arxiv.org/abs/2011.01513). "
+                                                                  "Never activate this option.")
 
 args = parser.parse_args()
 if not args.output_dir.endswith("/"):
@@ -44,7 +51,13 @@ def _int64_feature(value):
     """
     Returns an int64_list from a bool / enum / int / uint.
     """
-    return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+    return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+def get_tokenizer(args):
+    if args.encoder_path is None:
+        return GPT2TokenizerFast.from_pretrained('gpt2')
+    else:
+        return Tokenizer.from_file(args.encoder_path)
 
 def write_to_file(writer, data):
     """
@@ -64,10 +77,14 @@ def archive_to_tokens(f, args):
     # Generator that yields the contents of the files in an archive
     # if data_to_prepend is not None, prepend data_to_prepend + a EOS separator to the encoded data
     reader = Reader(f)
+    tokenizing_fn = get_tokenizer(args).encode if args.tokenize else str.encode
+    separator = (50256 * args.tokenize) if args.separator == -1 else args.separator
+    sep = [args.separator] if args.tokenize else args.separator.to_bytes((args.separator.bit_length() + 7) // 8, "little")
     for doc in reader.stream_data(threaded=False):
         if args.ftfy: # fix text with ftfy if specified
             doc = ftfy.fix_text(doc, normalization='NFKC')
-        yield doc.encode() + bytes(args.separator)
+        
+        yield tokenizing_fn(doc) + sep
 
 def write_files(files_byte, files_per, output_dir, out_name, start_no, write_remainder=False, process_no=None):
     # writes a list of files to .tfrecords
