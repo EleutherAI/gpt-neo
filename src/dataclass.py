@@ -218,8 +218,8 @@ class ModelParameter(dict):
                                                 mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim)),
                                                 -mtf.reduce_sum(tkn
                                                                 * (mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
-                                                                   * ((1 - self.label_smoothing) / self.vocab_size)
-                                                                   + self.label_smoothing / self.vocab_size ** 2))]
+                                                                   * (1 - self.label_smoothing)
+                                                                   + self.label_smoothing / self.vocab_size ** 1))]
                                                ) / (tkn.shape.size - self.vocab_size)
 
         if self.use_video:
