@@ -97,7 +97,6 @@ class Ranger(mtf.optimize.Optimizer):
             return []
         grad = mtf.to_float(grad)
         var_ptr = var
-        var = var.value
         exp_avg = exp_avg_ptr = mtf.get_variable(
                 var.mesh, var.name + "/ranger/exp_avg", var.shape,
                 initializer=tf.zeros_initializer(), trainable=False)
@@ -108,6 +107,7 @@ class Ranger(mtf.optimize.Optimizer):
         slow_buffer = slow_buffer_ptr = mtf.get_variable(
                 var.mesh, var.name + "/ranger/slow_buffer", var.shape,
                 initializer=tf.zeros_initializer(), trainable=False)
+        var = var.value
         slow_buffer = slow_buffer + var * float(self.global_steps_float == 0)
 
         if self.use_gc and self.gc_loc and var.shape.ndims > 1:
