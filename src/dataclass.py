@@ -217,9 +217,9 @@ class ModelParameter(dict):
             max_logits = mtf.reduce_max(mtf.stop_gradient(tkn), reduced_dim=self.vocab_dim)
             token_loss: mtf.Tensor = mtf.add_n([mtf.reduce_sum(self.z_loss * mtf.square(tkn)) / self.vocab_dim.size,
                                                 mtf.reduce_sum(tkn
-                                                               * mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
-                                                               * (1 - self.label_smoothing)
-                                                               + self.label_smoothing / self.vocab_dim.size),
+                                                               * (mtf.one_hot(tkn_tgt, self.vocab_dim, dtype=tkn.dtype)
+                                                                  * (1 - self.label_smoothing)
+                                                                  + self.label_smoothing / self.vocab_dim.size)),
                                                 -mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits)))),
                                                 -mtf.reduce_sum(max_logits)]) / (tkn.shape.size - self.vocab_dim.size)
 
