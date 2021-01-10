@@ -26,13 +26,13 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
             alpha=0.1  # Alpha is min lr value as a fraction of init lr.
             )
 
+    dtype = tf.float32
+    global_steps_int = tf.cast(global_step, tf.int32)
+    global_steps_float = tf.cast(global_steps_int, dtype)
+
     if params.warmup_steps > 0:
-        global_steps_int = tf.cast(global_step, tf.int32)
         warmup_steps_int = tf.constant(params.warmup_steps, dtype=tf.int32)
 
-        dtype = tf.float32
-
-        global_steps_float = tf.cast(global_steps_int, dtype)
         warmup_steps_float = tf.cast(warmup_steps_int, dtype)
 
         warmup_percent_done = global_steps_float / warmup_steps_float
@@ -108,7 +108,7 @@ class Ranger(mtf.optimize.Optimizer):
         slow_buffer = slow_buffer_ptr = mtf.get_variable(
                 var.mesh, var.name + "/ranger/slow_buffer", var.shape,
                 initializer=tf.zeros_initializer(), trainable=False)
-        slow_buffer = slow_buffer + var * (self.global_steps_float == 0)
+        slow_buffer = slow_buffer + var * float(self.global_steps_float == 0)
 
         if self.use_gc and self.gc_loc and var.shape.ndims > 1:
             var -= mtf.reduce_mean(var, output_shape=[var.shape[0]])
@@ -119,7 +119,7 @@ class Ranger(mtf.optimize.Optimizer):
         beta2_t = self.beta2 ** self.global_steps_float
         N_sma_max = 2 / (1 - self.beta2) - 1
         N_sma = N_sma_max - 2 * self.global_steps_float * beta2_t / (1 - beta2_t)
-        thres = N_sma > self.N_sma_threshhold
+        thres = float(N_sma > self.N_sma_threshhold)
         step_size = (mtf.sqrt((1 - beta2_t) * (N_sma - 4) /
                               (N_sma_max - 4) * (N_sma - 2) /
                               N_sma * N_sma_max /
@@ -134,7 +134,7 @@ class Ranger(mtf.optimize.Optimizer):
 
         var = var - G_grad * step_size * self.learning_rate
 
-        look_ahead = (self.global_steps_float % self.k) == (self.global_steps_float - 1)
+        look_ahead = float((self.global_steps_float % self.k) == (self.global_steps_float - 1))
         slow_buffer = slow_buffer + (var - look_ahead) * self.alpha
         var = slow_buffer * look_ahead + var * (1 - look_ahead)
 
