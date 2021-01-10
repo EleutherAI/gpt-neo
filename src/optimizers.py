@@ -3,31 +3,39 @@ from __future__ import absolute_import, division, print_function
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
+from .utils import default
+
 
 def get_optimizer(mesh, loss, params, var_grads=None):
     """Creates and returns an optimizer training op."""
     global_step = tf.train.get_or_create_global_step()
+    dtype = tf.float64
     learning_rate = tf.constant(value=params.lr, shape=[], dtype=tf.float32)
+    global_steps_float = tf.cast(global_step, tf.float32)
     # Cast to full precision
     learning_rate = tf.train.cosine_decay(learning_rate, global_step, params.train_steps, alpha=0.1)
     # Alpha is min lr value as a fraction of init lr.
-    dtype = tf.float32
-    global_steps_float = tf.cast(global_step, dtype)
     if params.warmup_steps > 0:
-        warmup_steps_float = tf.constant(params.warmup_steps, dtype=dtype)
-        is_warmup = tf.cast(global_steps_float < warmup_steps_float, dtype)
+        warmup_steps_float = tf.constant(params.warmup_steps, dtype=tf.float32)
+        is_warmup = tf.cast(global_steps_float < warmup_steps_float, tf.float32)
         learning_rate = (learning_rate * (is_warmup * global_steps_float / warmup_steps_float + (1 - is_warmup)))
 
-    learning_rate = mtf.import_fully_replicated(mesh, learning_rate, mtf.Shape([]), name="learning_rate")
-    global_steps_float = mtf.import_fully_replicated(mesh, global_steps_float, mtf.Shape([]), name="global_steps_float")
-    beta1 = mtf.import_fully_replicated(mesh, 0.9, mtf.Shape([]), name="beta1")
-    beta2 = mtf.import_fully_replicated(mesh, 0.95, mtf.Shape([]), name="beta2")
+    def import_constant(name, x):
+        return mtf.import_fully_replicated(mesh,
+                                           tf.constant(x, default(dtype, dtype), []),
+                                           mtf.Shape([]),
+                                           name=name)
+
+    learning_rate = mtf.import_fully_replicated(mesh, tf.cast(learning_rate, dtype), [], "learning_rate")
+    global_steps_float = mtf.import_fully_replicated(mesh, tf.cast(global_step, dtype), [], "learning_rate")
+    beta1 = import_constant("beta1", 0.9)
+    beta2 = import_constant("beta2", 0.95)
     mtf.scalar_summary("lr", learning_rate)
 
     optimizer = Ranger(learning_rate, params.weight_decay, beta1, beta2, global_steps_float)
 
-    clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=tf.float32)
-    var_grads = [None if t is None else mtf.minimum(mtf.maximum(mtf.cast(t, tf.float32), -clip_value), clip_value)
+    clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=dtype)
+    var_grads = [None if t is None else mtf.minimum(mtf.maximum(mtf.cast(t, dtype), -clip_value), clip_value)
                  for t in (mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
                            if var_grads is None else var_grads)
                  if t is not None]
@@ -48,9 +56,7 @@ class Ranger(mtf.optimize.Optimizer):
                  epsilon=1e-5,
                  N_sma_threshhold=5,
                  alpha=0.5,
-                 k=6,
-                 use_gc=True,
-                 gc_loc=True):
+                 k=6):
         """Constructs a AdamWeightDecayOptimizer."""
 
         self.learning_rate = learning_rate
@@ -59,8 +65,6 @@ class Ranger(mtf.optimize.Optimizer):
         self.N_sma_threshhold = N_sma_threshhold
         self.alpha = alpha
         self.k = k
-        self.gc_loc = gc_loc
-        self.use_gc = use_gc
         self.beta2 = beta_2
         self.epsilon = epsilon
         self.global_steps_float = global_steps_float
@@ -70,7 +74,7 @@ class Ranger(mtf.optimize.Optimizer):
         if grad is None:
             tf.logging.warning("Gradient is None for variable %s" % var.name)
             return []
-        grad = mtf.to_float(grad)
+        grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
         exp_avg = exp_avg_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/exp_avg", var.shape,
                                                  initializer=tf.zeros_initializer(), trainable=False)
@@ -80,33 +84,34 @@ class Ranger(mtf.optimize.Optimizer):
         slow_buffer = slow_buffer_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/slow_buffer", var.shape,
                                                          initializer=tf.zeros_initializer(), trainable=False)
         var = var.value
-        slow_buffer = slow_buffer + var * mtf.cast(mtf.equal(self.global_steps_float, 0), self.global_steps_float.dtype)
+        slow_buffer = slow_buffer + var * mtf.cast(mtf.equal(self.global_steps_float, 0), var.dtype)
 
-        if self.use_gc and self.gc_loc and var.shape.ndims > 1:
+        if var.shape.ndims > 1:
             var -= mtf.reduce_mean(var, output_shape=[var.shape[0]])
 
-        exp_avg_sq = exp_avg_sq * self.beta2 + mtf.square(grad) * (1 - self.beta2)
-        exp_avg = exp_avg * self.beta1 + grad * (1 - self.beta1)
+        exp_avg_sq = exp_avg_sq * mtf.cast(self.beta2 + mtf.square(grad) * (1 - self.beta2), var.dtype)
+        exp_avg = exp_avg * mtf.cast(self.beta1 + grad * (1 - self.beta1), var.dtype)
 
         beta2_t = mtf.pow(self.beta2, self.global_steps_float)
         N_sma_max = 2 / (1 - self.beta2) - 1
         N_sma = -self.global_steps_float * 2 * beta2_t / (1 - beta2_t) + N_sma_max
-        thres = mtf.cast(mtf.greater(N_sma, self.N_sma_threshhold), self.global_steps_float.dtype)
-        step_size = (mtf.sqrt((1 - beta2_t)
-                              * N_sma_max / N_sma
-                              * (N_sma - 2) / (N_sma_max - 2)
-                              * (N_sma - 4) / (N_sma_max - 4))
-                     * thres + (1 - thres)) / (1 - mtf.pow(self.beta1, self.global_steps_float))
-        G_grad = exp_avg / ((mtf.sqrt(exp_avg_sq) + self.epsilon) * thres + (1 - thres)) + var * self.weight_decay_rate
+        thres = mtf.greater(N_sma, self.N_sma_threshhold)
+        thres_var = mtf.cast(thres, var.dtype)
+        thres_fp64 = mtf.cast(thres, self.learning_rate.dtype)
 
-        if self.use_gc and not self.gc_loc and var.shape.ndims > 1:
-            G_grad -= mtf.reduce_mean(G_grad, output_shape=[var.shape[0]])
-
-        var = var - G_grad * step_size * self.learning_rate
+        var -= (exp_avg / (mtf.sqrt(exp_avg_sq) + self.epsilon) * thres_var + (1 - thres_var)
+                * mtf.cast((mtf.sqrt((1 - beta2_t)
+                                     * N_sma_max / N_sma
+                                     * (N_sma - 2) / (N_sma_max - 2)
+                                     * (N_sma - 4) / (N_sma_max - 4))
+                            * thres_fp64 + (1 - thres_fp64))
+                           / (1 - mtf.pow(self.beta1, self.global_steps_float))
+                           * self.learning_rate, var.dtype)
+                + var * self.weight_decay_rate)
 
         look_ahead = mtf.cast(mtf.equal(mtf.mod(self.global_steps_float, self.k), (self.global_steps_float - 1)),
-                              self.global_steps_float.dtype)
-        slow_buffer = slow_buffer + (var - look_ahead) * self.alpha
+                              var.dtype)
+        slow_buffer = slow_buffer + (var - slow_buffer) * look_ahead * self.alpha
         var = slow_buffer * look_ahead + var * (1 - look_ahead)
 
         return [mtf.assign(var_ptr, var),
