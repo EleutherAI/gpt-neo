@@ -56,9 +56,9 @@ def get_optimizer(mesh, loss, params, inp_var_grads=None):
                        )
 
     if params.gradient_clipping is not None:
-        global_norm = mtf.sqrt(mtf.add_n([mtf.reduce_sum(mtf.square(t)) for t in var_grads_fp if t is not None]))
-        multiplier = clip_value / mtf.maximum(global_norm, clip_value)
-        var_grads_fp = [None if t is None else t * multiplier for t in var_grads_fp]
+        var_grads_fp = [None if t is None else
+                        t * clip_value / mtf.maximum(mtf.sqrt(mtf.reduce_sum(mtf.square(t))), clip_value)
+                        for t in var_grads_fp if t is not None]
 
     update_ops = optimizer.apply_grads(var_grads_fp, mesh.graph.trainable_variables)
     return learning_rate, update_ops, var_grads_fp
