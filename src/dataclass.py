@@ -221,7 +221,7 @@ class ModelParameter(dict):
                                                                * (1 - self.label_smoothing)
                                                                + self.label_smoothing / self.vocab_dim.size),
                                                 -mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(tkn - max_logits)))),
-                                                -mtf.reduce_sum(max_logits)]) / tkn.shape.size - self.vocab_dim.size
+                                                -mtf.reduce_sum(max_logits)]) / (tkn.shape.size - self.vocab_dim.size)
 
         if self.use_video:
             out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
