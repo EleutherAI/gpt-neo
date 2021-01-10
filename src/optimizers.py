@@ -100,16 +100,13 @@ class Ranger(mtf.optimize.Optimizer):
             return []
         grad = mtf.to_float(grad)
         var_ptr = var
-        exp_avg = exp_avg_ptr = mtf.get_variable(
-                var.mesh, var.name + "/ranger/exp_avg", var.shape,
-                initializer=tf.zeros_initializer(), trainable=False)
+        exp_avg = exp_avg_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/exp_avg", var.shape,
+                                                 initializer=tf.zeros_initializer(), trainable=False)
 
-        exp_avg_sq = exp_avg_sq_ptr = mtf.get_variable(
-                var.mesh, var.name + "/ranger/exp_avg_sq", var.shape,
-                initializer=tf.zeros_initializer(), trainable=False)
-        slow_buffer = slow_buffer_ptr = mtf.get_variable(
-                var.mesh, var.name + "/ranger/slow_buffer", var.shape,
-                initializer=tf.zeros_initializer(), trainable=False)
+        exp_avg_sq = exp_avg_sq_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/exp_avg_sq", var.shape,
+                                                       initializer=tf.zeros_initializer(), trainable=False)
+        slow_buffer = slow_buffer_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/slow_buffer", var.shape,
+                                                         initializer=tf.zeros_initializer(), trainable=False)
         var = var.value
         slow_buffer = slow_buffer + var * mtf.cast(mtf.equal(self.global_steps_float, 0), self.global_steps_float.dtype)
 
@@ -123,13 +120,12 @@ class Ranger(mtf.optimize.Optimizer):
         N_sma_max = 2 / (1 - self.beta2) - 1
         N_sma = -self.global_steps_float * 2 * beta2_t / (1 - beta2_t) + N_sma_max
         thres = mtf.cast(mtf.greater(N_sma, self.N_sma_threshhold), self.global_steps_float.dtype)
-        sqrt = mtf.sqrt(
-            (1 - beta2_t) * N_sma_max / N_sma * (N_sma - 2) / (N_sma_max - 2) * (N_sma - 4) / (N_sma_max - 4))
-        beta1_step = (1 - mtf.pow(self.beta1, self.global_steps_float))
-        step_size = (sqrt * thres + (1 - thres)) / beta1_step
-        G_grad = exp_avg / ((mtf.sqrt(exp_avg_sq) + self.epsilon) * thres + (1 - thres))
-
-        G_grad += var * self.weight_decay_rate
+        step_size = (mtf.sqrt((1 - beta2_t)
+                              * N_sma_max / N_sma
+                              * (N_sma - 2) / (N_sma_max - 2)
+                              * (N_sma - 4) / (N_sma_max - 4))
+                     * thres + (1 - thres)) / (1 - mtf.pow(self.beta1, self.global_steps_float))
+        G_grad = exp_avg / ((mtf.sqrt(exp_avg_sq) + self.epsilon) * thres + (1 - thres)) + var * self.weight_decay_rate
 
         if self.use_gc and not self.gc_loc and var.shape.ndims > 1:
             G_grad -= mtf.reduce_mean(G_grad, output_shape=[var.shape[0]])
