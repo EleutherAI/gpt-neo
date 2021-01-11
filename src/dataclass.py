@@ -144,7 +144,7 @@ class ModelParameter(dict):
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
 
-        attention_scale = (dim.size + self.intermediate[0].size) ** -0.5
+        attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear_from_features(block_input))
