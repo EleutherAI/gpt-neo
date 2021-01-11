@@ -123,6 +123,7 @@ def generic_data(params: ModelParameter):
             return x
 
         data = data.map(memory_op)
+
     options = tf.data.Options()
     options.experimental_optimization.autotune = True
     options.experimental_optimization.autotune_buffers = True
@@ -138,4 +139,5 @@ def generic_data(params: ModelParameter):
     options.experimental_optimization.noop_elimination = True
     options.experimental_optimization.parallel_batch = True
     options.experimental_optimization.shuffle_and_repeat_fusion = True
+
     return data

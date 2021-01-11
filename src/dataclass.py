@@ -168,10 +168,10 @@ class ModelParameter(dict):
 
             max_logits = mtf.maximum(mtf.reduce_max(mtf.stop_gradient(context_logits), reduced_dim=tmp_dim),
                                      mtf.reduce_max(mtf.stop_gradient(feature_logits), reduced_dim=self.learned_dim[0]))
-            logsumexp = mtf.log(mtf.reduce_sum(mtf.exp(context_logits - max_logits), reduced_dim=tmp_dim) +
-                                mtf.reduce_sum(mtf.exp(feature_logits - max_logits), reduced_dim=self.learned_dim[0]))
-            output = (mtf.einsum([mtf.exp(context_logits - logsumexp - max_logits), context_val], context_qry.shape) +
-                      mtf.einsum([mtf.exp(feature_logits - logsumexp - max_logits), learned_val], context_qry.shape))
+            sumexp = (mtf.reduce_sum(mtf.exp(context_logits - max_logits), reduced_dim=tmp_dim) +
+                      mtf.reduce_sum(mtf.exp(feature_logits - max_logits), reduced_dim=self.learned_dim[0]))
+            output = (mtf.einsum([context_logits / sumexp, context_val], context_qry.shape) +
+                      mtf.einsum([feature_logits / sumexp, learned_val], context_qry.shape))
 
             return self._rezero(output, 0)
 
