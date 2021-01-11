@@ -1,0 +1,67 @@
+version: '3'
+services:
+
+  mongo:
+    image: mongo
+    ports:
+      - 127.0.0.1:27017:27017
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: user
+      MONGO_INITDB_ROOT_PASSWORD: password
+      MONGO_INITDB_DATABASE: db
+    expose:
+      - 27017
+    networks:
+      - omniboard
+    volumes:
+      - ./data:/data/db
+
+  mongoClientTemp:
+   image: mongo:latest
+   container_name: mongoClientTemp
+   links:
+    - mongo:mongo
+   command: mongo --host mongo -u user -p password --eval  "db.getSiblingDB('db').createUser({user:'readonly', pwd:'password', roles:[{role:'read',db:'db'}]});"
+   depends_on:
+    - mongo
+   networks:
+    - omniboard
+
+  omniboard_readonly:
+          #image: vivekratnavel/omniboard:latest
+    build: https://github.com/lucidrains/omniboard.git
+    command: ["--mu", "mongodb://readonly:password@mongo:27017/db"]
+    ports:
+            - 0.0.0.0:8081:9000
+    networks:
+      - omniboard
+    depends_on:
+      - mongo
+
+  omniboard:
+          #image: vivekratnavel/omniboard:latest
+    build: https://github.com/lucidrains/omniboard.git
+    command: ["--mu", "mongodb://user:password@mongo:27017/db?authSource=admin"]
+    expose:
+      - 9000
+    networks:
+      - omniboard
+    depends_on:
+      - mongo
+
+  nginx:
+    image: dhswt/nginx-basic-auth:1.3
+    environment:
+      - HTPASSWD=isaac: #put passwd here
+      - FORWARD_HOST=omniboard
+      - FORWARD_PORT=9000
+    networks:
+      - omniboard
+    depends_on:
+      - omniboard
+    ports:
+            - 0.0.0.0:8080:80
+    expose:
+      - 8080
+networks:
+  omniboard:
