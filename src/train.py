@@ -118,14 +118,14 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
         token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size // (params.token_patch_size if not params.use_video else 1))] +
                               ([mtf.Dimension("height", params.language_token_per_frame // params.token_patch_size),
                                 mtf.Dimension("token_patch", params.token_patch_size)] if params.use_video else []))
-        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "tkn_src")
-        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "tkn_tgt")
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "txt_src")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "txt_tgt")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
             logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input)
 
-    _, update_ops, var_grads = get_optimizer(mesh, loss, params, inp_var_grads=None)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params, var_grads=None)
 
     if params.use_video:
         mtf.scalar_summary("video_loss", video_loss)
