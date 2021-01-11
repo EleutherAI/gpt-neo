@@ -54,6 +54,7 @@ class ModelParameter(dict):
         self.gradient_clipping = 1.0
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
+        self.embedding_stddev = 0.02
 
         self.mesh = None
 
@@ -106,11 +107,17 @@ class ModelParameter(dict):
     def _orthogonal_var(self, shape) -> mtf.Tensor:
         return self._get_variable(shape, tf.orthogonal_initializer())
 
+    def _normal_var(self, shape, stddev=0.02) -> mtf.Tensor:
+        return self._get_variable(shape, tf.random_normal_initializer(stddev=stddev))
+
     def _constant_var(self, shape, value) -> mtf.Tensor:
         return self._get_variable(shape, tf.constant_initializer(value))
 
     def _scalar(self, value) -> mtf.Tensor:
         return self._constant_var([], value)
+
+    def _embed(self, shape: typing.Union[typing.List[mtf.Dimension], mtf.Dimension]):
+        return self._normal_var(shape, self.embedding_stddev)
 
     def _rezero(self, block_input: mtf.Tensor, init) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
@@ -141,13 +148,13 @@ class ModelParameter(dict):
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear_from_features(block_input))
-            context_qry = (self._linear_to_features(base) + self._orthogonal_var([dim] + self.feature_dims))
+            context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
             context_key = anonymize(self._linear_to_features(base), dim.name)
             context_val = anonymize(self._linear_to_features(base), dim.name)
 
-            learned_key = self._orthogonal_var(self.learned_dim + self.feature_dims)
-            learned_val = self._orthogonal_var(self.learned_dim + self.feature_dims)
+            learned_key = self._embed(self.learned_dim + self.feature_dims)
+            learned_val = self._embed(self.learned_dim + self.feature_dims)
 
             context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
             feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
@@ -198,7 +205,7 @@ class ModelParameter(dict):
         for pad, (name, _) in zip(self.memory_token, src.shape[1:-2]):
             if pad > 0:
                 anonymous_name = '_' + name
-                memory = mtf.broadcast(self._orthogonal_var([mtf.Dimension(anonymous_name, pad)] + self.feature_dims),
+                memory = mtf.broadcast(self._embed([mtf.Dimension(anonymous_name, pad)] + self.feature_dims),
                                        [mtf.Dimension(anonymous_name, pad) if d.name == name else d for d in src.shape])
                 src = concat([src, memory], name)
 
