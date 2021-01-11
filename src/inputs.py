@@ -130,7 +130,7 @@ def generic_data(params: ModelParameter):
     options.experimental_optimization.filter_with_random_uniform_fusion = True
     options.experimental_optimization.hoist_random_uniform = True
     options.experimental_optimization.map_and_batch_fusion = True
-    options.experimental_optimization.map_and_filter_fusion.enabled = True
+    options.experimental_optimization.map_and_filter_fusion = True
     options.experimental_optimization.map_fusion = True
     options.experimental_optimization.map_parallelization = True
     options.experimental_optimization.map_vectorization.enabled = True
