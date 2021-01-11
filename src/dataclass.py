@@ -231,7 +231,7 @@ class ModelParameter(dict):
             out = slice(out, pad, size, name)
 
         if self.use_language:
-            tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
+            tkn = self._linear_from_features(slice(out, 0, self.language_token_patch, spatial_ctx),
                                              [txt_tgt.shape[-1], self.vocab_dim])
             token_loss: mtf.Tensor = mtf.add_n([mtf.reduce_sum(mtf.square(tkn) * (self.z_loss / self.vocab_size)),
                                                 mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim)),
@@ -242,7 +242,7 @@ class ModelParameter(dict):
                                                ) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
-            out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
+            out = slice(out, self.language_token_patch, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
             video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt))
 

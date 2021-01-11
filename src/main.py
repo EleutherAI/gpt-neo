@@ -22,9 +22,11 @@ def main(args: argparse.Namespace):
     # Fetch appropriate input functions
 
     if params.model_mode == 'jannet':
-        input_fn = dataset(params, 0)
+        #input_fn = lambda x: dataset(x, 0)
+        #input_fn = partial(dataset, 0)
+        input_fn = dataset
     elif params.model_mode == 'gpt':
-        input_fn = gpt_neo_input(params, 0, eval=False)
+        input_fn = lambda x: gpt_neo_input(x, 0, eval=False)
     else:
         raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
                          "is a not supported option.".format(params.model_mode))
@@ -70,4 +72,4 @@ def main(args: argparse.Namespace):
 
     while current_step < params.train_steps:
         # Else, don't stop and restart
-        estimator.train(input_fn=partial(input_fn), max_steps=params.train_steps)
+        estimator.train(input_fn=input_fn, max_steps=params.train_steps)

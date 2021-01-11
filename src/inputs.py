@@ -242,7 +242,7 @@ def dataset_video(path: str, params: ModelParameter):
     return data
 
 
-def dataset(params: ModelParameter, step: int):
+def dataset(params: ModelParameter, step: int = 0):
     params = ModelParameter(params)
 
     def memory_op(x):
@@ -256,6 +256,7 @@ def dataset(params: ModelParameter, step: int):
         dtype = set['type']
         path = set['path']
         weight = set['weight']
+        print(path)
 
         assert dtype == 'video' or dtype == 'text',\
             "{} is not a supported option for type for a dataset.".format(dtype)
@@ -267,6 +268,7 @@ def dataset(params: ModelParameter, step: int):
 
         weights.append(weight)
 
+    print(len(datasets), len(weights))
     weights = tf.convert_to_tensor(weights, dtype=tf.float32)
     datasets = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=params.data_seed)
 
