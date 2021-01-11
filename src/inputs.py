@@ -63,9 +63,10 @@ def generic_data(params: ModelParameter):
 
 
     data = tf.data.Dataset.from_tensor_slices(path)
-    data = data.apply(tf.data.experimental.parallel_interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
+    data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
                            cycle_length=params.interleaved_datasets,
-                           block_length=1, sloppy=True))
+                           block_length=1,
+                           num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     data = data.repeat()
     data = data.shuffle(params.shuffle_buffer)
@@ -122,5 +123,19 @@ def generic_data(params: ModelParameter):
             return x
 
         data = data.map(memory_op)
-
+    options = tf.data.Options()
+    options.experimental_optimization.autotune = True
+    options.experimental_optimization.autotune_buffers = True
+    options.experimental_optimization.filter_fusion = True
+    options.experimental_optimization.filter_with_random_uniform_fusion = True
+    options.experimental_optimization.hoist_random_uniform = True
+    options.experimental_optimization.map_and_batch_fusion = True
+    options.experimental_optimization.map_and_filter_fusion.enabled = True
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_vectorization.use_choose_fastest = True
+    options.experimental_optimization.noop_elimination = True
+    options.experimental_optimization.parallel_batch = True
+    options.experimental_optimization.shuffle_and_repeat_fusion = True
     return data
