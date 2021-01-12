@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, concat, default, new_dim, random_name, slice, anonymize_shape
+from .utils import activate, anonymize, anonymize_shape, concat, default, new_dim, random_name, slice
 
 
 class ModelParameter(dict):
@@ -81,7 +81,10 @@ class ModelParameter(dict):
         self.learned_dim = [new_dim(self.intermediate[1],
                                     self.intermediate[1].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
-        self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
+        self.token_patch_count = (self.language_token_per_frame
+                                  // self.attention_patch.size
+                                  // self.token_patch_size
+                                  * self.use_language)
         self.feature_dim_count = len(self.feature_dims)
 
     def __getitem__(self, key):
