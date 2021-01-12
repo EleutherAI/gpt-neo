@@ -4,11 +4,10 @@ import numpy as np
 
 import torch
 import torch.nn as nn
-from transformers import GPT2LMHeadModel, GPT2Model, GPT2Config, GPT2Tokenizer
+from transformers import GPT2LMHeadModel, GPT2Model, GPT2Config
 
 from transformers.utils import logging
 
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
@@ -20,7 +19,7 @@ parser.add_argument('--output_path', type=str, default='./', help='Dir to store 
 
 
 def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
-    """Load tf checkpoints in a pytorch model"""
+    """Load tf checkpoints in a Huggingface transformers pytorch model"""
     try:
         import re
 
@@ -46,7 +45,6 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
             if any('attn/' + n in name for n in ['q', 'k', 'v']):
                 qkv[name] = array
             else:
-                #for s in ['q', 'k', 'v', 'o']:
                 name = name.replace('attn/o', 'attn/c_proj/w')
                 name = name.replace('norm_1', 'ln_1')
                 name = name.replace('norm_2', 'ln_2')
