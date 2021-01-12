@@ -21,6 +21,10 @@ def check_for_dim(inp: typing.Union[typing.List[mtf.Dimension], mtf.Shape, mtf.T
     return any(dim_name(dim) == d.name for d in (inp.shape if isinstance(inp, mtf.Tensor) else inp))
 
 
+def deduplicate(inp: typing.Iterable) -> typing.Iterable:
+    return type(inp)(dict.fromkeys(list(inp)))
+
+
 def anonymize(inp: mtf.Tensor,
               dim: typing.Union[typing.List[typing.Union[mtf.Dimension, str]], typing.Union[mtf.Dimension, str]]
               ) -> mtf.Tensor:

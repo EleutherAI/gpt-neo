@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, anonymize_shape, concat, default, new_dim, random_name, slice
+from .utils import activate, anonymize, deduplicate, concat, default, new_dim, random_name, slice
 
 
 class ModelParameter(dict):
@@ -103,7 +103,7 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer) -> mtf.Tensor:
-        return mtf.get_variable(self.mesh, random_name(), list(dict.fromkeys(shape)),
+        return mtf.get_variable(self.mesh, random_name(), deduplicate(shape),
                                 dtype=self.dtype, initializer=initializer)
 
     def _orthogonal_var(self, shape) -> mtf.Tensor:
@@ -129,7 +129,7 @@ class ModelParameter(dict):
                 new: typing.List[mtf.Dimension]) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
             return mtf.einsum([block_input, self._orthogonal_var(old + new)],
-                              list(dict.fromkeys((block_input.shape - old).dims + new)))
+                              deduplicate((block_input.shape - old).dims + new))
 
     def _linear_to_features(self, block_input: mtf.Tensor,
                             old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
