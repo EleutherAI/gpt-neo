@@ -75,8 +75,8 @@ class ModelParameter(dict):
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims[1:]])
                                                * self.intermediate_feed_forward_multiplier))]
-        self.learned_dim = [new_dim(self.intermediate[1],
-                                    self.intermediate[1].size * self.feed_forward_attention_factor)]
+        self.learned_dim = [new_dim(self.intermediate[0],
+                                    self.intermediate[0].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.token_patch_count = self.language_token_per_frame// self.token_patch_size * self.use_language
         self.feature_dim_count = len(self.feature_dims)
