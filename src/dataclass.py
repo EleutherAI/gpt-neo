@@ -106,7 +106,8 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer) -> mtf.Tensor:
-        return mtf.get_variable(self.mesh, random_name(), list(set(shape)), dtype=self.dtype, initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name(), list(dict.fromkeys(shape)),
+                                dtype=self.dtype, initializer=initializer)
 
     def _orthogonal_var(self, shape) -> mtf.Tensor:
         return self._get_variable(shape, tf.orthogonal_initializer())
@@ -131,7 +132,7 @@ class ModelParameter(dict):
                 new: typing.List[mtf.Dimension]) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
             return mtf.einsum([block_input, self._orthogonal_var(old + new)],
-                              list(set((block_input.shape - old).dims + new)))
+                              list(dict.fromkeys((block_input.shape - old).dims + new)))
 
     def _linear_to_features(self, block_input: mtf.Tensor,
                             old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
