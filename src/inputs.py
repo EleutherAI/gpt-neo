@@ -105,7 +105,7 @@ def generic_data(params: ModelParameter):
                                 frame_height_patch, params.attention_patch_sqrt, patch_size,
                                 frame_width_patch, params.attention_patch_sqrt, patch_size,
                                 color_channels))
-            frame = tf.transpose(frame, [0, 1, 3, 6, 4, 7, 5, 8, 9])
+            frame = tf.transpose(frame, [0, 1, 3, 6, 4, 7, 2, 5, 8, 9])
 
             if three_axes:
                 out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1,
