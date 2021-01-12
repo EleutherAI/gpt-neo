@@ -152,23 +152,29 @@ class ModelParameter(dict):
         idx = self._layer_idx % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
-
+        autoregressive = idx in self.masked_attention_dimensions
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
+
+        learned_shape = [dim.name]
+        anonymized_features = self.feature_dims
+        if not autoregressive:
+            learned_shape = learned_shape + [self.attention_patch.name]
+            anonymized_features = anonymize_shape(anonymized_features, self.attention_patch)
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear_from_features(block_input))
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
-            context_key = anonymize(self._linear_to_features(base), [dim.name, self.attention_patch.name])
-            context_val = anonymize(self._linear_to_features(base), [dim.name, self.attention_patch.name])
+            context_key = anonymize(self._linear_to_features(base), learned_shape)
+            context_val = anonymize(self._linear_to_features(base), learned_shape)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
-            learned_val = self._embed(self.learned_dim + anonymize_shape(self.feature_dims, self.attention_patch))
+            learned_val = self._embed(self.learned_dim + anonymized_features)
 
             context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
             feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
 
-            if idx in self.masked_attention_dimensions:  # it's auto-regressive
+            if autoregressive:  # it's auto-regressive
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
