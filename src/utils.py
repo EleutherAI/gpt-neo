@@ -28,8 +28,8 @@ def anonymize(inp: mtf.Tensor,
         dim = [dim]
     shape = inp.shape
     for d in dim:
-        dim = unanonymize_dim(dim)
-        if not check_for_dim(inp, dim):
+        d = unanonymize_dim(d)
+        if not check_for_dim(inp, d):
             continue
         shape = shape.rename_dimension(d, dim_name(anonymize_dim(d)))
     if shape != inp.shape:
