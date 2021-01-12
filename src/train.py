@@ -6,6 +6,24 @@ from tensorflow.python.tpu import tpu_estimator
 from .dataclass import ModelParameter
 from .optimizers import get_optimizer
 
+tf.config.optimizer.set_experimental_options({"layout_optimizer": True,
+                                              "constant_folding": True,
+                                              "shape_optimization": True,
+                                              "remapping": True,
+                                              "arithmetic_optimization": True,
+                                              "dependency_optimization": True,
+                                              "loop_optimization": True,
+                                              "function_optimization": True,
+                                              "debug_stripper": True,
+                                              "disable_model_pruning": False,
+                                              "scoped_allocator_optimization": True,
+                                              "pin_to_host_optimization": False,
+                                              "implementation_selector": True,
+                                              "auto_mixed_precision": True,
+                                              "disable_meta_optimizer": False,
+                                              "min_graph_nodes": 0
+                                              })
+
 
 def create_host_call(model_dir):
     """Construct a host_call writing scalar summaries.

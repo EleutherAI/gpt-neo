@@ -4,8 +4,9 @@ from itertools import cycle
 import re
 import logging
 
-#from .dataclass import ModelParameter
-from src.dataclass import ModelParameter
+from scripts.video2tfrecord import get_decoder
+from .dataclass import ModelParameter
+
 
 def get_video_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=None, color_channels=None):
     '''
@@ -174,7 +175,6 @@ def dataset_video(path: str, params: ModelParameter):
 
         data = data.window(size=n_ctx + time_patch, stride=1, shift=n_ctx, drop_remainder=True)
         data = data.interleave(interleave_func, cycle_length=1, num_parallel_calls=1, block_length=1)
-
         return data
 
     def pre_func(*args):
@@ -238,6 +238,22 @@ def dataset_video(path: str, params: ModelParameter):
     data = data.batch(batch_size)
     data = data.map(pre_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data
+
+    options = tf.data.Options()
+    options.experimental_optimization.autotune = True
+    options.experimental_optimization.autotune_buffers = True
+    options.experimental_optimization.filter_fusion = True
+    options.experimental_optimization.filter_with_random_uniform_fusion = True
+    options.experimental_optimization.hoist_random_uniform = True
+    options.experimental_optimization.map_and_batch_fusion = True
+    options.experimental_optimization.map_and_filter_fusion = True
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_vectorization.use_choose_fastest = True
+    options.experimental_optimization.noop_elimination = True
+    options.experimental_optimization.parallel_batch = True
+    options.experimental_optimization.shuffle_and_repeat_fusion = True
 
     return data
 
