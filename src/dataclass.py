@@ -103,8 +103,7 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer) -> mtf.Tensor:
-        return mtf.get_variable(self.mesh, random_name(), deduplicate(shape),
-                                dtype=self.dtype, initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name(), deduplicate(shape), dtype=self.dtype, initializer=initializer)
 
     def _orthogonal_var(self, shape) -> mtf.Tensor:
         return self._get_variable(shape, tf.orthogonal_initializer())
