@@ -26,7 +26,8 @@ def deduplicate(inp: typing.Iterable) -> typing.Iterable:
 
 
 def anonymize(inp: mtf.Tensor,
-              dim: typing.Union[typing.List[typing.Union[mtf.Dimension, str]], typing.Union[mtf.Dimension, str]]
+              dim: typing.Union[typing.List[typing.Union[mtf.Dimension,
+                                                         str]], typing.Union[mtf.Dimension, str]]
               ) -> mtf.Tensor:
     if not isinstance(dim, list):
         dim = [dim]
@@ -46,7 +47,8 @@ def anonymize_shape(inp: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
     dim = unanonymize_dim(dim)
     if not check_for_dim(inp, dim):
         return inp
-    out = [anonymize_dim(dim) if d == dim else d for d in (inp.dims if isinstance(inp, mtf.Shape) else inp)]
+    out = [anonymize_dim(dim) if d == dim else d for d in (
+        inp.dims if isinstance(inp, mtf.Shape) else inp)]
     if isinstance(inp, list):
         return out
     return mtf.Shape(out)
