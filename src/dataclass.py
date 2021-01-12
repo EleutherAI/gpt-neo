@@ -66,8 +66,8 @@ class ModelParameter(dict):
         self.__dict__.update(config)
 
         self.time_patch_size = self.n_ctx // self.time_patch
-        self.frame_height_patch = self.frame_height // self.patch_size
-        self.frame_width_patch = self.frame_width // self.patch_size
+        self.frame_height_patch = self.frame_height // self.patch_size // self.attention_patch_sqrt
+        self.frame_width_patch = self.frame_width // self.patch_size // self.attention_patch_sqrt
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.head_dim = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
