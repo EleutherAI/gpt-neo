@@ -257,7 +257,8 @@ class ModelParameter(dict):
             token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
-            out = slice(out, self.language_token_patch, out.shape[2].size, spatial_ctx)
+
+            out = slice(out, self.language_token_patch * self.use_language, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
             video_loss = mtf.abs(src - tgt)
 
