@@ -24,14 +24,14 @@ def anonymize(inp: mtf.Tensor, dim: typing.Union[mtf.Dimension, str]) -> mtf.Ten
     dim = unanonymize_dim(dim)
     if not check_for_dim(inp, dim):
         return inp
-    return mtf.rename_dimension(inp, dim, anonymize_dim(dim))
+    return mtf.rename_dimension(inp, dim, dim_name(anonymize_dim(dim)))
 
 
 def unanonymize(inp: mtf.Tensor, dim: typing.Union[mtf.Dimension, str]) -> mtf.Tensor:
     dim = anonymize_dim(dim)
     if not check_for_dim(inp, dim):
         return inp
-    return mtf.rename_dimension(inp, dim, unanonymize_dim(dim))
+    return mtf.rename_dimension(inp, dim, dim_name(unanonymize_dim(dim)))
 
 
 def new_dim(dim: typing.Union[mtf.Dimension, str], new_size: typing.Optional[int] = None,
