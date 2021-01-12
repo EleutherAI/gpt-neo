@@ -43,7 +43,7 @@ def create_host_call(model_dir):
         if tensor.shape.is_compatible_with([]):
             tensor = tf.reshape(tensor, [1])
         if tensor.dtype == tf.int64:
-            return tf.to_int32(tensor)
+            return tf.cast(tensor, tf.int32)
         if tensor.dtype == tf.bfloat16:
             return tf.cast(tensor, tf.float32)
         return tensor
@@ -74,7 +74,7 @@ def create_host_call(model_dir):
                 tf2.summary.scalar(name, tf.reduce_mean(tensor), step=global_step)
         return tf.summary.all_v2_summary_ops()
 
-    global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
+    global_step_t = tf.reshape(tf.cast(tf.train.get_global_step(), tf.int32), [1])
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
@@ -119,7 +119,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     frame_mask = None
     token_mask = None
 
-    if params.use_video:
+    if params.model_mode == 'jannet':
         frame_input_shape = [batch_dim, mtf.Dimension("_sequence", params.time_patch_size + 1)]
 
         if params.three_axes:
@@ -133,21 +133,34 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
         frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(frame_input_shape), "frame_input")
 
-    if params.use_language:
-        sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
+        if params.use_language:
+            sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
+
+            token_dim_shape = [batch_dim,
+                               sequence_dim,
+                               mtf.Dimension("height", params.language_token_patch),
+                               mtf.Dimension("language_token_patch", params.token_patch_size)]
+
+            frame_mask_shape = mtf.Shape([batch_dim, sequence_dim])
+
+            token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
+            token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
+
+            frame_mask = mtf.import_fully_replicated(mesh, features['frame_mask'], frame_mask_shape, "frame_mask")
+            token_mask = mtf.import_fully_replicated(mesh, features['token_mask'], token_dim_shape, "token_mask")
+
+    elif params.model_mode == 'gpt':
 
         token_dim_shape = [batch_dim,
-                           sequence_dim,
-                           mtf.Dimension("token_patch_size", params.token_patch_size),
-                           mtf.Dimension("language_token_patch", params.language_token_patch)]
-
-        frame_mask_shape = mtf.Shape([batch_dim, sequence_dim])
+                           mtf.Dimension("sequence", params.time_patch_size),
+                           mtf.Dimension("language_tokens", params.language_token_per_frame)]
 
         token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
         token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
 
-        frame_mask = mtf.import_fully_replicated(mesh, features['frame_mask'], frame_mask_shape, "frame_mask")
-        token_mask = mtf.import_fully_replicated(mesh, features['token_mask'], token_dim_shape, "token_mask")
+    else:
+        raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
+                         "is a not supported option.".format(params.model_mode))
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
@@ -204,8 +217,8 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     with mtf.utils.outside_all_rewrites():
         restore_hook = mtf.MtfRestoreHook(lowering)
         return tpu_estimator.TPUEstimatorSpec(
-            tf.estimator.ModeKeys.TRAIN,
-            loss=tf_loss,
-            host_call=host_call,
-            training_hooks=[restore_hook],
-            train_op=train_op)
+                tf.estimator.ModeKeys.TRAIN,
+                loss=tf_loss,
+                host_call=host_call,
+                training_hooks=[restore_hook],
+                train_op=train_op)

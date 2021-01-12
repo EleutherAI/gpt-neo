@@ -22,9 +22,9 @@ def main(args: argparse.Namespace):
     # Fetch appropriate input functions
 
     if params.model_mode == 'jannet':
-        input_fn = dataset
+        input_fn = partial(dataset, step=0)
     elif params.model_mode == 'gpt':
-        input_fn = lambda x: gpt_neo_input(x, 0, eval=False)
+        input_fn = partial(dataset, step=0, eval=False)
     else:
         raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
                          "is a not supported option.".format(params.model_mode))

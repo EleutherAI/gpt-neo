@@ -89,7 +89,7 @@ class ModelParameter(dict):
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
 
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
-        self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
+        self.token_patch_count = self.language_token_per_frame // self.token_patch_size
         self.feature_dim_count = len(self.feature_dims)
 
 
@@ -239,16 +239,20 @@ class ModelParameter(dict):
             tkn = self._linear_from_features(slice(out, 0, self.language_token_patch, spatial_ctx),
                                              [txt_tgt.shape[-1], self.vocab_dim])
             z_loss = mtf.reduce_sum(mtf.square(tkn)) * (self.z_loss / self.vocab_size)
-            logsumexp = mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim))
+            logsumexp = mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim) * token_mask)
+
             tkn_loss = mtf.reduce_sum(tkn * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
-                                             + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)))
+                                             + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)) * token_mask)
             tkn_loss *= 1 - self.label_smoothing
-            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, tkn_loss]) / (tkn.shape.size / self.vocab_size)
+
+            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
             out = slice(out, self.language_token_patch, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
-            video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt))
+
+            video_loss: mtf.Tensor = mtf.abs(src - tgt) * frame_mask
+            video_loss: mtf.Tensor = mtf.reduce_mean(video_loss)
 
         self._layer_idx = 0
 

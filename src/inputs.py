@@ -4,9 +4,8 @@ from itertools import cycle
 import re
 import logging
 
-from scripts.video2tfrecord import get_decoder
-from .dataclass import ModelParameter
-
+#from .dataclass import ModelParameter
+from src.dataclass import ModelParameter
 
 def get_video_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=None, color_channels=None):
     '''
@@ -101,7 +100,7 @@ def dataset_text(path: str, params: ModelParameter):
                                        channel_color_size), dtype=tf.bool)
 
     padding_frame_mask = tf.zeros((batch_size, time_patch_size), dtype=tf.bool)
-    padding_token_mask = tf.ones((batch_size, time_patch_size, language_token_per_frame), dtype=tf.bool)
+    padding_token_mask = tf.ones((batch_size, language_token_patch, token_patch_size), dtype=tf.bool)
 
     def decode_func(name: tf.Tensor):
 
@@ -121,7 +120,7 @@ def dataset_text(path: str, params: ModelParameter):
         x = tf.cast(x, tf.int32)
         x = tf.concat([x, padding_token], axis=2)
 
-        x = tf.reshape(x, (batch_size, time_patch_size + 1, token_patch_size, language_token_patch))
+        x = tf.reshape(x, (batch_size, time_patch_size + 1, language_token_patch, token_patch_size))
 
         token_x = x[:, :time_patch_size]
         token_y = x[:, 1:time_patch_size + 1]
@@ -175,6 +174,7 @@ def dataset_video(path: str, params: ModelParameter):
 
         data = data.window(size=n_ctx + time_patch, stride=1, shift=n_ctx, drop_remainder=True)
         data = data.interleave(interleave_func, cycle_length=1, num_parallel_calls=1, block_length=1)
+
         return data
 
     def pre_func(*args):
@@ -200,7 +200,7 @@ def dataset_video(path: str, params: ModelParameter):
 
 
         if params.use_language:
-            token = tf.reshape(token, (batch_size, time_patch_size + 1, token_patch_size, language_token_patch))
+            token = tf.reshape(token, (batch_size, time_patch_size + 1, language_token_patch, token_patch_size))
             token = tf.cast(token, tf.int32)
 
             token_x = token[:, :time_patch_size]
@@ -211,7 +211,7 @@ def dataset_video(path: str, params: ModelParameter):
             frame_mask = tf.cast(frame_mask, tf.bool)
 
             token_mask = token_mask[:, 1:time_patch_size + 1]
-            token_mask = tf.reshape(token_mask, (batch_size, time_patch_size, token_patch_size, language_token_patch))
+            token_mask = tf.reshape(token_mask, (batch_size, time_patch_size, language_token_patch, token_patch_size))
             token_mask = tf.cast(token_mask, tf.bool)
 
         return {k: v for k, v in {'frame': out_frame, 'token_x': token_x, 'token_y': token_y,
@@ -239,22 +239,6 @@ def dataset_video(path: str, params: ModelParameter):
     data = data.map(pre_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data
 
-    options = tf.data.Options()
-    options.experimental_optimization.autotune = True
-    options.experimental_optimization.autotune_buffers = True
-    options.experimental_optimization.filter_fusion = True
-    options.experimental_optimization.filter_with_random_uniform_fusion = True
-    options.experimental_optimization.hoist_random_uniform = True
-    options.experimental_optimization.map_and_batch_fusion = True
-    options.experimental_optimization.map_and_filter_fusion = True
-    options.experimental_optimization.map_fusion = True
-    options.experimental_optimization.map_parallelization = True
-    options.experimental_optimization.map_vectorization.enabled = True
-    options.experimental_optimization.map_vectorization.use_choose_fastest = True
-    options.experimental_optimization.noop_elimination = True
-    options.experimental_optimization.parallel_batch = True
-    options.experimental_optimization.shuffle_and_repeat_fusion = True
-
     return data
 
 
@@ -272,7 +256,6 @@ def dataset(params: ModelParameter, step: int = 0):
         dtype = set['type']
         path = set['path']
         weight = set['weight']
-        print(path)
 
         assert dtype == 'video' or dtype == 'text',\
             "{} is not a supported option for type for a dataset.".format(dtype)
@@ -284,7 +267,6 @@ def dataset(params: ModelParameter, step: int = 0):
 
         weights.append(weight)
 
-    print(len(datasets), len(weights))
     weights = tf.convert_to_tensor(weights, dtype=tf.float32)
     datasets = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=params.data_seed)
 
@@ -411,7 +393,7 @@ def gpt_neo_input(params, global_step=None, eval=False):
         vals1 = x[:, :params.n_ctx]
         vals2 = x[:, 1:params.n_ctx + 1]
 
-        return vals1, vals2
+        return {'token_x': vals1, 'token_y': vals2}
 
     dataset = dataset.map(tf.data.TFRecordDataset)
 
