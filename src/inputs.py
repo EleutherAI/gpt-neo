@@ -3,8 +3,8 @@ import random
 import tensorflow.compat.v1 as tf
 from google.cloud import storage
 
-from .dataclass import ModelParameter
 from scripts.video2tfrecord import get_decoder
+from .dataclass import ModelParameter
 
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int,
@@ -61,7 +61,6 @@ def generic_data(params: ModelParameter):
             for itm in storage.client.Client().list_blobs(bucket_name, prefix=folder)]
     random.shuffle(path)
 
-
     data = tf.data.Dataset.from_tensor_slices(path)
     data = data.interleave(lambda x: tf_record_dataset(x, sequence_length, time_patch, frame_decoder, interleave_func),
                            cycle_length=params.interleaved_datasets,
@@ -83,30 +82,40 @@ def generic_data(params: ModelParameter):
         if params.use_language:
             token = tf.reshape(token,
                                (batch_size,
-                                sequence_length + time_patch * params.use_video + (sequence_length // 1024) * (1 - params.use_video)) +
+                                sequence_length + time_patch * params.use_video + (sequence_length // 1024) * (
+                                        1 - params.use_video)) +
                                ((language_token_per_frame,) if params.use_video else tuple()))
-            print(token)
             token = tf.cast(token, tf.int64)
 
             token_x = token[:, :sequence_length]
             token_y = token[:, 1:sequence_length + 1]
-
-            token_x = tf.reshape(token_x, token_x.shape.as_list()[:-1] + [token_x.shape.as_list()[-1] // params.token_patch_size, params.token_patch_size])
-            token_y = tf.reshape(token_y, token_y.shape.as_list()[:-1] + [token_y.shape.as_list()[-1] // params.token_patch_size, params.token_patch_size])
+            if params.use_video:
+                shape = [batch_size, sequence_length + time_patch,
+                         language_token_per_frame // params.attention_patch.size // params.token_patch_size,
+                         params.attention_patch.size, params.token_patch_size]
+            else:
+                shape = [batch_size, sequence_length + sequence_length // 1024]
+            token_x = tf.reshape(token_x, shape)
+            token_y = tf.reshape(token_y, shape)
 
         if params.use_video:
             # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
-            frame = tf.reshape(frame, (
-                    batch_size, time_patch_size + 1, time_patch, frame_height_patch, patch_size, frame_width_patch,
-                    patch_size,
-                    color_channels))
-            frame = tf.transpose(frame, [0, 1, 3, 5, 2, 4, 6, 7])
+            frame = tf.reshape(frame,
+                               (batch_size, time_patch_size + 1, time_patch,
+                                frame_height_patch, params.attention_patch_sqrt, patch_size,
+                                frame_width_patch, params.attention_patch_sqrt, patch_size,
+                                color_channels))
+            frame = tf.transpose(frame, [0, 1, 3, 6, 4, 7, 5, 8, 9])
 
             if three_axes:
-                out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
+                out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1,
+                                               frame_height_patch, frame_width_patch,
+                                               params.attention_patch.size,
                                                channel_color_size))
             else:
-                out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch * frame_width_patch,
+                out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1,
+                                               frame_height_patch * frame_width_patch,
+                                               params.attention_patch.size,
                                                channel_color_size))
 
         return {k: v for k, v in {'frame': out_frame, 'token_x': token_x, 'token_y': token_y}.items() if v is not None}

@@ -55,6 +55,7 @@ class ModelParameter(dict):
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
         self.embedding_stddev = 0.02
+        self.attention_patch_sqrt = 2
 
         self.mesh = None
 
@@ -70,13 +71,15 @@ class ModelParameter(dict):
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.head_dim = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-        self.feature_dims = [self.head_dim, self.key_dim]
+        self.attention_patch = mtf.Dimension("attentionpatch", self.attention_patch_sqrt ** 2)
+        self.feature_dims = [self.attention_patch, self.head_dim, self.key_dim]
         self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
-        self.intermediate = [mtf.Dimension('_intermediate',
-                                           int(np.prod([dim.size for dim in self.feature_dims])
+        self.intermediate = [self.attention_patch,
+                             mtf.Dimension('_intermediate',
+                                           int(np.prod([dim.size for dim in self.feature_dims[1:]])
                                                * self.intermediate_feed_forward_multiplier))]
-        self.learned_dim = [new_dim(self.intermediate[0],
-                                    self.intermediate[0].size * self.feed_forward_attention_factor)]
+        self.learned_dim = [new_dim(self.intermediate[1],
+                                    self.intermediate[1].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
 
@@ -102,7 +105,7 @@ class ModelParameter(dict):
         return self.__dict__
 
     def _get_variable(self, shape, initializer) -> mtf.Tensor:
-        return mtf.get_variable(self.mesh, random_name(), shape, dtype=self.dtype, initializer=initializer)
+        return mtf.get_variable(self.mesh, random_name(), list(set(shape)), dtype=self.dtype, initializer=initializer)
 
     def _orthogonal_var(self, shape) -> mtf.Tensor:
         return self._get_variable(shape, tf.orthogonal_initializer())
@@ -126,7 +129,7 @@ class ModelParameter(dict):
     def _linear(self, block_input: mtf.Tensor, old: typing.List[mtf.Dimension],
                 new: typing.List[mtf.Dimension]) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
-            return mtf.einsum([block_input, self._orthogonal_var(list(set(old + new)))], block_input.shape - old + new)
+            return mtf.einsum([block_input, self._orthogonal_var(old + new)], block_input.shape - old + new)
 
     def _linear_to_features(self, block_input: mtf.Tensor,
                             old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
