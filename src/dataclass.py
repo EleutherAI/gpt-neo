@@ -82,6 +82,7 @@ class ModelParameter(dict):
                                     self.intermediate[1].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
+        self.feature_dim_count = len(self.feature_dims)
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -189,7 +190,7 @@ class ModelParameter(dict):
         video_loss: typing.Union[int, mtf.Tensor] = 0
         token_loss: typing.Union[int, mtf.Tensor] = 0
 
-        spatial_ctx = txt_tgt.shape[-2] if self.use_language else vid.shape[2]
+        spatial_ctx = txt_tgt.shape[-self.feature_dim_count] if self.use_language else vid.shape[2]
 
         if self.use_video:
             context_dimension = vid.shape[1]
@@ -207,7 +208,7 @@ class ModelParameter(dict):
         elif not self.use_video:
             src: mtf.Tensor = txt_src
 
-        for pad, (name, _) in zip(self.memory_token, src.shape[1:-2]):
+        for pad, (name, _) in zip(self.memory_token, src.shape[1:-self.feature_dim_count]):
             if pad > 0:
                 anonymous_name = '_' + name
                 memory = mtf.broadcast(self._embed([mtf.Dimension(anonymous_name, pad)] + self.feature_dims),
@@ -221,7 +222,7 @@ class ModelParameter(dict):
 
         out = self._rezero(input_list[0], 1) + self._rezero(input_list[2], 1)
 
-        for pad, (name, size) in zip(self.memory_token, src.shape[1:-2]):
+        for pad, (name, size) in zip(self.memory_token, src.shape[1:-self.feature_dim_count]):
             out = slice(out, pad, size, name)
 
         if self.use_language:
