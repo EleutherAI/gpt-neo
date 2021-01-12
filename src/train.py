@@ -128,15 +128,13 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
                                                              [mtf.Dimension("height",
                                                                             params.frame_height_patch
                                                                             * params.frame_width_patch)]) +
-                                                            [params.attention_patch,
-                                                             mtf.Dimension("color_channels", params.channel_color_size)]
+                                                            [mtf.Dimension("color_channels", params.channel_color_size)]
                                                             ),
                                                   "frame_input")
 
     if params.use_language:
         token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size // (params.token_patch_size if not params.use_video else 1))] +
                               ([mtf.Dimension("height", params.token_patch_count),
-                                params.attention_patch,
                                 mtf.Dimension("token_patch", params.token_patch_size)] if params.use_video else []))
         token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "txt_src")
         token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "txt_tgt")

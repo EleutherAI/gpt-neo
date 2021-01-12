@@ -91,8 +91,8 @@ def generic_data(params: ModelParameter):
             token_y = token[:, 1:sequence_length + 1]
             if params.use_video:
                 shape = [batch_size, sequence_length,
-                         language_token_per_frame // params.attention_patch.size // params.token_patch_size,
-                         params.attention_patch.size, params.token_patch_size]
+                         language_token_per_frame //  params.token_patch_size,
+                         params.token_patch_size]
             else:
                 shape = [batch_size, sequence_length + sequence_length // 1024 - 1]
             token_x = tf.reshape(token_x, shape)
@@ -102,20 +102,18 @@ def generic_data(params: ModelParameter):
             # Target Shape: [batch_size, sequence_length, frame_height, frame_width, color_channels]
             frame = tf.reshape(frame,
                                (batch_size, time_patch_size + 1, time_patch,
-                                frame_height_patch, params.attention_patch_sqrt, patch_size,
-                                frame_width_patch, params.attention_patch_sqrt, patch_size,
+                                frame_height_patch, patch_size,
+                                frame_width_patch, patch_size,
                                 color_channels))
-            frame = tf.transpose(frame, [0, 1, 3, 6, 4, 7, 2, 5, 8, 9])
+            frame = tf.transpose(frame, [0, 1, 3, 5, 2, 4, 6, 7])
 
             if three_axes:
                 out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1,
                                                frame_height_patch, frame_width_patch,
-                                               params.attention_patch.size,
                                                channel_color_size))
             else:
                 out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1,
                                                frame_height_patch * frame_width_patch,
-                                               params.attention_patch.size,
                                                channel_color_size))
 
         return {k: v for k, v in {'frame': out_frame, 'token_x': token_x, 'token_y': token_y}.items() if v is not None}

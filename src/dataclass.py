@@ -55,7 +55,6 @@ class ModelParameter(dict):
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
         self.embedding_stddev = 0.02
-        self.attention_patch_sqrt = 2
 
         self.mesh = None
 
@@ -66,25 +65,20 @@ class ModelParameter(dict):
         self.__dict__.update(config)
 
         self.time_patch_size = self.n_ctx // self.time_patch
-        self.frame_height_patch = self.frame_height // self.patch_size // self.attention_patch_sqrt
-        self.frame_width_patch = self.frame_width // self.patch_size // self.attention_patch_sqrt
+        self.frame_height_patch = self.frame_height // self.patch_size
+        self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.head_dim = mtf.Dimension("heads", self.n_head)
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-        self.attention_patch = mtf.Dimension("attentionpatch", self.attention_patch_sqrt ** 2)
-        self.feature_dims = [self.attention_patch, self.head_dim, self.key_dim]
+        self.feature_dims = [self.head_dim, self.key_dim]
         self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
-        self.intermediate = [self.attention_patch,
-                             mtf.Dimension('_intermediate',
+        self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims[1:]])
                                                * self.intermediate_feed_forward_multiplier))]
         self.learned_dim = [new_dim(self.intermediate[1],
                                     self.intermediate[1].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
-        self.token_patch_count = (self.language_token_per_frame
-                                  // self.attention_patch.size
-                                  // self.token_patch_size
-                                  * self.use_language)
+        self.token_patch_count = self.language_token_per_frame// self.token_patch_size * self.use_language
         self.feature_dim_count = len(self.feature_dims)
 
     def __getitem__(self, key):
@@ -152,29 +146,22 @@ class ModelParameter(dict):
         idx = self._layer_idx % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
-        autoregressive = idx in self.masked_attention_dimensions
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
-
-        learned_shape = [dim.name]
-        anonymized_features = self.feature_dims
-        if not autoregressive:
-            learned_shape = learned_shape + [self.attention_patch.name]
-            anonymized_features = anonymize_shape(anonymized_features, self.attention_patch)
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear_from_features(block_input))
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
-            context_key = anonymize(self._linear_to_features(base), learned_shape)
-            context_val = anonymize(self._linear_to_features(base), learned_shape)
+            context_key = anonymize(self._linear_to_features(base), [dim.name])
+            context_val = anonymize(self._linear_to_features(base), [dim.name])
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
-            learned_val = self._embed(self.learned_dim + anonymized_features)
+            learned_val = self._embed(self.learned_dim + self.feature_dims)
 
             context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
             feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
 
-            if autoregressive:  # it's auto-regressive
+            if idx in self.masked_attention_dimensions:  # it's auto-regressive
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
                 j = mtf.range(self.mesh, dim, tf.int32)
                 i = mtf.broadcast(i, [tmp_dim, dim])
