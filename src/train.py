@@ -98,22 +98,21 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     frame_input = None
     token_x_input = None
     token_y_input = None
-    frame_mask = None
-    token_mask = None
 
     if params.use_video:
-        frame_input_shape = [batch_dim, mtf.Dimension("_sequence", params.time_patch_size + 1)]
-
-        if params.three_axes:
-            frame_input_shape = frame_input_shape + [mtf.Dimension("height", params.frame_height_patch),
-                                                     mtf.Dimension("width", params.frame_width_patch)]
-        else:
-            frame_input_shape = frame_input_shape + [mtf.Dimension("height", params.frame_height_patch
-                                                                   * params.frame_width_patch)]
-
-        frame_input_shape = frame_input_shape + [mtf.Dimension("color_channels", params.channel_color_size)]
-
-        frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(frame_input_shape), "frame_input")
+        frame_input = mtf.import_fully_replicated(mesh,
+                                                  features['frame'],
+                                                  mtf.Shape([batch_dim,
+                                                             mtf.Dimension("_sequence", params.time_patch_size + 1)] +
+                                                            ([mtf.Dimension("height", params.frame_height_patch),
+                                                              mtf.Dimension("width", params.frame_width_patch)]
+                                                             if params.three_axes else
+                                                             [mtf.Dimension("height",
+                                                                            params.frame_height_patch
+                                                                            * params.frame_width_patch)]) +
+                                                            [mtf.Dimension("color_channels", params.channel_color_size)]
+                                                            ),
+                                                  "frame_input")
 
     if params.use_language:
 
@@ -121,8 +120,8 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
         token_dim_shape = [batch_dim,
                            sequence_dim,
-                           mtf.Dimension("token_patch_size", params.token_patch_size),
-                           mtf.Dimension("language_token_patch", params.language_token_patch)]
+                           mtf.Dimension("height", params.token_patch_size),
+                           mtf.Dimension("token_patch", params.language_token_patch)]
 
         frame_mask_shape = mtf.Shape([batch_dim, sequence_dim])
 
