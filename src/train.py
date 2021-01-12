@@ -28,7 +28,7 @@ tf.config.optimizer.set_experimental_options({"layout_optimizer": True,
 def create_host_call(model_dir):
     """Construct a host_call writing scalar summaries.
     Borrowed from t2t.
-
+    
     Args:
         model_dir: String containing path to train
     Returns:
@@ -71,8 +71,7 @@ def create_host_call(model_dir):
             assert len(args) == len(summaries)
             for i, tensor in enumerate(args):
                 name = summaries[i][0]
-                tf2.summary.scalar(name, tf.reduce_mean(
-                    tensor), step=global_step)
+                tf2.summary.scalar(name, tf.reduce_mean(tensor), step=global_step)
         return tf.summary.all_v2_summary_ops()
 
     global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
@@ -99,12 +98,11 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
                                                   [300 * 1000000 * params.context.num_replicas] + [0] * (num_hosts - 1))
     mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-        mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
+            mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
-    variable_dtype = mtf.VariableDType(
-        master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
+    variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
     # Build mtf mesh object
     mesh = mtf.Mesh(graph, "mesh", var_placer)
@@ -130,8 +128,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
                                                              [mtf.Dimension("height",
                                                                             params.frame_height_patch
                                                                             * params.frame_width_patch)]) +
-                                                            [mtf.Dimension(
-                                                                "color_channels", params.channel_color_size)]
+                                                            [mtf.Dimension("color_channels", params.channel_color_size)]
                                                             ),
                                                   "frame_input")
 
@@ -139,18 +136,14 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
         token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size // (params.token_patch_size if not params.use_video else 1))] +
                               ([mtf.Dimension("height", params.token_patch_count),
                                 mtf.Dimension("token_patch", params.token_patch_size)] if params.use_video else []))
-        token_x_input = mtf.import_fully_replicated(
-            mesh, features['token_x'], token_dim, "txt_src")
-        token_y_input = mtf.import_fully_replicated(
-            mesh, features['token_y'], token_dim, "txt_tgt")
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "txt_src")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "txt_tgt")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss, video_loss, token_loss = params.build(
-                frame_input, token_x_input, token_y_input)
+            logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input)
 
-    _, update_ops, var_grads = get_optimizer(
-        mesh, loss, params, var_grads=None)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params, var_grads=None)
 
     if params.use_video:
         mtf.scalar_summary("video_loss", video_loss)
@@ -175,8 +168,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
         all_dim_names.append(names)
 
     # Print all dim names in graph & write to file
-    # Flatten all dims
-    all_dim_names = [item for sublist in all_dim_names for item in sublist]
+    all_dim_names = [item for sublist in all_dim_names for item in sublist]  # Flatten all dims
     unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
     for dim_name in unique_dims:
@@ -194,16 +186,15 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
 
     # Creates train_op
     tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-    # Need to manually increment global_step
-    tf_update_ops.append(tf.assign_add(global_step, 1))
+    tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
     tf.logging.info(f"tf_update_ops: {tf_update_ops}")
     train_op = tf.group(tf_update_ops)
 
     with mtf.utils.outside_all_rewrites():
         restore_hook = mtf.MtfRestoreHook(lowering)
         return tpu_estimator.TPUEstimatorSpec(
-            tf.estimator.ModeKeys.TRAIN,
-            loss=tf_loss,
-            host_call=host_call,
-            training_hooks=[restore_hook],
-            train_op=train_op)
+                tf.estimator.ModeKeys.TRAIN,
+                loss=tf_loss,
+                host_call=host_call,
+                training_hooks=[restore_hook],
+                train_op=train_op)

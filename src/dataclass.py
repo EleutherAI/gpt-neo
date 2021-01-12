@@ -67,22 +67,18 @@ class ModelParameter(dict):
         self.time_patch_size = self.n_ctx // self.time_patch
         self.frame_height_patch = self.frame_height // self.patch_size
         self.frame_width_patch = self.frame_width // self.patch_size
-        self.channel_color_size = self.color_channels * \
-            self.time_patch * self.patch_size ** 2
+        self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.head_dim = mtf.Dimension("heads", self.n_head)
-        self.key_dim = mtf.Dimension(
-            "features_per_head", self.n_embd // self.n_head)
+        self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.feature_dims = [self.head_dim, self.key_dim]
-        self.anonymous_key_dim = mtf.Dimension(
-            '_' + self.key_dim.name, self.key_dim.size)
+        self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
         self.learned_dim = [new_dim(self.intermediate[0],
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
-        self.token_patch_count = self.language_token_per_frame // self.token_patch_size * \
-            self.use_language
+        self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
         self.feature_dim_count = len(self.feature_dims)
 
     def __getitem__(self, key):
@@ -94,8 +90,7 @@ class ModelParameter(dict):
         return self.__setattr__(key, value)
 
     def get(self, key, default):
-        print(
-            f"Getting {key} via deprecated interface with default value {default}")
+        print(f"Getting {key} via deprecated interface with default value {default}")
         return self.__dict__.get(key, default)
 
     def __str__(self):
@@ -146,8 +141,7 @@ class ModelParameter(dict):
     def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
 
-        # Ex: Shape[Sequence, Width, Height]
-        attention_dims = (block_input.shape - self.feature_dims)[1:]
+        attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
         idx = self._layer_idx % len(attention_dims)
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
@@ -155,8 +149,7 @@ class ModelParameter(dict):
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear_from_features(block_input))
-            context_qry = (self._linear_to_features(base) +
-                           self._embed([dim] + self.feature_dims))
+            context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
             context_key = anonymize(self._linear_to_features(base), [dim.name])
             context_val = anonymize(self._linear_to_features(base), [dim.name])
@@ -164,10 +157,8 @@ class ModelParameter(dict):
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
 
-            context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[
-                                        self.key_dim]) * attention_scale
-            feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[
-                                        self.key_dim]) * attention_scale
+            context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
+            feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
 
             if idx in self.masked_attention_dimensions:  # it's auto-regressive
                 i = mtf.range(self.mesh, tmp_dim, tf.int32)
@@ -200,17 +191,13 @@ class ModelParameter(dict):
         if self.use_video:
             context_dimension = vid.shape[1]
             input_features = vid.shape[-1:]
-            tgt = slice(vid, 1, context_dimension.size,
-                        context_dimension) / 255
-            src = slice(vid, 0, context_dimension.size - 1,
-                        context_dimension) / self._scalar(127.5) + self._scalar(-1)
+            tgt = slice(vid, 1, context_dimension.size, context_dimension) / 255
+            src = slice(vid, 0, context_dimension.size - 1, context_dimension) / self._scalar(127.5) + self._scalar(-1)
             src = self._linear_to_features(src, input_features)
 
         if self.use_language:
-            txt_src = self._linear_to_features(mtf.one_hot(
-                txt_src, self.vocab_dim, dtype=self.dtype), [self.vocab_dim])
-            txt_src = self._linear(
-                txt_src, [txt_tgt.shape[-1], self.key_dim], [self.key_dim])
+            txt_src = self._linear_to_features(mtf.one_hot(txt_src, self.vocab_dim, dtype=self.dtype), [self.vocab_dim])
+            txt_src = self._linear(txt_src, [txt_tgt.shape[-1], self.key_dim], [self.key_dim])
 
         if self.use_video and self.use_language:
             src = concat([src, txt_src], spatial_ctx)
@@ -227,8 +214,7 @@ class ModelParameter(dict):
         input_list = (src, None, src, None)
 
         for _ in range(self.n_layer):
-            input_list = mtf.layers.reversible_half_residual_and_swap(
-                *input_list, self._block_fn)
+            input_list = mtf.layers.reversible_half_residual_and_swap(*input_list, self._block_fn)
 
         out = self._rezero(input_list[0], 1) + self._rezero(input_list[2], 1)
 
@@ -238,19 +224,15 @@ class ModelParameter(dict):
         if self.use_language:
             tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
                                              [txt_tgt.shape[-1], self.vocab_dim])
-            z_loss = mtf.reduce_sum(mtf.square(tkn)) * \
-                (self.z_loss / self.vocab_size)
-            logsumexp = mtf.reduce_sum(
-                mtf.reduce_logsumexp(tkn, self.vocab_dim))
+            z_loss = mtf.reduce_sum(mtf.square(tkn)) * (self.z_loss / self.vocab_size)
+            logsumexp = mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim))
             tkn_loss = mtf.reduce_sum(tkn * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
                                              + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)))
             tkn_loss *= 1 - self.label_smoothing
-            token_loss: mtf.Tensor = mtf.add_n(
-                [z_loss, logsumexp, tkn_loss]) / (tkn.shape.size / self.vocab_size)
+            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, tkn_loss]) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
-            out = slice(out, self.token_patch_count,
-                        out.shape[2].size, spatial_ctx)
+            out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
             video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt))
 

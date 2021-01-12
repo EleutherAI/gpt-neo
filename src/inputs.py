@@ -9,15 +9,11 @@ from .dataclass import ModelParameter
 
 def tf_record_dataset(name: tf.Tensor, sequence_length: int, time_delay: int,
                       frame_decoder: object, interleave_func: object):
-    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(
-        [name]), buffer_size=2 ** 26, num_parallel_reads=1)
-    data = data.map(
-        frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor([name]), buffer_size=2 ** 26, num_parallel_reads=1)
+    data = data.map(frame_decoder, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
-    data = data.window(size=sequence_length + time_delay,
-                       stride=1, shift=sequence_length, drop_remainder=True)
-    data = data.interleave(interleave_func, cycle_length=1,
-                           num_parallel_calls=1, block_length=1)
+    data = data.window(size=sequence_length + time_delay, stride=1, shift=sequence_length, drop_remainder=True)
+    data = data.interleave(interleave_func, cycle_length=1, num_parallel_calls=1, block_length=1)
 
     return data
 
@@ -44,8 +40,8 @@ def generic_data(params: ModelParameter):
         frame_decoder = get_decoder(language_token_num_per_frame=language_token_per_frame,
                                     frame_height=frame_height, frame_width=frame_width, color_channels=color_channels)
     else:
-        def frame_decoder(x): return tf.sparse.to_dense(
-            tf.parse_single_example(x, {"text": tf.VarLenFeature(tf.int64)})['text'])
+        frame_decoder = lambda x: tf.sparse.to_dense(
+                tf.parse_single_example(x, {"text": tf.VarLenFeature(tf.int64)})['text'])
 
     time_patch_size = params.time_patch_size
     frame_height_patch = params.frame_height_patch
@@ -53,14 +49,12 @@ def generic_data(params: ModelParameter):
     channel_color_size = params.channel_color_size
 
     if params.use_video and params.language_token_per_frame > 0:
-        def interleave_func(x, y, z): return tf.data.Dataset.zip((x, y, z)) \
+        interleave_func = lambda x, y, z: tf.data.Dataset.zip((x, y, z)) \
             .batch(sequence_length + time_patch, drop_remainder=True)
     elif params.use_video:
-        def interleave_func(x): return x.batch(
-            sequence_length + time_patch, drop_remainder=True)
+        interleave_func = lambda x: x.batch(sequence_length + time_patch, drop_remainder=True)
     else:
-        def interleave_func(x): return x.batch(
-            sequence_length // 1024, drop_remainder=True)
+        interleave_func = lambda x: x.batch(sequence_length // 1024, drop_remainder=True)
 
     path = [f'gs://{bucket_name}/{itm.name}'
             for folder in prefix
@@ -89,7 +83,7 @@ def generic_data(params: ModelParameter):
             token = tf.reshape(token,
                                (batch_size,
                                 sequence_length + time_patch * params.use_video + (sequence_length // 1024) * (
-                                    1 - params.use_video)) +
+                                        1 - params.use_video)) +
                                ((language_token_per_frame,) if params.use_video else tuple()))
             token = tf.cast(token, tf.int64)
 
@@ -97,11 +91,10 @@ def generic_data(params: ModelParameter):
             token_y = token[:, 1:sequence_length + 1]
             if params.use_video:
                 shape = [batch_size, sequence_length,
-                         language_token_per_frame // params.token_patch_size,
+                         language_token_per_frame //  params.token_patch_size,
                          params.token_patch_size]
             else:
-                shape = [batch_size, sequence_length +
-                         sequence_length // 1024 - 1]
+                shape = [batch_size, sequence_length + sequence_length // 1024 - 1]
             token_x = tf.reshape(token_x, shape)
             token_y = tf.reshape(token_y, shape)
 
@@ -125,8 +118,7 @@ def generic_data(params: ModelParameter):
 
         return {k: v for k, v in {'frame': out_frame, 'token_x': token_x, 'token_y': token_y}.items() if v is not None}
 
-    data = data.map(
-        with_token, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    data = data.map(with_token, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     if buffer_size > 0:
         print(f"Buffering {buffer_size} elements")
