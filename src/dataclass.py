@@ -159,12 +159,8 @@ class ModelParameter(dict):
             base = activate(self._linear_from_features(block_input))
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
-            context_key = anonymize(self._linear_to_features(base), dim.name)
-            context_val = anonymize(self._linear_to_features(base), dim.name)
-
-            if idx not in self.masked_attention_dimensions:
-                context_key = anonymize(context_key, self.attention_patch.name)
-                context_val = anonymize(context_val, self.attention_patch.name)
+            context_key = anonymize(self._linear_to_features(base), [dim.name, self.attention_patch.name])
+            context_val = anonymize(self._linear_to_features(base), [dim.name, self.attention_patch.name])
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + anonymize_shape(self.feature_dims, self.attention_patch))

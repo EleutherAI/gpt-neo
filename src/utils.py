@@ -21,11 +21,20 @@ def check_for_dim(inp: typing.Union[typing.List[mtf.Dimension], mtf.Shape, mtf.T
     return any(dim_name(dim) == d.name for d in (inp.shape if isinstance(inp, mtf.Tensor) else inp))
 
 
-def anonymize(inp: mtf.Tensor, dim: typing.Union[mtf.Dimension, str]) -> mtf.Tensor:
-    dim = unanonymize_dim(dim)
-    if not check_for_dim(inp, dim):
-        return inp
-    return mtf.rename_dimension(inp, dim, dim_name(anonymize_dim(dim)))
+def anonymize(inp: mtf.Tensor,
+              dim: typing.Union[typing.List[typing.Union[mtf.Dimension, str]], typing.Union[mtf.Dimension, str]]
+              ) -> mtf.Tensor:
+    if not isinstance(dim, list):
+        dim = [dim]
+    shape = inp.shape
+    for d in dim:
+        dim = unanonymize_dim(dim)
+        if not check_for_dim(inp, dim):
+            continue
+        shape = shape.rename_dimension(d, dim_name(anonymize_dim(d)))
+    if shape != inp.shape:
+        return mtf.reshape(inp, shape)
+    return inp
 
 
 def anonymize_shape(inp: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
