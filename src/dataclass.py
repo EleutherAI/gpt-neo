@@ -28,8 +28,6 @@ class ModelParameter(dict):
         self.color_channels = 3
         self.three_axes = True
         self.prefix = "datasets/video"
-        self.dataset_configs = []
-        self.data_seed = 456772
         self.n_head = 8
         self.n_embd = 256
         self.n_layer = 64
@@ -57,7 +55,6 @@ class ModelParameter(dict):
         self.intermediate_feed_forward_multiplier = 1
         self.feed_forward_attention_factor = 4
         self.embedding_stddev = 0.02
-        self.model_mode = 'jannet'
 
         self.mesh = None
 
@@ -71,24 +68,17 @@ class ModelParameter(dict):
         self.frame_height_patch = self.frame_height // self.patch_size
         self.frame_width_patch = self.frame_width // self.patch_size
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
-        self.language_token_patch = self.language_token_per_frame // self.token_patch_size
-
         self.head_dim = mtf.Dimension("heads", self.n_head)
-
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-
         self.feature_dims = [self.head_dim, self.key_dim]
-
         self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
-
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
-
         self.learned_dim = [new_dim(self.intermediate[0],
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
-
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
+        self.token_patch_count = self.language_token_per_frame // self.token_patch_size * self.use_language
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -188,9 +178,7 @@ class ModelParameter(dict):
     def build(self,
               vid: typing.Optional[mtf.Tensor],
               txt_src: typing.Optional[mtf.Tensor],
-              txt_tgt: typing.Optional[mtf.Tensor],
-              frame_mask: typing.Optional[mtf.Tensor],
-              token_mask: typing.Optional[mtf.Tensor],
+              txt_tgt: typing.Optional[mtf.Tensor]
               ) -> typing.Tuple[mtf.Tensor, typing.Union[int, mtf.Tensor], mtf.Tensor, mtf.Tensor]:
         video_loss: typing.Union[int, mtf.Tensor] = 0
         token_loss: typing.Union[int, mtf.Tensor] = 0

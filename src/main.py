@@ -6,7 +6,7 @@ import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
 
-from .inputs import dataset, gpt_neo_input
+from .inputs import generic_data
 from .train import model_fn
 from .dataclass import ModelParameter
 import json
@@ -20,14 +20,7 @@ def main(args: argparse.Namespace):
     # Read params of model
 
     # Fetch appropriate input functions
-
-    if params.model_mode == 'jannet':
-        input_fn = dataset(params, 0)
-    elif params.model_mode == 'gpt':
-        input_fn = gpt_neo_input(params, 0, eval=False)
-    else:
-        raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
-                         "is a not supported option.".format(params.model_mode))
+    input_fn = generic_data
 
     # Add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     mesh_shape = mtf.convert_to_shape(params.mesh_shape)
@@ -36,6 +29,7 @@ def main(args: argparse.Namespace):
     params.gpu_ids = args.gpu_ids
     # Expand attention types param
     params.predict = args.predict
+    params.model = params.get("model", "GPT")  # Default model selection to GPT since it's the only option for now
 
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present

@@ -29,10 +29,11 @@
 
     "mesh_shape": "x:1,y:8,z:1,h:1,w:1",
     "layout": "batch:x,heads:y,embd:z,height:h,width:w",
-    "dataset_configs": [{"type":  "video", "path":  "gs://text-datasets/datasets/video_with_language_v3", "weight":  1}],
+    "prefix": ["datasets/video_with_language_v3"],
 
     "model_path": "gs://text-datasets/video-transformer/label-smoothing=0dot1-ctx=256-layer=30-heads=8-feat=2048-ffpa=2-iffm=0dot25-timepatch=1-imgpatch=16-sign",
 
+    "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
     "n_vocab": 256,
     "embed_dropout": 0,

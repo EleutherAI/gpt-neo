@@ -19,6 +19,6 @@
 
     "mesh_shape": "x:1,y:8,z:1,h:1,w:1",
     "layout": "batch:x,heads:y,embd:z,height:h,width:w",
-    "dataset_configs": [{}],
+    "prefix": ["neo-datasets/openwebtext2_new_inputs"],
     "model_path": "gs://text-datasets/video-transformer/text-gpt-heads=16-embd=8192-layer=72-ffpa=2-iffm=0dot5-ctx=1024-batch=1"
 }
