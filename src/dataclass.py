@@ -160,8 +160,8 @@ class ModelParameter(dict):
             context_val = anonymize(self._linear_to_features(base), dim.name)
 
             if idx not in self.masked_attention_dimensions:
-                context_key = anonymize(context_key, self.attention_patch_sqrt)
-                context_val = anonymize(context_val, self.attention_patch_sqrt)
+                context_key = anonymize(context_key, self.attention_patch)
+                context_val = anonymize(context_val, self.attention_patch)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
