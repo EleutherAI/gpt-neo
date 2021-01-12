@@ -73,7 +73,7 @@ class ModelParameter(dict):
         self.feature_dims = [self.head_dim, self.key_dim]
         self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
         self.intermediate = [mtf.Dimension('_intermediate',
-                                           int(np.prod([dim.size for dim in self.feature_dims[1:]])
+                                           int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
         self.learned_dim = [new_dim(self.intermediate[0],
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
