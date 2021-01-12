@@ -130,7 +130,7 @@ class ModelParameter(dict):
                 new: typing.List[mtf.Dimension]) -> mtf.Tensor:
         with tf.variable_scope(random_name()):
             return mtf.einsum([block_input, self._orthogonal_var(old + new)],
-                              list(set(block_input.shape.dims - old + new)))
+                              list(set((block_input.shape - old).dims + new)))
 
     def _linear_to_features(self, block_input: mtf.Tensor,
                             old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
