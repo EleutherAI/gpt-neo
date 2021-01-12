@@ -21,8 +21,8 @@ class ModelParameter(dict):
         self.time_patch = 1
         self.n_ctx = 32
         self.patch_size = 16
-        self.frame_width = 2048
-        self.frame_height = 1152
+        self.frame_width = 320
+        self.frame_height = 176
         self.vocab_size = 256
         self.bucket_name = "text-datasets"
         self.color_channels = 3
@@ -158,6 +158,10 @@ class ModelParameter(dict):
             feature_qry = self._linear_to_features(base)
             context_key = anonymize(self._linear_to_features(base), dim.name)
             context_val = anonymize(self._linear_to_features(base), dim.name)
+
+            if idx not in self.masked_attention_dimensions:
+                context_key = anonymize(context_key, self.attention_patch_sqrt)
+                context_val = anonymize(context_val, self.attention_patch_sqrt)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
