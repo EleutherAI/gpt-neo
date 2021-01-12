@@ -10,7 +10,7 @@ from .optimizers import get_optimizer
 def create_host_call(model_dir):
     """Construct a host_call writing scalar summaries.
     Borrowed from t2t.
-    
+
     Args:
         model_dir: String containing path to train
     Returns:
@@ -80,7 +80,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
                                                   [300 * 1000000 * params.context.num_replicas] + [0] * (num_hosts - 1))
     mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
-            mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
+        mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
 
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
@@ -98,32 +98,43 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     frame_input = None
     token_x_input = None
     token_y_input = None
+    frame_mask = None
+    token_mask = None
 
     if params.use_video:
-        frame_input = mtf.import_fully_replicated(mesh,
-                                                  features['frame'],
-                                                  mtf.Shape([batch_dim,
-                                                             mtf.Dimension("_sequence", params.time_patch_size + 1)] +
-                                                            ([mtf.Dimension("height", params.frame_height_patch),
-                                                              mtf.Dimension("width", params.frame_width_patch)]
-                                                             if params.three_axes else
-                                                             [mtf.Dimension("height",
-                                                                            params.frame_height_patch
-                                                                            * params.frame_width_patch)]) +
-                                                            [mtf.Dimension("color_channels", params.channel_color_size)]
-                                                            ),
-                                                  "frame_input")
+        frame_input_shape = [batch_dim, mtf.Dimension("_sequence", params.time_patch_size + 1)]
+
+        if params.three_axes:
+            frame_input_shape = frame_input_shape + [mtf.Dimension("height", params.frame_height_patch),
+                                                     mtf.Dimension("width", params.frame_width_patch)]
+        else:
+            frame_input_shape = frame_input_shape + [mtf.Dimension("height", params.frame_height_patch
+                                                                   * params.frame_width_patch)]
+
+        frame_input_shape = frame_input_shape + [mtf.Dimension("color_channels", params.channel_color_size)]
+
+        frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(frame_input_shape), "frame_input")
 
     if params.use_language:
-        token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size // (params.token_patch_size if not params.use_video else 1))] +
-                              ([mtf.Dimension("height", params.language_token_per_frame // params.token_patch_size),
-                                mtf.Dimension("token_patch", params.token_patch_size)] if params.use_video else []))
-        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "txt_src")
-        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "txt_tgt")
+        sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
+
+        token_dim_shape = [batch_dim,
+                           sequence_dim,
+                           mtf.Dimension("token_patch_size", params.token_patch_size),
+                           mtf.Dimension("language_token_patch", params.language_token_patch)]
+
+        frame_mask_shape = mtf.Shape([batch_dim, sequence_dim])
+
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
+
+        frame_mask = mtf.import_fully_replicated(mesh, features['frame_mask'], frame_mask_shape, "frame_mask")
+        token_mask = mtf.import_fully_replicated(mesh, features['token_mask'], token_dim_shape, "token_mask")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input)
+            logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input,
+                                                                frame_mask, token_mask)
 
     _, update_ops, var_grads = get_optimizer(mesh, loss, params, var_grads=None)
 
@@ -175,8 +186,8 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     with mtf.utils.outside_all_rewrites():
         restore_hook = mtf.MtfRestoreHook(lowering)
         return tpu_estimator.TPUEstimatorSpec(
-                tf.estimator.ModeKeys.TRAIN,
-                loss=tf_loss,
-                host_call=host_call,
-                training_hooks=[restore_hook],
-                train_op=train_op)
+            tf.estimator.ModeKeys.TRAIN,
+            loss=tf_loss,
+            host_call=host_call,
+            training_hooks=[restore_hook],
+            train_op=train_op)
