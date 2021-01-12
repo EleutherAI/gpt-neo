@@ -224,13 +224,12 @@ class ModelParameter(dict):
         if self.use_language:
             tkn = self._linear_from_features(slice(out, 0, self.token_patch_count, spatial_ctx),
                                              [txt_tgt.shape[-1], self.vocab_dim])
-            token_loss: mtf.Tensor = mtf.add_n([mtf.reduce_sum(mtf.square(tkn) * (self.z_loss / self.vocab_size)),
-                                                mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim)),
-                                                -mtf.reduce_sum(tkn
-                                                                * (mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)
-                                                                   * (1 - self.label_smoothing)
-                                                                   + self.label_smoothing / self.vocab_size ** 1))]
-                                               ) / (tkn.shape.size / self.vocab_size)
+            z_loss = mtf.reduce_sum(mtf.square(tkn)) * (self.z_loss / self.vocab_size)
+            logsumexp = mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim))
+            tkn_loss = mtf.reduce_sum(tkn * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
+                                             + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)))
+            tkn_loss *= 1 - self.label_smoothing
+            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, tkn_loss]) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
             out = slice(out, self.token_patch_count, out.shape[2].size, spatial_ctx)
