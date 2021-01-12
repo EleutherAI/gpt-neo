@@ -119,7 +119,7 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     frame_mask = None
     token_mask = None
 
-    if params.model_mode == 'jannet':
+    if params.use_video:
         frame_input_shape = [batch_dim, mtf.Dimension("_sequence", params.time_patch_size + 1)]
 
         if params.three_axes:
@@ -149,18 +149,17 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
             frame_mask = mtf.import_fully_replicated(mesh, features['frame_mask'], frame_mask_shape, "frame_mask")
             token_mask = mtf.import_fully_replicated(mesh, features['token_mask'], token_dim_shape, "token_mask")
 
-    elif params.model_mode == 'gpt':
+    elif params.use_language:
 
         token_dim_shape = [batch_dim,
                            mtf.Dimension("sequence", params.time_patch_size),
-                           mtf.Dimension("language_tokens", params.language_token_per_frame)]
+                           mtf.Dimension("language_tokens", 1)]
 
         token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
         token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
 
     else:
-        raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
-                         "is a not supported option.".format(params.model_mode))
+        raise ValueError("use_video and use_language is both False.")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):

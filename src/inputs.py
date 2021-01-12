@@ -275,6 +275,24 @@ def dataset(params: ModelParameter, step: int = 0):
 
     datasets = datasets.skip(step)
 
+    options = tf.data.Options()
+    options.experimental_optimization.autotune = True
+    options.experimental_optimization.autotune_buffers = True
+    options.experimental_optimization.filter_fusion = True
+    options.experimental_optimization.filter_with_random_uniform_fusion = True
+    options.experimental_optimization.hoist_random_uniform = True
+    options.experimental_optimization.map_and_batch_fusion = True
+    options.experimental_optimization.map_and_filter_fusion = True
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_vectorization.use_choose_fastest = True
+    options.experimental_optimization.noop_elimination = True
+    options.experimental_optimization.parallel_batch = True
+    options.experimental_optimization.shuffle_and_repeat_fusion = True
+
+    datasets = datasets.with_options(options)
+
     return datasets
 
 
@@ -318,7 +336,7 @@ def _get_skip_index(all_files, n_batches):
     return skip_idx, remainder
 
 
-def gpt_neo_input(params, global_step=None, eval=False):
+def gpt_neo_input(params, step=None, eval=False):
     """
     Input fn that reads tfrecords encoded with a fixed chunk size (== n_ctx + 1), and that either:
 
@@ -339,8 +357,10 @@ def gpt_neo_input(params, global_step=None, eval=False):
     performance, as it results in less repeated data.
     """
 
+    params = ModelParameter(params)
+
     if not eval:
-        assert global_step is not None
+        assert step is not None
 
     logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated."
                     "Please ensure your batch size stays constant throughout training.")
@@ -350,9 +370,8 @@ def gpt_neo_input(params, global_step=None, eval=False):
     filenames = []
 
     # iterate through each dataset and read params
-    for dataset_config in params.dataset_configs.values():
-        path_key = 'path' if not eval else 'eval_path'
-        path = dataset_config[path_key]
+    for set in params.dataset_configs:
+        path = set['path']
 
         # then glob all files that fit the pattern specified in dataset_configs
         filenames.extend(tf.io.gfile.glob(path))
@@ -371,7 +390,7 @@ def gpt_neo_input(params, global_step=None, eval=False):
     if not eval:
 
         # skip forward first in the filenames list, then skip the remaining amount in the parsed tfrecords files
-        skip_idx, remainder = _get_skip_index(filenames, n_batches=global_step * params.train_batch_size)
+        skip_idx, remainder = _get_skip_index(filenames, n_batches=step * params.train_batch_size)
 
         # skip to skip idx
         dataset = dataset.skip(skip_idx)
@@ -387,7 +406,7 @@ def gpt_neo_input(params, global_step=None, eval=False):
 
     def memory_func(x):
 
-        x = tf.reshape(x, (batch_size, params.n_ctx + 1))
+        x = tf.reshape(x, (batch_size, params.n_ctx + 1, 1))
         x = tf.cast(x, tf.int32)
 
         vals1 = x[:, :params.n_ctx]
@@ -405,6 +424,6 @@ def gpt_neo_input(params, global_step=None, eval=False):
 
     dataset = dataset.batch(batch_size, drop_remainder=True)
     dataset = dataset.map(memory_func)
-    dataset = dataset.prefetch(params["iterations"] * 2)
+    dataset = dataset.prefetch(params.buffer_size * 2)
 
     return dataset

@@ -24,7 +24,12 @@ def main(args: argparse.Namespace):
     if params.model_mode == 'jannet':
         input_fn = partial(dataset, step=0)
     elif params.model_mode == 'gpt':
-        input_fn = partial(dataset, step=0, eval=False)
+        input_fn = partial(gpt_neo_input, step=0, eval=False)
+
+        # Set params for text only GPT mode.
+        params.use_language = True
+        params.use_video = False
+
     else:
         raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
                          "is a not supported option.".format(params.model_mode))
