@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, concat, default, new_dim, random_name, slice
+from .utils import activate, anonymize, concat, default, new_dim, random_name, slice, anonymize_shape
 
 
 class ModelParameter(dict):
@@ -164,7 +164,7 @@ class ModelParameter(dict):
                 context_val = anonymize(context_val, self.attention_patch.name)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
-            learned_val = self._embed(self.learned_dim + self.feature_dims)
+            learned_val = self._embed(self.learned_dim + anonymize_shape(self.feature_dims, self.attention_patch))
 
             context_logits = mtf.einsum([context_qry, context_key], reduced_dims=[self.key_dim]) * attention_scale
             feature_logits = mtf.einsum([feature_qry, learned_key], reduced_dims=[self.key_dim]) * attention_scale
