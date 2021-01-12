@@ -101,54 +101,6 @@ def frame_encoder(frame, text_tokens=None, skip_frame: list = [False], mask: lis
     return proto
 
 
-def get_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=None, color_channels=None):
-    '''
-    :param language_token_num_per_frame: The number of language tokens per single frame.
-    If this is 0 (default) language tokens are disabled.
-    :param frame_height:
-    :param frame_width:
-    :param color_channels:
-
-    This function will return a frame decoder function, that can than be used to decode tf.records.
-    '''
-
-    decode_language_token = language_token_num_per_frame > 0
-
-    # Decoding Key.
-    features = {
-        'frame': tf.FixedLenFeature([], tf.string)
-    }
-
-    if decode_language_token:
-        features.update({'tokens': tf.FixedLenFeature([language_token_num_per_frame], tf.int64),
-                         'skip_frame': tf.FixedLenFeature([], tf.int64)})
-
-    def frame_decoder(proto):
-        '''
-        :param proto: Proto buffer to be decoded.
-        :return: tensor with decode frame.
-
-        This Function will decode frame from proto buffer.
-        '''
-
-        sample = tf.parse_single_example(proto, features)
-        frame = tf.image.decode_image(sample['frame'])
-
-        if decode_language_token:
-            tokens = sample['tokens']
-            skip_frame = sample['skip_frame']
-
-            if skip_frame > 0:
-                frame = tf.zeros(shape=(frame_height, frame_width, color_channels), dtype=tf.uint8)
-
-            return frame, tokens, skip_frame
-
-        return frame
-
-
-    return tf.function(frame_decoder, experimental_compile=False)
-
-
 def split_equal(ids: list, duration: list, num: int, min_duration: int = 256):
 
     sort = sorted(zip(duration, ids))[::-1]
