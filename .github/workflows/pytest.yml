@@ -3,12 +3,10 @@ name: Python package
 on:
   push:
     branches: 
-      - master
-      - v**
+      - **
   pull_request:
     branches: 
-      - master
-      - v**
+      - **
 
 jobs:
   build:
