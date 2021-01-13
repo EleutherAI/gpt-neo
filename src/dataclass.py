@@ -20,13 +20,13 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
         raise ValueError("expected an addition here")
     f_ops = forward_operations[:-2]
     orig_fx2 = forward_operations[-1].inputs[0]
-    orig_fa = forward_operations[-2].inputs[0]
+    orig_faux = forward_operations[-2].inputs[0]
     orig_x2 = x2
-    orig_a = aux
+    orig_aux = aux
     graph = all_inputs[0].graph
-    f_again_ops, mapping = graph.clone_operations(f_ops, {orig_x2: x2, orig_a:aux})
+    f_again_ops, mapping = graph.clone_operations(f_ops, {orig_x2: x2, orig_aux:aux})
     fx2 = mapping[orig_fx2]
-    fa = mapping[orig_fa]
+    fa = mapping[orig_faux]
     x1 = y1 - fx2
     grads = mtf.gradients(ys=[fx2, fa], xs=[x2] + extra_inputs, grad_ys=[dy1, daux],
                           operations=f_again_ops)
