@@ -12,7 +12,6 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
     """Backpropagation function for a revnet."""
     extra_inputs = all_inputs[len(explicit_inputs):]
     dy2, dy2_backwards, dy1, dy1_backwards, daux = output_grads
-    print(daux)
     aux = explicit_inputs[4] if daux is None else daux
     x2 = explicit_inputs[2] if dy2_backwards is None else dy2_backwards
     y1 = outputs[2] if dy1_backwards is None else dy1_backwards
@@ -32,7 +31,6 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
     grads = mtf.gradients(ys=[fx2, fa], xs=[x2] + extra_inputs, grad_ys=[dy1, daux],
                           operations=f_again_ops)
     dx2 = dy2 + grads[0]
-    daux = daux + grads[1]
     extra_inputs_grads = grads[1:]
     dx1 = dy1
     return [dx1, x1, dx2, x2, daux] + extra_inputs_grads
