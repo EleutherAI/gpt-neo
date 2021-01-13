@@ -1,3 +1,4 @@
+import functools
 import typing
 
 import mesh_tensorflow as mtf
@@ -5,6 +6,90 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 
 from .utils import (activate, anonymize, anonymize_dim, concat, deduplicate, default, new_dim, random_name, slice)
+
+
+def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operations, outputs, output_grads):
+    """Backpropagation function for a revnet."""
+    extra_inputs = all_inputs[len(explicit_inputs):]
+    dy2, dy2_backwards, dy1, dy1_backwards, daux = output_grads
+    print(daux)
+    aux = explicit_inputs[4] if daux is None else daux
+    x2 = explicit_inputs[2] if dy2_backwards is None else dy2_backwards
+    y1 = outputs[2] if dy1_backwards is None else dy1_backwards
+    # last operation should be an addition to produce y1
+    if not isinstance(forward_operations[-1], mtf.AddOperation):
+        raise ValueError("expected an addition here")
+    f_ops = forward_operations[:-2]
+    orig_fx2 = forward_operations[-1].inputs[0]
+    orig_fa = forward_operations[-2].inputs[0]
+    orig_x2 = x2
+    orig_a = aux
+    graph = all_inputs[0].graph
+    f_again_ops, mapping = graph.clone_operations(f_ops, {orig_x2: x2, orig_a:aux})
+    fx2 = mapping[orig_fx2]
+    fa = mapping[orig_fa]
+    x1 = y1 - fx2
+    grads = mtf.gradients(ys=[fx2, fa], xs=[x2] + extra_inputs, grad_ys=[dy1, daux],
+                          operations=f_again_ops)
+    dx2 = dy2 + grads[0]
+    daux = daux + grads[1]
+    extra_inputs_grads = grads[1:]
+    dx1 = dy1
+    return [dx1, x1, dx2, x2, daux] + extra_inputs_grads
+
+
+def _half_residual_and_swap(x1, x1_backwards, x2, x2_backwards, aux, f=None):
+    y1, aux1 = f(x2)
+    return x2, x2_backwards, y1 + x1, x1_backwards, aux1 + aux
+
+def reversible_half_residual_and_swap(x1,
+                                      x1_backwards,
+                                      x2,
+                                      x2_backwards,
+                                      aux,
+                                      f):
+    """Building block of a revnet.
+
+    https://arxiv.org/abs/1707.04585
+
+    All the inputs and output Tensors have the same shape and dtype.
+
+    The forward computation is:
+      y1 = x1 + f(x2)
+      y2 = x2
+
+    The x1_backwards and x2_backwards tensors are used by backpropagation.
+    None should be passed for the first layer, then the outputs of each layer
+    should be passed to the next.
+
+    Example usage:
+    x1, x1_backwards, x2, x2_backwards = x, None, x, None
+    for f in my_functions:
+      x1, x1_backwards, x2, x2_backwards = mtf.layers.reversible_half_residual(
+        x1, x1_backwards, x2, x2_backwards)
+    y = (x1 + x2) / 2
+
+    Args:
+      x1: a Tensor
+      x1_backwards: a Tensor or None
+      x2: a Tensor
+      x2_backwards: a Tensor or None
+      f: a function from Tensor to Tensor
+      recompute_grads: a boolean
+    Returns:
+      y2: a Tensor
+      y2_backwards: a Tensor
+      y1: a Tensor
+      y1_backwards: a Tensor
+    """
+    if x1_backwards is None:
+        x1_backwards = mtf.zeros_like(x1)
+    if x2_backwards is None:
+        x2_backwards = mtf.zeros_like(x2)
+    return mtf.custom_gradient(
+            functools.partial(_half_residual_and_swap, f=f),
+            _reversible_half_residual_grad,
+            [x1, x1_backwards, x2, x2_backwards, aux])
 
 
 class ModelParameter(dict):
@@ -78,7 +163,7 @@ class ModelParameter(dict):
         self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
         self.feature_dims = [self.head_dim, self.key_dim]
-        self.anonymous_feature_dims = [self.head_dim, self.anonymous_head_dim]
+        self.anonymous_feature_dims = [self.head_dim, self.anonymous_key_dim]
 
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims])
@@ -160,7 +245,7 @@ class ModelParameter(dict):
                               new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
         return self._linear(block_input, self.feature_dims, default(new, self.anonymous_feature_dims))
 
-    def _block_fn(self, block_input) -> mtf.Tensor:
+    def _block_fn(self, block_input) -> typing.Tuple[mtf.Tensor, mtf.Tensor]:
         self._layer_idx += 1
 
         attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
@@ -170,11 +255,11 @@ class ModelParameter(dict):
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
-            weights = mtf.softmax(self._linear_from_features(block_input), self.anonymous_head_dim)
+            weights = mtf.softmax(self._linear_from_features(block_input, [self.head_dim, self.anonymous_head_dim]), self.anonymous_head_dim)
             _, indices = mtf.top_k(weights, self.anonymous_head_dim, self.selected_head_dim)
             one_hot = mtf.one_hot(anonymize(indices, self.head_dim), self.head_dim)
-            self._auxiliary_loss += mtf.reduce_mean(mtf.square(mtf.reduce_mean(one_hot, output_shape=[self.head_dim])
-                                                               * self.n_head / self.selected_head_dim.size))
+            auxiliary_loss = mtf.reduce_mean(mtf.square(mtf.reduce_mean(weights, output_shape=[self.head_dim])
+                                                        * self.n_head / self.selected_head_dim.size))
 
             base = activate(mtf.einsum([block_input, one_hot, weights,
                                         self._orthogonal_var(self.feature_dims + [self.anonymous_key_dim])],
@@ -207,7 +292,7 @@ class ModelParameter(dict):
             output = (mtf.einsum([context_logits / sumexp, context_val], context_qry.shape) +
                       mtf.einsum([feature_logits / sumexp, learned_val], context_qry.shape))
 
-            return self._rezero(output, 0)
+            return self._rezero(output, 0), auxiliary_loss
 
     def build(self,
               vid: typing.Optional[mtf.Tensor],
@@ -257,10 +342,10 @@ class ModelParameter(dict):
                                        [mtf.Dimension(anonymous_name, pad) if d.name == name else d for d in src.shape])
                 src = concat([src, memory], name)
 
-        input_list = (src, None, src, None)
+        input_list = (src, None, src, None, mtf.zeros(self.mesh, [], tf.float32))
 
         for _ in range(self.n_layer):
-            input_list = mtf.layers.reversible_half_residual_and_swap(*input_list, self._block_fn)
+            input_list = reversible_half_residual_and_swap(*input_list, self._block_fn)
 
         out = self._rezero(input_list[0], 1) + self._rezero(input_list[2], 1)
 
@@ -284,6 +369,6 @@ class ModelParameter(dict):
             video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt) * vid_msk)
 
         self._layer_idx = 0
-        aux_loss = self._auxiliary_loss / self.n_layer * self.aux_loss_factor
+        aux_loss = input_list[-1] / self.n_layer * self.aux_loss_factor
 
         return src, (video_loss + token_loss + aux_loss), video_loss, token_loss
