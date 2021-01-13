@@ -66,7 +66,7 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
         arrays.append(qkv_weight)
 
     for name, array in zip(names, arrays):
-        name = name[5:]  # skip "model/"
+        name = name[5:]  # skip "gpt2/"
         name = name.split("/")
         pointer = model
         for m_name in name:
@@ -95,21 +95,21 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
             raise
         print("Initialize PyTorch weight {}".format(name))
         pointer.data = torch.from_numpy(array)
+
     return model
 
 
-if __name__ == "__main__":
-    args = parser.parse_args()
-    config = GPT2Config.from_pretrained(args.config_file)
-    if args.lm_head:
-        model = GPT2LMHeadModel(config=config)
-        load_tf_weights_in_gpt2(model.transformer, args.gpt_meshtf_path)
-        embs = model.transformer.wte.weight
-        lin = nn.Linear(embs.size()[1], embs.size()[0], bias=False)
-        lin.weight = embs
-        model.set_output_embeddings(lin)
-    else:
-        model = GPT2Model(config=config)
-        load_tf_weights_in_gpt2(model, args.gpt_meshtf_path)
+args = parser.parse_args()
+config = GPT2Config.from_pretrained(args.config_file)
+if args.lm_head:
+    model = GPT2LMHeadModel(config=config)
+    load_tf_weights_in_gpt2(model.transformer, args.gpt_meshtf_path)
+    embs = model.transformer.wte.weight
+    lin = nn.Linear(embs.size()[1], embs.size()[0], bias=False)
+    lin.weight = embs
+    model.set_output_embeddings(lin)
+else:
+    model = GPT2Model(config=config)
+    load_tf_weights_in_gpt2(model, args.gpt_meshtf_path)
 
-    model.save_pretrained(args.output_path)
+model.save_pretrained(args.output_path)
