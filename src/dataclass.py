@@ -19,8 +19,8 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
     if not isinstance(forward_operations[-1], mtf.AddOperation):
         raise ValueError("expected an addition here")
     f_ops = forward_operations[:-2]
-    orig_fx2 = forward_operations[-1].inputs[0]
-    orig_faux = forward_operations[-2].inputs[0]
+    orig_faux = forward_operations[-1].inputs[0]
+    orig_fx2 = forward_operations[-2].inputs[0]
     orig_x2 = x2
     orig_aux = aux
     graph = all_inputs[0].graph
@@ -38,7 +38,9 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
 
 def _half_residual_and_swap(x1, x1_backwards, x2, x2_backwards, aux, f=None):
     y1, aux1 = f(x2)
-    return x2, x2_backwards, y1 + x1, x1_backwards, aux1 + aux
+    y1 = y1 + x1  # Explicitly setting order: y1 happens first, aux happens last
+    aux = aux1 + aux 
+    return x2, x2_backwards, y1, x1_backwards, aux
 
 def reversible_half_residual_and_swap(x1,
                                       x1_backwards,
