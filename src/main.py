@@ -73,6 +73,9 @@ def main(args: argparse.Namespace):
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
 
+    if args.dry:
+        return True
+    
     while current_step < params.train_steps:
         # Else, don't stop and restart
         estimator.train(input_fn=input_fn, max_steps=params.train_steps)

@@ -26,5 +26,7 @@ if __name__ == "__main__":
                         default="")
     parser.add_argument("--check_dataset", action="store_true",
                         help="If set, outputs sample from the dataset and quits.")
+    parser.add_argument("--dry", action="store_true",
+                        help="Instead of actually training, do a dry run to see if everything works.")
     args = parser.parse_args()
     main(args)
