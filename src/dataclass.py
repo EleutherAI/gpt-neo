@@ -261,9 +261,10 @@ class ModelParameter(dict):
             auxiliary_loss = mtf.reduce_mean(mtf.square(mtf.reduce_mean(weights, output_shape=[self.head_dim])
                                                         * self.n_head / self.selected_head_dim.size))
 
-            base = activate(mtf.einsum([block_input, one_hot, weights,
-                                        self._orthogonal_var(self.feature_dims + [self.anonymous_key_dim])],
-                                       block_input.shape - self.key_dim + self.anonymous_key_dim))
+            base = mtf.einsum([block_input, one_hot, weights], block_input.shape)
+            base = activate(mtf.einsum([base, self._orthogonal_var(self.feature_dims + [self.anonymous_key_dim])], 
+                                       block_input.shape - self.key_dim + self.anonymous_key_dim)
+
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
