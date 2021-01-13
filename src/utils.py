@@ -58,12 +58,12 @@ def anonymize(inp: mtf.Tensor,
     """
     if not isinstance(dim, list):
         dim = [dim]
-    shape = inp.shape
+    shape = inp.shape.dims
     for d in dim:
         d = unanonymize_dim(d)
         if not check_for_dim(inp, d):
             continue
-        shape = shape.rename_dimension(d, dim_name(anonymize_dim(d)))
+        shape = [new_dim(dim_name(anonymize_dim(d)), cdim.size) if d == cdim.name else cdim for cdim in shape]
     if shape != inp.shape:
         return mtf.reshape(inp, shape)
     return inp
