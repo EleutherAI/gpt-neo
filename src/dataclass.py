@@ -173,7 +173,8 @@ class ModelParameter(dict):
             weights = mtf.softmax(self._linear_from_features(block_input), self.anonymous_head_dim)
             _, indices = mtf.top_k(weights, self.anonymous_head_dim, self.selected_head_dim)
             one_hot = mtf.one_hot(anonymize(indices, self.head_dim), self.head_dim)
-            self._auxiliary_loss += mtf.reduce_mean(one_hot, output_shape=[self.head_dim])
+            self._auxiliary_loss += mtf.reduce_mean(mtf.square(mtf.reduce_mean(one_hot, output_shape=[self.head_dim])
+                                                               * self.n_head / self.selected_head_dim.size))
 
             base = activate(mtf.einsum([block_input, one_hot, weights,
                                         self._orthogonal_var(self.feature_dims + [self.anonymous_key_dim])],
@@ -282,10 +283,7 @@ class ModelParameter(dict):
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
             video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt) * vid_msk)
 
-        aux_loss = mtf.reduce_sum(mtf.square(self._auxiliary_loss))
-        aux_loss *= self.aux_loss_factor * (self.n_head / self.selected_head_dim.size / self.n_layer) ** 2
-
         self._layer_idx = 0
         self._auxiliary_loss = 0
 
-        return src, (video_loss + token_loss + aux_loss), video_loss, token_loss
+        return src, (video_loss + token_loss + self._auxiliary_loss), video_loss, token_loss
