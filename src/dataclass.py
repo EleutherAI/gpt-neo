@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, concat, deduplicate, default, new_dim, random_name, slice
+from .utils import (activate, anonymize, anonymize_dim, concat, deduplicate, default, new_dim, random_name, slice)
 
 
 class ModelParameter(dict):
@@ -58,12 +58,11 @@ class ModelParameter(dict):
         self.feed_forward_attention_factor = 4
         self.embedding_stddev = 0.02
         self.model_mode = 'jannet'
+        self.aux_loss_factor = 0.01
 
         self.mesh = None
 
         self.masked_attention_dimensions = [0]
-
-        self._layer_idx = 0
 
         self.__dict__.update(config)
 
@@ -74,23 +73,26 @@ class ModelParameter(dict):
         self.language_token_patch = self.language_token_per_frame // self.token_patch_size
 
         self.head_dim = mtf.Dimension("heads", self.n_head)
-
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+        self.anonymous_head_dim = anonymize_dim(self.head_dim)
+        self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
         self.feature_dims = [self.head_dim, self.key_dim]
-
-        self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
+        self.anonymous_feature_dims = [self.head_dim, self.anonymous_head_dim]
 
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
-
         self.learned_dim = [new_dim(self.intermediate[0],
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
 
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.token_patch_count = self.language_token_per_frame // self.token_patch_size
         self.feature_dim_count = len(self.feature_dims)
+        self.selected_head_dim = mtf.Dimension("top", (int(self.n_head ** 0.5) + 7) // 8 * 8)
+
+        self._auxiliary_loss = 0
+        self._layer_idx = 0
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -152,11 +154,11 @@ class ModelParameter(dict):
 
     def _linear_to_features(self, block_input: mtf.Tensor,
                             old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input, default(old, self.intermediate), self.feature_dims)
+        return self._linear(block_input, default(old, self.anonymous_feature_dims), self.feature_dims)
 
     def _linear_from_features(self, block_input: mtf.Tensor,
                               new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input, self.feature_dims, default(new, self.intermediate))
+        return self._linear(block_input, self.feature_dims, default(new, self.anonymous_feature_dims))
 
     def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
@@ -168,11 +170,19 @@ class ModelParameter(dict):
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
-            base = activate(self._linear_from_features(block_input))
+            weights, indices = mtf.top_k(mtf.softmax(self._linear_from_features(block_input), self.anonymous_head_dim),
+                                         self.anonymous_head_dim, self.selected_head_dim)
+            one_hot = mtf.one_hot(indices, self.head_dim)
+            self._auxiliary_loss += mtf.reduce_mean(one_hot, output_shape=[self.head_dim])
+
+            base = activate(mtf.einsum([block_input, one_hot, weights,
+                                        self._orthogonal_var([self.feature_dims] + [self.anonymous_key_dim])],
+                                       block_input.shape - self.key_dim + self.anonymous_key_dim))
+
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
-            context_key = anonymize(self._linear_to_features(base), [dim.name])
-            context_val = anonymize(self._linear_to_features(base), [dim.name])
+            context_key = anonymize(self._linear_to_features(base), dim)
+            context_val = anonymize(self._linear_to_features(base), dim)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
@@ -272,6 +282,10 @@ class ModelParameter(dict):
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
             video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt) * vid_msk)
 
-        self._layer_idx = 0
+        aux_loss = mtf.reduce_sum(mtf.square(self._auxiliary_loss))
+        aux_loss *= self.aux_loss_factor * (self.n_head / self.selected_head_dim.size / self.n_layer) ** 2
 
-        return src, (video_loss + token_loss), video_loss, token_loss
+        self._layer_idx = 0
+        self._auxiliary_loss = 0
+
+        return src, (video_loss + token_loss + aux_loss), video_loss, token_loss
