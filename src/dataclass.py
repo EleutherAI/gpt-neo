@@ -21,8 +21,8 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
     f_ops = forward_operations[:-2]
     orig_faux = forward_operations[-1].inputs[0]
     orig_fx2 = forward_operations[-2].inputs[0]
-    orig_x2 = x2
-    orig_aux = aux
+    orig_x2 = explicit_inputs[2]
+    orig_aux = explicit_inputs[4]
     graph = all_inputs[0].graph
     f_again_ops, mapping = graph.clone_operations(f_ops, {orig_x2: x2, orig_aux:aux})
     fx2 = mapping[orig_fx2]
