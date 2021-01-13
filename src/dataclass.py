@@ -284,6 +284,6 @@ class ModelParameter(dict):
             video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt) * vid_msk)
 
         self._layer_idx = 0
-        self._auxiliary_loss = 0
+        aux_loss = self._auxiliary_loss / self.n_layer * self.aux_loss_factor
 
-        return src, (video_loss + token_loss + self._auxiliary_loss), video_loss, token_loss
+        return src, (video_loss + token_loss + aux_loss), video_loss, token_loss
