@@ -92,7 +92,6 @@ class ModelParameter(dict):
         self.token_patch_count = self.language_token_per_frame // self.token_patch_size
         self.feature_dim_count = len(self.feature_dims)
 
-
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
         return self.__getattr__(key)
@@ -101,7 +100,13 @@ class ModelParameter(dict):
         print(f"Setting {key} via deprecated interface")
         return self.__setattr__(key, value)
 
-    def get(self, key, default):
+    def get(self, key: str, default: typing.Any) -> typing.Any:
+        """
+        Default python get from list
+        :param key: key to check for in dictionary
+        :param default: default value if key doesn't exist
+        :return: whatever value belongs to the key or the default
+        """
         print(f"Getting {key} via deprecated interface with default value {default}")
         return self.__dict__.get(key, default)
 
@@ -112,6 +117,9 @@ class ModelParameter(dict):
         return str(self)
 
     def dict(self):
+        """
+        :return: dictionary containing parameters
+        """
         return self.__dict__
 
     def _get_variable(self, shape, initializer) -> mtf.Tensor:
@@ -194,13 +202,26 @@ class ModelParameter(dict):
               vid: typing.Optional[mtf.Tensor],
               txt_src: typing.Optional[mtf.Tensor],
               txt_tgt: typing.Optional[mtf.Tensor],
-              frame_mask: typing.Optional[mtf.Tensor],
-              token_mask: typing.Optional[mtf.Tensor],
+              vid_msk: typing.Optional[mtf.Tensor],
+              tkn_msk: typing.Optional[mtf.Tensor],
               ) -> typing.Tuple[mtf.Tensor, typing.Union[int, mtf.Tensor], mtf.Tensor, mtf.Tensor]:
+        """
+        Build Mesh Tensorflow graph of a model given parameters previously inserted.
+        The model slices the video input itself (to save on TPU CPU <--> TPU Core bandwidth), but needs both
+        text source and text target.
+        :param vid: Optional Video to attend over, length=(context+1)
+        :param txt_src: Optional tokenized text source, will be embedded
+        :param txt_tgt: Optional tokenized text target, required when source is given
+        :param vid_msk: Optional mask to remove loss for certain video frames
+        :param tkn_msk: Optional mask to remove loss for certain token positions
+        :return: (Generated Video, Total Loss, Video Loss, Token Loss)
+        """
         video_loss: typing.Union[int, mtf.Tensor] = 0
         token_loss: typing.Union[int, mtf.Tensor] = 0
+        tkn_msk: typing.Union[int, mtf.Tensor] = 1 if tkn_msk is None else mtf.cast(tkn_msk, tf.float32)
+        vid_msk: typing.Union[int, mtf.Tensor] = 1 if vid_msk is None else mtf.cast(vid_msk, tf.float32)
 
-        spatial_ctx = txt_tgt.shape[-self.feature_dim_count] if self.use_language else vid.shape[2]
+        spatial_ctx: mtf.Dimension = txt_tgt.shape[-self.feature_dim_count] if self.use_language else vid.shape[2]
 
         if self.use_video:
             context_dimension = vid.shape[1]
@@ -239,33 +260,17 @@ class ModelParameter(dict):
             tkn = self._linear_from_features(slice(out, 0, self.language_token_patch, spatial_ctx),
                                              [txt_tgt.shape[-1], self.vocab_dim])
             z_loss = mtf.reduce_sum(mtf.square(tkn)) * (self.z_loss / self.vocab_size)
-
-            logsumexp = mtf.reduce_logsumexp(tkn, self.vocab_dim)
-
-            tkn_loss = tkn * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
-                                             + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype))
-            if self.use_video:
-                token_mask = mtf.cast(token_mask, tf.float32)
-                tkn_loss = tkn_loss * token_mask
-                logsumexp = logsumexp * token_mask
-
-            logsumexp = mtf.reduce_sum(logsumexp)
-
-            tkn_loss = mtf.reduce_sum(tkn_loss)
+            logsumexp = mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim) * tkn_msk)
+            tkn_loss = mtf.reduce_sum(tkn * tkn_msk
+                                      * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
+                                         + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)))
             tkn_loss *= 1 - self.label_smoothing
-
             token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.shape.size / self.vocab_size)
 
         if self.use_video:
-
             out = slice(out, self.language_token_patch * self.use_language, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
-            video_loss = mtf.abs(src - tgt)
-
-            if self.use_language:
-                video_loss * mtf.cast(frame_mask, tf.float32)
-
-            video_loss: mtf.Tensor = mtf.reduce_mean(video_loss)
+            video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt) * vid_msk)
 
         self._layer_idx = 0
 

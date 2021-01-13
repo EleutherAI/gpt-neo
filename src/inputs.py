@@ -126,7 +126,7 @@ def dataset_text(path: str, params: ModelParameter):
         token_y = x[:, 1:time_patch_size + 1]
 
         return {'token_x': token_x, 'token_y': token_y, 'frame': padding_frame,
-                'frame_mask': padding_frame_mask, 'token_mask': padding_token_mask}
+                'vid_msk': padding_frame_mask, 'tkn_msk': padding_token_mask}
 
     path = tf.io.gfile.glob(path)
     random.seed(params.data_seed)
@@ -215,7 +215,7 @@ def dataset_video(path: str, params: ModelParameter):
             token_mask = tf.cast(token_mask, tf.bool)
 
         return {k: v for k, v in {'frame': out_frame, 'token_x': token_x, 'token_y': token_y,
-                                  'frame_mask': frame_mask, 'token_mask': token_mask}.items() if v is not None}
+                                  'vid_msk': frame_mask, 'tkn_msk': token_mask}.items() if v is not None}
 
     if language_token_per_frame > 0:
         interleave_func = lambda x, y, z, a: tf.data.Dataset.zip((x, y, z, a)) \
