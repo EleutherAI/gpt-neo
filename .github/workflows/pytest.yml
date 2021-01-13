@@ -23,7 +23,7 @@ jobs:
     - name: '[Python] install dependencies'
       run: |
         python3 -m pip install --upgrade pip
-        python3 -m pip install pytest pylint pyright mypy
+        python3 -m pip install pytest pylint mypy
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     - name: '[Python] compile all code'
       run: |
