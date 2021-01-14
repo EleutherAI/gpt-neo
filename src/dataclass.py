@@ -289,5 +289,5 @@ class ModelParameter(dict):
 
         return (src,
                 (video_loss + token_loss),
-                video_loss * src.size / mtf.reduce_sum(vid_msk),
+                video_loss * vid_msk.size / mtf.reduce_sum(vid_msk),
                 token_loss * tkn_msk.size / mtf.reduce_sum(tkn_msk))
