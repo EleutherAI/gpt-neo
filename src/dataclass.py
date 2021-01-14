@@ -231,8 +231,8 @@ class ModelParameter(dict):
         """
         video_loss: typing.Union[int, mtf.Tensor] = 0
         token_loss: typing.Union[int, mtf.Tensor] = 0
-        tkn_msk: typing.Union[int, mtf.Tensor] = 1 if tkn_msk is None else mtf.cast(tkn_msk, tf.float32)
-        vid_msk: typing.Union[int, mtf.Tensor] = 1 if vid_msk is None else mtf.cast(vid_msk, tf.float32)
+        tkn_msk = mtf.ones(self.mesh, [], tf.float32) if tkn_msk is None else mtf.cast(tkn_msk, tf.float32)
+        vid_msk = mtf.ones(self.mesh, [], tf.float32) if vid_msk is None else mtf.cast(vid_msk, tf.float32)
 
         spatial_ctx: mtf.Dimension = txt_tgt.shape[-self.feature_dim_count] if self.use_language else vid.shape[2]
 
@@ -278,7 +278,7 @@ class ModelParameter(dict):
                                       * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
                                          + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)))
             tkn_loss *= 1 - self.label_smoothing
-            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.shape.size / self.vocab_size)
+            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.size / self.vocab_size)
 
         if self.use_video:
             out = slice(out, self.language_token_patch * self.use_language, out.shape[2].size, spatial_ctx)
@@ -287,4 +287,7 @@ class ModelParameter(dict):
 
         self._layer_idx = 0
 
-        return src, (video_loss + token_loss), video_loss, token_loss
+        return (src,
+                (video_loss + token_loss),
+                video_loss * src.size / mtf.reduce_sum(vid_msk),
+                token_loss * tkn_msk.size / mtf.reduce_sum(tkn_msk))
