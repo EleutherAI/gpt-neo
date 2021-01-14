@@ -74,7 +74,7 @@ class ModelParameter(dict):
 
         self.head_dim0 = mtf.Dimension("heads0", int(self.n_head ** 0.5))
         self.head_dim1 = mtf.Dimension("heads1", self.head_dim0.size)
-        self.head_dimensions = mtf.Shape([self.head_dim0, self.head_dim1])
+        self.head_dimensions = [self.head_dim0, self.head_dim1]
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
@@ -175,12 +175,12 @@ class ModelParameter(dict):
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
-        summed_head_dim = self.head_dimensions.dims[self._layer_idx % self.head_dimensions.ndims]
+        catted_head_dim = self.head_dimensions[self._layer_idx % len(self.head_dimensions)]
 
         with tf.variable_scope(random_name()):
-            block_input = mtf.reduce_sum(block_input, reduced_dim=summed_head_dim)
-            base = activate(self._linear(block_input, self.head_dimensions - summed_head_dim,
-                                         self.anonymous_feature_dims))
+            base = activate(self._linear(anonymize(block_input, catted_head_dim),
+                                         [anonymize_dim(catted_head_dim), self.key_dim],
+                                         [catted_head_dim, self.anonymous_key_dim]))
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
