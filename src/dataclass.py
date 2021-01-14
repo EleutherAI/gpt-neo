@@ -40,8 +40,8 @@ class ModelParameter(dict):
         self.lr = 5e-5
         self.dtype = tf.float32
         self.train_batch_size = 1
-        self.mesh_shape = "x:1,y:1,z:1,h:32"
-        self.layout = "batch:x,heads0:y,heads1:z,height:h"
+        self.mesh_shape = "x:1,y:1,h:32"
+        self.layout = "batch:x,heads:y,height:h"
         self.prefix = "datasets/full_hd_video"
         self.model_path = "gs://text-datasets/video-transformer/ctx=32-layer=64-heads=8-feat=256"
         self.language_token_per_frame = 0
@@ -72,9 +72,8 @@ class ModelParameter(dict):
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.language_token_patch = self.language_token_per_frame // self.token_patch_size
 
-        self.head_dim0 = mtf.Dimension("heads0", int(self.n_head ** 0.5))
-        self.head_dim1 = mtf.Dimension("heads1", self.head_dim0.size)
-        self.head_dimensions = [self.head_dim0, self.head_dim1]
+        self.head_dim = mtf.Dimension("heads", self.n_head)
+        self.head_dimensions = [self.head_dim]
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
         self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
@@ -154,18 +153,12 @@ class ModelParameter(dict):
                               deduplicate((block_input.shape - old).dims + new))
 
     def _linear_to_features(self, block_input: mtf.Tensor,
-                            old: typing.Optional[typing.List[mtf.Dimension]] = None,
-                            extra: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input,
-                            default(old, self.anonymous_feature_dims),
-                            self.feature_dims + default(extra, []))
+                            old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
+        return self._linear(block_input, default(old, self.intermediate), self.feature_dims)
 
     def _linear_from_features(self, block_input: mtf.Tensor,
-                              new: typing.Optional[typing.List[mtf.Dimension]] = None,
-                              extra: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input,
-                            self.feature_dims + default(extra, []),
-                            default(new, self.anonymous_feature_dims))
+                              new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
+        return self._linear(block_input, self.feature_dims, default(new, self.intermediate))
 
     def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
@@ -175,17 +168,15 @@ class ModelParameter(dict):
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
-        catted_head_dim = self.head_dimensions[self._layer_idx % len(self.head_dimensions)]
+        features = self.anonymous_feature_dims if self._layer_idx % 2 else self.intermediate
 
         with tf.variable_scope(random_name()):
-            base = activate(self._linear(anonymize(block_input, catted_head_dim),
-                                         [anonymize_dim(catted_head_dim), self.key_dim],
-                                         [catted_head_dim, self.anonymous_key_dim]))
+            base = activate(self._linear_from_features(block_input, features))
 
-            context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
-            feature_qry = self._linear_to_features(base)
-            context_key = anonymize(self._linear_to_features(base), dim)
-            context_val = anonymize(self._linear_to_features(base), dim)
+            context_qry = (self._linear_to_features(base, features) + self._embed([dim] + self.feature_dims))
+            feature_qry = self._linear_to_features(base, features)
+            context_key = anonymize(self._linear_to_features(base, features), dim)
+            context_val = anonymize(self._linear_to_features(base, features), dim)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
