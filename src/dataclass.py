@@ -168,15 +168,14 @@ class ModelParameter(dict):
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
-        features = self.anonymous_feature_dims if self._layer_idx % 2 else self.intermediate
 
         with tf.variable_scope(random_name()):
-            base = activate(self._linear_from_features(block_input, features))
+            base = activate(self._linear_from_features(block_input))
 
-            context_qry = (self._linear_to_features(base, features) + self._embed([dim] + self.feature_dims))
-            feature_qry = self._linear_to_features(base, features)
-            context_key = anonymize(self._linear_to_features(base, features), dim)
-            context_val = anonymize(self._linear_to_features(base, features), dim)
+            context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
+            feature_qry = self._linear_to_features(base)
+            context_key = anonymize(self._linear_to_features(base), dim)
+            context_val = anonymize(self._linear_to_features(base), dim)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
