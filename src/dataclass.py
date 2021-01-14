@@ -168,7 +168,7 @@ class ModelParameter(dict):
 
     def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
-        mtf.halo_exchange()
+
         attention_dims = (block_input.shape - self.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
         idx = self._layer_idx % len(attention_dims)
         dim = attention_dims[idx]
