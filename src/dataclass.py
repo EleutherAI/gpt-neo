@@ -234,7 +234,7 @@ class ModelParameter(dict):
         tkn_msk = mtf.ones(self.mesh, [], tf.float32) if tkn_msk is None else mtf.cast(tkn_msk, tf.float32)
         vid_msk = mtf.ones(self.mesh, [], tf.float32) if vid_msk is None else mtf.cast(vid_msk, tf.float32)
 
-        spatial_ctx: mtf.Dimension = txt_tgt.shape[-1] if self.use_language else vid.shape[2]
+        spatial_ctx: mtf.Dimension = txt_tgt.shape[-2] if self.use_language else vid.shape[2]
 
         if self.use_video:
             context_dimension = vid.shape[1]
