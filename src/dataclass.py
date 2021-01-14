@@ -41,7 +41,7 @@ class ModelParameter(dict):
         self.dtype = tf.float32
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,z:1,h:32"
-        self.layout = "batch:x,heads:y,embd:z,height:h"
+        self.layout = "batch:x,heads0:y,heads1:z,height:h"
         self.prefix = "datasets/full_hd_video"
         self.model_path = "gs://text-datasets/video-transformer/ctx=32-layer=64-heads=8-feat=256"
         self.language_token_per_frame = 0
@@ -72,16 +72,17 @@ class ModelParameter(dict):
         self.channel_color_size = self.color_channels * self.time_patch * self.patch_size ** 2
         self.language_token_patch = self.language_token_per_frame // self.token_patch_size
 
-        self.head_dim = mtf.Dimension("heads", self.n_head)
+        self.head_dim0 = mtf.Dimension("heads0", int(self.n_head ** 0.5))
+        self.head_dim1 = mtf.Dimension("heads1", self.head_dim0.size)
+        self.head_dimensions = mtf.Shape([self.head_dim0, self.head_dim1])
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
-        self.anonymous_head_dim = anonymize_dim(self.head_dim)
         self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
-        self.feature_dims = [self.head_dim, self.key_dim]
-        self.anonymous_feature_dims = [self.head_dim, self.anonymous_key_dim]
+        self.feature_dims = self.head_dimensions + [self.key_dim]
+        self.anonymous_feature_dims = self.head_dimensions + [self.anonymous_key_dim]
 
         self.intermediate = [mtf.Dimension('_intermediate',
-                                           int(np.prod([dim.size for dim in self.feature_dims])
+                                           int(np.prod([dim.size for dim in self.feature_dims.dims])
                                                * self.intermediate_feed_forward_multiplier))]
         self.learned_dim = [new_dim(self.intermediate[0],
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
@@ -174,10 +175,12 @@ class ModelParameter(dict):
         dim = attention_dims[idx]
         tmp_dim = mtf.Dimension(f'_{dim.name}', dim.size)
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
+        summed_head_dim = self.head_dimensions.dims[self._layer_idx % self.head_dimensions.ndims]
 
         with tf.variable_scope(random_name()):
-            base = activate(mtf.add_n([self._linear_from_features(mtf.shift(block_input, i, self.head_dim, True))
-                                       for i in range(self.selected_head_dim.size)]))
+            block_input = mtf.reduce_sum(block_input, reduced_dim=summed_head_dim)
+            base = activate(self._linear(block_input, self.head_dimensions - summed_head_dim,
+                                         self.anonymous_feature_dims))
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
