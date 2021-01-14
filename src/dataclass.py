@@ -259,7 +259,7 @@ class ModelParameter(dict):
                                        [mtf.Dimension(anonymous_name, pad) if d.name == name else d for d in src.shape])
                 src = concat([src, memory], name)
 
-        input_list = (src, None, src, None, mtf.zeros(self.mesh, [], tf.float32))
+        input_list = (src, None, src, None)
 
         for _ in range(self.n_layer):
             input_list = mtf.layers.reversible_half_residual_and_swap(*input_list, self._block_fn)
