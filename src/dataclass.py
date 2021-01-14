@@ -153,12 +153,18 @@ class ModelParameter(dict):
                               deduplicate((block_input.shape - old).dims + new))
 
     def _linear_to_features(self, block_input: mtf.Tensor,
-                            old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input, default(old, self.anonymous_feature_dims), self.feature_dims)
+                            old: typing.Optional[typing.List[mtf.Dimension]] = None,
+                            extra: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
+        return self._linear(block_input,
+                            default(old, self.anonymous_feature_dims),
+                            self.feature_dims + default(extra, []))
 
     def _linear_from_features(self, block_input: mtf.Tensor,
-                              new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input, self.feature_dims, default(new, self.anonymous_feature_dims))
+                              new: typing.Optional[typing.List[mtf.Dimension]] = None,
+                              extra: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
+        return self._linear(block_input,
+                            self.feature_dims + default(extra, []),
+                            default(new, self.anonymous_feature_dims))
 
     def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
@@ -174,9 +180,7 @@ class ModelParameter(dict):
                                        [mtf.shift(block_input, 2 ** i, self.head_dim, True)
                                         for i in range(self.selected_head_dim.size)],
                                        self.selected_head_dim.name, -1)
-            base = activate(self._linear(selected_heads,
-                                         [self.head_dim, self.selected_head_dim, self.key_dim],
-                                         [self.head_dim, self.anonymous_key_dim]))
+            base = activate(self._linear_from_features(selected_heads, extra=[self.selected_head_dim]))
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
