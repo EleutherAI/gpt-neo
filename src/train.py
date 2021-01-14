@@ -146,8 +146,8 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
             token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
             token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
 
-            frame_mask = mtf.import_fully_replicated(mesh, features['frame_mask'], frame_mask_shape, "frame_mask")
-            token_mask = mtf.import_fully_replicated(mesh, features['token_mask'], token_dim_shape, "token_mask")
+            frame_mask = mtf.import_fully_replicated(mesh, features['vid_msk'], frame_mask_shape, "vid_msk")
+            token_mask = mtf.import_fully_replicated(mesh, features['tkn_msk'], token_dim_shape, "tkn_msk")
 
     elif params.use_language:
 

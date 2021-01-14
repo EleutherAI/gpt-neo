@@ -4,7 +4,7 @@ import mesh_tensorflow as mtf
 import numpy as np
 import tensorflow.compat.v1 as tf
 
-from .utils import activate, anonymize, concat, deduplicate, default, new_dim, random_name, slice
+from .utils import (activate, anonymize, anonymize_dim, concat, deduplicate, default, new_dim, random_name, slice)
 
 
 class ModelParameter(dict):
@@ -40,8 +40,8 @@ class ModelParameter(dict):
         self.lr = 5e-5
         self.dtype = tf.float32
         self.train_batch_size = 1
-        self.mesh_shape = "x:1,y:1,z:1,h:32"
-        self.layout = "batch:x,heads:y,embd:z,height:h"
+        self.mesh_shape = "x:1,y:1,h:32"
+        self.layout = "batch:x,heads:y,height:h"
         self.prefix = "datasets/full_hd_video"
         self.model_path = "gs://text-datasets/video-transformer/ctx=32-layer=64-heads=8-feat=256"
         self.language_token_per_frame = 0
@@ -58,12 +58,11 @@ class ModelParameter(dict):
         self.feed_forward_attention_factor = 4
         self.embedding_stddev = 0.02
         self.model_mode = 'jannet'
+        self.aux_loss_factor = 0.01
 
         self.mesh = None
 
         self.masked_attention_dimensions = [0]
-
-        self._layer_idx = 0
 
         self.__dict__.update(config)
 
@@ -74,24 +73,26 @@ class ModelParameter(dict):
         self.language_token_patch = self.language_token_per_frame // self.token_patch_size
 
         self.head_dim = mtf.Dimension("heads", self.n_head)
-
+        self.head_dimensions = [self.head_dim]
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+        self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
-        self.feature_dims = [self.head_dim, self.key_dim]
-
-        self.anonymous_key_dim = mtf.Dimension('_' + self.key_dim.name, self.key_dim.size)
+        self.feature_dims = self.head_dimensions + [self.key_dim]
+        self.anonymous_feature_dims = self.head_dimensions + [self.anonymous_key_dim]
 
         self.intermediate = [mtf.Dimension('_intermediate',
                                            int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
-
         self.learned_dim = [new_dim(self.intermediate[0],
                                     self.intermediate[0].size * self.feed_forward_attention_factor)]
 
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.token_patch_count = self.language_token_per_frame // self.token_patch_size
         self.feature_dim_count = len(self.feature_dims)
+        self.selected_head_dim = mtf.Dimension("top", (int(self.n_head ** 0.5) + 7) // 8 * 8)
 
+        self._auxiliary_loss = 0
+        self._layer_idx = 0
 
     def __getitem__(self, key):
         print(f"Getting {key} via deprecated interface")
@@ -101,7 +102,13 @@ class ModelParameter(dict):
         print(f"Setting {key} via deprecated interface")
         return self.__setattr__(key, value)
 
-    def get(self, key, default):
+    def get(self, key: str, default: typing.Any) -> typing.Any:
+        """
+        Default python get from list
+        :param key: key to check for in dictionary
+        :param default: default value if key doesn't exist
+        :return: whatever value belongs to the key or the default
+        """
         print(f"Getting {key} via deprecated interface with default value {default}")
         return self.__dict__.get(key, default)
 
@@ -112,6 +119,9 @@ class ModelParameter(dict):
         return str(self)
 
     def dict(self):
+        """
+        :return: dictionary containing parameters
+        """
         return self.__dict__
 
     def _get_variable(self, shape, initializer) -> mtf.Tensor:
@@ -161,10 +171,11 @@ class ModelParameter(dict):
 
         with tf.variable_scope(random_name()):
             base = activate(self._linear_from_features(block_input))
+
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
-            context_key = anonymize(self._linear_to_features(base), [dim.name])
-            context_val = anonymize(self._linear_to_features(base), [dim.name])
+            context_key = anonymize(self._linear_to_features(base), dim)
+            context_val = anonymize(self._linear_to_features(base), dim)
 
             learned_key = self._embed(self.learned_dim + self.feature_dims)
             learned_val = self._embed(self.learned_dim + self.feature_dims)
@@ -194,13 +205,26 @@ class ModelParameter(dict):
               vid: typing.Optional[mtf.Tensor],
               txt_src: typing.Optional[mtf.Tensor],
               txt_tgt: typing.Optional[mtf.Tensor],
-              frame_mask: typing.Optional[mtf.Tensor],
-              token_mask: typing.Optional[mtf.Tensor],
+              vid_msk: typing.Optional[mtf.Tensor],
+              tkn_msk: typing.Optional[mtf.Tensor],
               ) -> typing.Tuple[mtf.Tensor, typing.Union[int, mtf.Tensor], mtf.Tensor, mtf.Tensor]:
+        """
+        Build Mesh Tensorflow graph of a model given parameters previously inserted.
+        The model slices the video input itself (to save on TPU CPU <--> TPU Core bandwidth), but needs both
+        text source and text target.
+        :param vid: Optional Video to attend over, length=(context+1)
+        :param txt_src: Optional tokenized text source, will be embedded
+        :param txt_tgt: Optional tokenized text target, required when source is given
+        :param vid_msk: Optional mask to remove loss for certain video frames
+        :param tkn_msk: Optional mask to remove loss for certain token positions
+        :return: (Generated Video, Total Loss, Video Loss, Token Loss)
+        """
         video_loss: typing.Union[int, mtf.Tensor] = 0
         token_loss: typing.Union[int, mtf.Tensor] = 0
+        tkn_msk = mtf.ones(self.mesh, [], tf.float32) if tkn_msk is None else mtf.cast(tkn_msk, tf.float32)
+        vid_msk = mtf.ones(self.mesh, [], tf.float32) if vid_msk is None else mtf.cast(vid_msk, tf.float32)
 
-        spatial_ctx = txt_tgt.shape[-self.feature_dim_count] if self.use_language else vid.shape[2]
+        spatial_ctx: mtf.Dimension = txt_tgt.shape[-2] if self.use_language else vid.shape[2]
 
         if self.use_video:
             context_dimension = vid.shape[1]
@@ -239,34 +263,21 @@ class ModelParameter(dict):
             tkn = self._linear_from_features(slice(out, 0, self.language_token_patch, spatial_ctx),
                                              [txt_tgt.shape[-1], self.vocab_dim])
             z_loss = mtf.reduce_sum(mtf.square(tkn)) * (self.z_loss / self.vocab_size)
-
-            logsumexp = mtf.reduce_logsumexp(tkn, self.vocab_dim)
-
-            tkn_loss = tkn * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
-                                             + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype))
-            if self.use_video:
-                token_mask = mtf.cast(token_mask, tf.float32)
-                tkn_loss = tkn_loss * token_mask
-                logsumexp = logsumexp * token_mask
-
-            logsumexp = mtf.reduce_sum(logsumexp)
-
-            tkn_loss = mtf.reduce_sum(tkn_loss)
+            logsumexp = mtf.reduce_sum(mtf.reduce_logsumexp(tkn, self.vocab_dim) * tkn_msk)
+            tkn_loss = mtf.reduce_sum(tkn * tkn_msk
+                                      * (self.label_smoothing / self.vocab_size / (1 - self.label_smoothing)
+                                         + mtf.one_hot(txt_tgt, self.vocab_dim, dtype=tkn.dtype)))
             tkn_loss *= 1 - self.label_smoothing
-
-            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.shape.size / self.vocab_size)
+            token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss]) / (tkn.size / self.vocab_size)
 
         if self.use_video:
-
             out = slice(out, self.language_token_patch * self.use_language, out.shape[2].size, spatial_ctx)
             src = mtf.sigmoid(self._linear_from_features(out, input_features))
-            video_loss = mtf.abs(src - tgt)
-
-            if self.use_language:
-                video_loss * mtf.cast(frame_mask, tf.float32)
-
-            video_loss: mtf.Tensor = mtf.reduce_mean(video_loss)
+            video_loss: mtf.Tensor = mtf.reduce_mean(mtf.abs(src - tgt) * vid_msk)
 
         self._layer_idx = 0
 
-        return src, (video_loss + token_loss), video_loss, token_loss
+        return (src,
+                (video_loss + token_loss),
+                video_loss * vid_msk.size / mtf.reduce_sum(vid_msk),
+                token_loss * tkn_msk.size / mtf.reduce_sum(tkn_msk))
