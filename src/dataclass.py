@@ -19,10 +19,10 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
     if not isinstance(forward_operations[-1], mtf.AddOperation):
         raise ValueError("expected an addition here")
     f_ops = forward_operations[:-2]
-    orig_fx2 = forward_operations[-1].inputs[0]
-    orig_faux = forward_operations[-2].inputs[0]
-    orig_x2 = x2
-    orig_aux = aux
+    orig_faux = forward_operations[-1].inputs[0]
+    orig_fx2 = forward_operations[-2].inputs[0]
+    orig_x2 = explicit_inputs[2]
+    orig_aux = explicit_inputs[4]
     graph = all_inputs[0].graph
     f_again_ops, mapping = graph.clone_operations(f_ops, {orig_x2: x2, orig_aux: aux})
     fx2 = mapping[orig_fx2]
@@ -39,7 +39,9 @@ def _reversible_half_residual_grad(explicit_inputs, all_inputs, forward_operatio
 
 def _half_residual_and_swap(x1, x1_backwards, x2, x2_backwards, aux, f=None):
     y1, aux1 = f(x2)
-    return x2, x2_backwards, y1 + x1, x1_backwards, aux1 + aux
+    y1 = y1 + x1  # Explicitly setting order: y1 happens first, aux happens last
+    aux = aux1 + aux 
+    return x2, x2_backwards, y1, x1_backwards, aux
 
 def reversible_half_residual_and_swap(x1,
                                       x1_backwards,
@@ -260,9 +262,10 @@ class ModelParameter(dict):
             auxiliary_loss = mtf.reduce_mean(mtf.square(mtf.reduce_mean(weights, output_shape=[self.head_dim])
                                                         * self.n_head / self.selected_head_dim.size))
 
-            base = activate(mtf.einsum([block_input, one_hot, weights,
-                                        self._orthogonal_var(self.feature_dims + [self.anonymous_key_dim])],
-                                       block_input.shape - self.key_dim + self.anonymous_key_dim))
+            base = mtf.einsum([block_input, one_hot, weights], block_input.shape)
+            base = activate(mtf.einsum([base, self._orthogonal_var(self.feature_dims + [self.anonymous_key_dim])], 
+                                       block_input.shape - self.key_dim + self.anonymous_key_dim)
+
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
