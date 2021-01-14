@@ -256,7 +256,8 @@ class ModelParameter(dict):
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
-            weights = mtf.softmax(self._linear_from_features(block_input, [self.head_dim, self.anonymous_head_dim]), self.anonymous_head_dim)
+            weights = mtf.softmax(self._linear_from_features(block_input, [self.head_dim, self.anonymous_head_dim]),
+                                  self.anonymous_head_dim)
             _, indices = mtf.top_k(weights, self.anonymous_head_dim, self.selected_head_dim)
             one_hot = mtf.one_hot(anonymize(indices, self.head_dim), self.head_dim)
             auxiliary_loss = mtf.reduce_mean(mtf.square(mtf.reduce_mean(weights, output_shape=[self.head_dim])
