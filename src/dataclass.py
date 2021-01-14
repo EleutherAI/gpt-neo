@@ -176,11 +176,8 @@ class ModelParameter(dict):
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
-            selected_heads = mtf.stack([block_input] +
-                                       [mtf.shift(block_input, 2 ** i, self.head_dim, True)
-                                        for i in range(self.selected_head_dim.size - 1)],
-                                       self.selected_head_dim.name, -1)
-            base = activate(self._linear_from_features(selected_heads, extra=[self.selected_head_dim]))
+            base = activate(mtf.add_n([self._linear_from_features(mtf.shift(block_input, i, self.head_dim, True))
+                                       for i in range(self.selected_head_dim.size)]))
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
