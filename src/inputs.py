@@ -208,6 +208,7 @@ def dataset_video(path: str, params: ModelParameter):
 
             frame_mask = frame_mask[:, 1:time_patch_size + 1]
             frame_mask = tf.reshape(frame_mask, (batch_size, time_patch_size))
+            frame_mask = 1 - frame_mask
             frame_mask = tf.cast(frame_mask, tf.bool)
 
             token_mask = token_mask[:, 1:time_patch_size + 1]
