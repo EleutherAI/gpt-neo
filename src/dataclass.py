@@ -75,6 +75,7 @@ class ModelParameter(dict):
         self.head_dim = mtf.Dimension("heads", self.n_head)
         self.head_dimensions = [self.head_dim]
         self.key_dim = mtf.Dimension("features_per_head", self.n_embd // self.n_head)
+        self.anonymous_head_dim = anonymize_dim(self.head_dim)
         self.anonymous_key_dim = anonymize_dim(self.key_dim)
 
         self.feature_dims = self.head_dimensions + [self.key_dim]
@@ -154,11 +155,11 @@ class ModelParameter(dict):
 
     def _linear_to_features(self, block_input: mtf.Tensor,
                             old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input, default(old, self.intermediate), self.feature_dims)
+        return self._linear(block_input, default(old, self.anonymous_feature_dims), self.feature_dims)
 
     def _linear_from_features(self, block_input: mtf.Tensor,
                               new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-        return self._linear(block_input, self.feature_dims, default(new, self.intermediate))
+        return self._linear(block_input, self.feature_dims, default(new, self.anonymous_feature_dims))
 
     def _block_fn(self, block_input) -> mtf.Tensor:
         self._layer_idx += 1
@@ -170,7 +171,7 @@ class ModelParameter(dict):
         attention_scale = (dim.size + self.learned_dim[0].size) ** -0.5
 
         with tf.variable_scope(random_name()):
-            base = activate(self._linear_from_features(block_input))
+            base = activate(self._linear(anonymize(block_input, self.head_dim), [self.anonymous_head_dim, self.key_dim], [self.head_dim, self.anonymous_key_dim]))
 
             context_qry = (self._linear_to_features(base) + self._embed([dim] + self.feature_dims))
             feature_qry = self._linear_to_features(base)
