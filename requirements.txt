@@ -24,3 +24,4 @@ Pillow
 git+https://github.com/ytdl-org/youtube-dl.git
 google-cloud-storage
 oauth2client
+utils

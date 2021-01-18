@@ -7,8 +7,8 @@
     "frame_height": 176,
 
     "language_token_per_frame": 64,
-    "n_head": 16,
-    "n_embd": 4096,
+    "n_head": 8,
+    "n_embd": 2048,
     "n_layer": 30,
     "feed_forward_per_attention": 2,
     "intermediate_feed_forward_multiplier": 0.25,
@@ -16,8 +16,10 @@
     "buffer_size": 2,
     "interleaved_datasets": 64,
     "shuffle_buffer": 4,
-    "memory_token": [0, 20],
-
+    "memory_token": [0, 0],
+    "revblock_pattern": {"feed-forward": 2, "attention": 1},
+    "token_patch_size": 2,
+    "z_loss": 0.001,
 
     "lr": 0.00005,
     "train_batch_size": 1,
@@ -27,11 +29,10 @@
 
     "mesh_shape": "x:1,y:8,z:1,h:1,w:1",
     "layout": "batch:x,heads:y,embd:z,height:h,width:w",
-    "prefix": ["datasets/video_with_language_v3"],
+    "dataset_configs": [{"type":  "video", "path":  "gs://text-datasets/datasets/video_with_language_v4/*", "weight":  1}],
 
-    "model_path": "gs://text-datasets/video-transformer/smol-ctx=256-layer=30-heads=16-feat=4096-ffpa=2-iffm=0dot25-timepatch=1-imgpatch=16-2d_data_v3-memory-fix-attn",
+    "model_path": "gs://text-datasets/video-transformer/label-smoothing=0dot1-ctx=256-layer=30-heads=8-feat=2048-ffpa=2-iffm=0dot25-timepatch=1-imgpatch=16-lang-sign",
 
-    "dataset_ids": ["openwebtext-documents"],
     "local_attention_radius": 256,
     "n_vocab": 256,
     "embed_dropout": 0,

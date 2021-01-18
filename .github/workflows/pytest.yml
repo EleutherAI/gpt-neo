@@ -2,9 +2,9 @@ name: Python package
 
 on:
   push:
-    branches: [ master ]
+    branches: ['**']
   pull_request:
-    branches: [ master ]
+    branches: ['**']
 
 jobs:
   build:
@@ -16,15 +16,30 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - name: Set up Python ${{ matrix.python-version }}
+    - name: '[Python] initial set up ${{ matrix.python-version }}'
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: '[Python] install dependencies'
       run: |
-        python -m pip install --upgrade pip
-        pip install pytest
+        python3 -m pip install --upgrade pip
+        python3 -m pip install pytest pylint mypy
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-    - name: Compile code, check syntax
+    - name: '[Python] compile all code'
       run: |
-        python -m compileall ..
+        python3 -m compileall .
+    #- name: '[PyLint] check repository'
+    #  run: |
+    #    cd .. && pylint JanNet --max-line-length 120 ; cd JanNet
+    #- name: '[MyPy] check typehints of main.py'
+    #  run: |
+    #    mypy --ignore-missing-imports --warn-unreachable --warn-return-any --warn-redundant-casts --disallow-untyped-decorators --disallow-incomplete-defs --disallow-untyped-defs  --strict --pretty main.py
+    #- name: '[MyPy] check typehints of src/'
+    #  run: |
+    #    mypy --ignore-missing-imports --warn-unreachable --warn-return-any --warn-redundant-casts --disallow-untyped-decorators --disallow-incomplete-defs --disallow-untyped-defs  --strict --pretty src
+    #- name: '[MyPy] check typehints of scripts/'
+    #  run: |
+    #    mypy --ignore-missing-imports --warn-unreachable --warn-return-any --warn-redundant-casts --disallow-untyped-decorators --disallow-incomplete-defs --disallow-untyped-defs  --strict --pretty scripts
+    #- name: '[Python] do a dry run'
+    #  run: |
+    #    python3 main.py --dry --model configs/big_ctx.json

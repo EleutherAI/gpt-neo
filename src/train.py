@@ -1,16 +1,39 @@
+"""
+Contains functions to create a training loop and log its outputs to tensorboard
+"""
+import typing
+
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 from tensorflow.python.tpu import tpu_estimator
 
-from .dataclass import ModelParameter
+from .dataclass import ModelParameter, build
 from .optimizers import get_optimizer
 
+tf.config.optimizer.set_experimental_options({"layout_optimizer":              True,
+                                              "constant_folding":              True,
+                                              "shape_optimization":            True,
+                                              "remapping":                     True,
+                                              "arithmetic_optimization":       True,
+                                              "dependency_optimization":       True,
+                                              "loop_optimization":             True,
+                                              "function_optimization":         True,
+                                              "debug_stripper":                True,
+                                              "disable_model_pruning":         False,
+                                              "scoped_allocator_optimization": True,
+                                              "pin_to_host_optimization":      False,
+                                              "implementation_selector":       True,
+                                              "auto_mixed_precision":          True,
+                                              "disable_meta_optimizer":        False,
+                                              "min_graph_nodes":               0
+                                              })
 
-def create_host_call(model_dir):
+
+def create_host_call(model_dir: str) -> typing.Optional[typing.Tuple[typing.Callable, typing.List[tf.Tensor]]]:
     """Construct a host_call writing scalar summaries.
     Borrowed from t2t.
-    
+
     Args:
         model_dir: String containing path to train
     Returns:
@@ -21,11 +44,11 @@ def create_host_call(model_dir):
     # A list of (name, lowered tensor) tuples
     summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
 
-    def maybe_cast(tensor):
+    def maybe_cast(tensor: tf.Tensor) -> tf.Tensor:
         if tensor.shape.is_compatible_with([]):
             tensor = tf.reshape(tensor, [1])
         if tensor.dtype == tf.int64:
-            return tf.to_int32(tensor)
+            return tf.cast(tensor, tf.int32)
         if tensor.dtype == tf.bfloat16:
             return tf.cast(tensor, tf.float32)
         return tensor
@@ -56,13 +79,21 @@ def create_host_call(model_dir):
                 tf2.summary.scalar(name, tf.reduce_mean(tensor), step=global_step)
         return tf.summary.all_v2_summary_ops()
 
-    global_step_t = tf.reshape(tf.to_int32(tf.train.get_global_step()), [1])
+    global_step_t = tf.reshape(tf.cast(tf.train.get_global_step(), tf.int32), [1])
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(features: tf.Tensor, mode: str, params: dict):
+def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, serialized_params: typing.Dict[str, typing.Any]
+             ) -> tpu_estimator.TPUEstimatorSpec:
+    """
+    Create model partitioned graph given example input tensor
+    :param features: inputs and targets in dict
+    :param mode: training mode
+    :param serialized_params: serialized dict of ModelParameters instance
+    :return: tpu estimator spec
+    """
     # Get global step
-    params = ModelParameter(params)
+    params = ModelParameter(serialized_params)
     global_step = tf.train.get_global_step()
 
     # Construct mtf graph + mesh from params
@@ -98,34 +129,57 @@ def model_fn(features: tf.Tensor, mode: str, params: dict):
     frame_input = None
     token_x_input = None
     token_y_input = None
+    frame_mask = None
+    token_mask = None
 
     if params.use_video:
-        frame_input = mtf.import_fully_replicated(mesh,
-                                                  features['frame'],
-                                                  mtf.Shape([batch_dim,
-                                                             mtf.Dimension("_sequence", params.time_patch_size + 1)] +
-                                                            ([mtf.Dimension("height", params.frame_height_patch),
-                                                              mtf.Dimension("width", params.frame_width_patch)]
-                                                             if params.three_axes else
-                                                             [mtf.Dimension("height",
-                                                                            params.frame_height_patch
-                                                                            * params.frame_width_patch)]) +
-                                                            [mtf.Dimension("color_channels", params.channel_color_size)]
-                                                            ),
-                                                  "frame_input")
+        frame_input_shape = [batch_dim, mtf.Dimension("_sequence", params.time_patch_size + 1)]
 
-    if params.use_language:
-        token_dim = mtf.Shape([batch_dim, mtf.Dimension("sequence", params.time_patch_size // (params.token_patch_size if not params.use_video else 1))] +
-                              ([mtf.Dimension("height", params.language_token_per_frame // params.token_patch_size),
-                                mtf.Dimension("token_patch", params.token_patch_size)] if params.use_video else []))
-        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim, "tkn_src")
-        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim, "tkn_tgt")
+        if params.three_axes:
+            frame_input_shape = frame_input_shape + [mtf.Dimension("height", params.frame_height_patch),
+                                                     mtf.Dimension("width", params.frame_width_patch)]
+        else:
+            frame_input_shape = frame_input_shape + [mtf.Dimension("height", params.frame_height_patch
+                                                                   * params.frame_width_patch)]
+
+        frame_input_shape = frame_input_shape + [mtf.Dimension("color_channels", params.channel_color_size)]
+
+        frame_input = mtf.import_fully_replicated(mesh, features['frame'], mtf.Shape(frame_input_shape), "frame_input")
+
+        if params.use_language:
+            sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
+
+            token_dim_shape = [batch_dim,
+                               sequence_dim,
+                               mtf.Dimension("height", params.language_token_patch),
+                               mtf.Dimension("language_token_patch", params.token_patch_size)]
+
+            frame_mask_shape = mtf.Shape([batch_dim, sequence_dim])
+
+            token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
+            token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
+
+            frame_mask = mtf.import_fully_replicated(mesh, features['vid_msk'], frame_mask_shape, "vid_msk")
+            token_mask = mtf.import_fully_replicated(mesh, features['tkn_msk'], token_dim_shape, "tkn_msk")
+
+    elif params.use_language:
+
+        token_dim_shape = [batch_dim,
+                           mtf.Dimension("sequence", params.time_patch_size),
+                           mtf.Dimension("language_tokens", 1)]
+
+        token_x_input = mtf.import_fully_replicated(mesh, features['token_x'], token_dim_shape, "tkn_src")
+        token_y_input = mtf.import_fully_replicated(mesh, features['token_y'], token_dim_shape, "tkn_tgt")
+
+    else:
+        raise ValueError("use_video and use_language is both False.")
 
     with mtf.utils.outside_all_rewrites():
         with tf.variable_scope('jannet'):
-            logits, loss, video_loss, token_loss = params.build(frame_input, token_x_input, token_y_input)
+            logits, loss, video_loss, token_loss = build(params, frame_input, token_x_input, token_y_input,
+                                                         frame_mask, token_mask)
 
-    _, update_ops, var_grads = get_optimizer(mesh, loss, params, inp_var_grads=None)
+    _, update_ops, var_grads = get_optimizer(mesh, loss, params)
 
     if params.use_video:
         mtf.scalar_summary("video_loss", video_loss)
