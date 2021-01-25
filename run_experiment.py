@@ -173,15 +173,21 @@ def main(_run):
     curr_step = {}
     seen_predictions = set()
 
+    heartbeat_timeout = args.initial_heartbeat_timeout * 2
     while True:
-        heartbeat_timeout = args.initial_heartbeat_timeout
         last_tb_log_time = time.time()
+        start_time = time.time()
         q = queue.Queue()
         trainthd = threading.Thread(target=train_thread, args=(args, args.tpu, _run._id, q))
         trainthd.start()
 
         while trainthd.is_alive():
             time.sleep(60)
+
+            if start_time + args.initial_heartbeat_timeout < time.time():
+                # after initial args.initial_heartbeat_timeout grace period, now we want to set the timeout threshold much lower
+                heartbeat_timeout = args.heartbeat_timeout
+
             print('Polling tensorboard for metrics...')
             data = get_run_data(tensorboard_port)
             for k in data.keys():
@@ -195,9 +201,6 @@ def main(_run):
                     
                     # found something new, so logging!
                     last_tb_log_time = time.time()
-                    
-                    # after logging for the first time, how we want to set the timeout threshold much lower
-                    heartbeat_timeout = args.heartbeat_timeout
 
                     curr_step[k] = step
 
