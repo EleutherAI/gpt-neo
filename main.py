@@ -34,5 +34,11 @@ if __name__ == "__main__":
                         help="If set, outputs sample from the dataset and quits.")
     parser.add_argument("--dry", action="store_true",
                         help="Instead of actually training, do a dry run to see if everything works.")
+    parser.add_argument("--run_mode", type=str, default="train", help="If the model should train or sample."
+                                                                      " Use 'train' or 'sample'.")
     args = parser.parse_args()
+
+    assert args.run_mode == 'train' or args.run_mode == 'sample', f"'{args.run_mode}' is not a supported argument for" \
+                                                                  f" --run_mode, pleas use 'train' or 'sample'."
+
     main(args)

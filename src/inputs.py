@@ -64,12 +64,30 @@ def get_video_decoder(language_token_num_per_frame=0, frame_height=None, frame_w
     return tf.function(frame_decoder, experimental_compile=False)
 
 
-def text_decode(proto) -> tf.data.Dataset:
+def _text_decoder(name: tf.Tensor, ctx: int, chunk_size: int):
     """
-    Decode a given text protobuffer according to the novel gpt-neo pipeline.
-    :param proto: protobuf object to decode
+    Read a given tfrecord and windowed text dataset out of it.
+    :param name: protobuf object to decode
+    :param ctx: context size of generated dataset
+    :param chunk_size: batch size directly after creating the dataset
     :return: tensorflow dataset of token
     """
+
+    @tf.function
+    def _decode_protobuf(proto):
+        text_slice = tf.parse_single_example(proto, {'text': tf.FixedLenFeature([], tf.string)})['text']
+        data = tf.data.Dataset.from_tensor_slices(
+                tf.reshape(tf.strings.unicode_decode(text_slice, 'UTF-8'), (-1, 1)))
+        if chunk_size > 0:
+            data = data.batch(chunk_size)
+        data = data.window(size=ctx + 1, shift=ctx, stride=1, drop_remainder=True)
+        data = data.interleave(lambda x: x.batch(ctx + 1, drop_remainder=True))
+        return data
+
+    return tf.data.TFRecordDataset(filenames=name).interleave(_decode_protobuf)
+
+
+def text_decode(proto):
     x = tf.parse_single_example(proto, {'text': tf.VarLenFeature(tf.int64)})
     x = x['text']
     x = tf.sparse.to_dense(x)
@@ -79,17 +97,17 @@ def text_decode(proto) -> tf.data.Dataset:
     return x
 
 
-def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
+def dataset_text(path: str, batch_size: int, params: ModelParameter) -> tf.data.Dataset:
     """
     Creates a text dataset containing shuffled and prefetched windows.
     :param path: Path to dataset (in google cloud bucket)
     :param params: ModelParameter
     :return: tensorflow dataset
     """
+
     three_axes = params.three_axes
 
     time_patch = params.time_patch
-    batch_size = params.train_batch_size
     token_patch_size = params.token_patch_size
     language_token_patch = params.language_token_patch
     language_token_per_frame = params.language_token_per_frame
@@ -99,49 +117,56 @@ def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
     frame_width_patch = params.frame_width_patch
     channel_color_size = params.channel_color_size
 
-    padding_token = params.padding_token
-
     assert not (language_token_per_frame > 0 and time_patch > 1), \
         ("Time patch and language token are currently not supported together")
 
-    padding_token = tf.constant([[[padding_token]] * (time_patch_size + 1)] * batch_size, dtype=tf.int32)
+    padding_token = tf.constant([[[params.padding_token]] * (time_patch_size + 1)] * batch_size, dtype=tf.int32)
+    padding_token = tf.data.Dataset.from_tensors(padding_token).repeat()
 
     if three_axes:
         padding_frame = tf.zeros((batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
-                                  channel_color_size), dtype=tf.bool)
+                                  channel_color_size), dtype=tf.uint8)
     else:
         padding_frame = tf.zeros((batch_size, time_patch_size + 1, frame_height_patch * frame_width_patch,
-                                  channel_color_size), dtype=tf.bool)
+                                  channel_color_size), dtype=tf.uint8)
+
+    padding_frame = tf.data.Dataset.from_tensors(padding_frame).repeat()
 
     padding_frame_mask = tf.zeros((batch_size, time_patch_size), dtype=tf.bool)
-    padding_token_mask = tf.ones((batch_size, language_token_patch, token_patch_size), dtype=tf.bool)
+    padding_frame_mask = tf.data.Dataset.from_tensors(padding_frame_mask).repeat()
 
-    def _decode_func(name: tf.Tensor):
+    padding_token_mask = tf.ones((batch_size, time_patch_size, language_token_patch, token_patch_size), dtype=tf.bool)
+    padding_token_mask = tf.data.Dataset.from_tensors(padding_token_mask).repeat()
 
-        data = tf.data.TFRecordDataset(filenames=tf.convert_to_tensor(name), buffer_size=2 ** 26, num_parallel_reads=1)
-        data = data.flat_map(text_decode)
+    def _memory_func(x, _padding_token, _padding_frame, _padding_frame_mask, _padding_token_mask):
 
-        data = data.batch(language_token_per_frame - 1, drop_remainder=True)
-
-        data = data.window(size=time_patch_size + 1, stride=1, shift=time_patch_size, drop_remainder=True)
-        data = data.interleave(lambda x: x.batch(time_patch_size + 1, drop_remainder=True),
-                               cycle_length=1, num_parallel_calls=1, block_length=1)
-
-        return data
-
-    def _memory_func(x):
-
+        x = tf.reshape(x, (batch_size, time_patch_size + 1, language_token_per_frame - 1))
         x = tf.cast(x, tf.int32)
-        x = tf.concat([x, padding_token], axis=2)
+        x = tf.concat([x, _padding_token], axis=2)
 
         x = tf.reshape(x, (batch_size, time_patch_size + 1, language_token_patch, token_patch_size))
 
         token_x = x[:, :time_patch_size]
         token_y = x[:, 1:time_patch_size + 1]
 
-        return {'token_x': token_x, 'token_y': token_y, 'frame': padding_frame,
-                'vid_msk': padding_frame_mask, 'tkn_msk': padding_token_mask
-                }
+        if three_axes:
+            _padding_frame = tf.reshape(_padding_frame, (batch_size,
+                                                         time_patch_size + 1,
+                                                         frame_height_patch,
+                                                         frame_width_patch,
+                                                         channel_color_size))
+        else:
+            _padding_frame = tf.reshape(_padding_frame, (batch_size,
+                                                         time_patch_size + 1,
+                                                         frame_height_patch * frame_width_patch,
+                                                         channel_color_size))
+
+        _padding_frame_mask = tf.reshape(_padding_frame_mask, (batch_size, time_patch_size))
+        _padding_token_mask = tf.reshape(_padding_token_mask,
+                                         (batch_size, time_patch_size, language_token_patch, token_patch_size))
+
+        return {'token_x': token_x, 'token_y': token_y, 'frame': _padding_frame,
+                'vid_msk': _padding_frame_mask, 'tkn_msk': _padding_token_mask}
 
     path = tf.io.gfile.glob(path)
     random.seed(params.data_seed)
@@ -149,24 +174,32 @@ def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
 
     data = tf.data.Dataset.from_tensor_slices(path)
     data = data.repeat()
-    data = data.apply(tf.data.experimental.parallel_interleave(_decode_func,
-                                                               cycle_length=params.interleaved_datasets, block_length=1,
-                                                               sloppy=False))
+
+    data = data.map(tf.data.TFRecordDataset, num_parallel_calls=tf.data.experimental.AUTOTUNE)
+
+    data = data.flat_map(lambda x: x.flat_map(text_decode))
+    data = data.window(size=(time_patch_size + 1) * (language_token_per_frame - 1),
+                       shift=time_patch_size * (language_token_per_frame - 1), stride=1, drop_remainder=True)
+    data = data.flat_map(lambda x: x.batch((time_patch_size + 1) * (language_token_per_frame - 1)))
+
+    data = data.shuffle(16384, seed=params.data_seed)
 
     data = data.batch(batch_size)
 
+    data = tf.data.Dataset.zip((data, padding_token, padding_frame, padding_frame_mask, padding_token_mask))
     data = data.map(_memory_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     return data
 
 
-def dataset_video(path: str, params: ModelParameter):
+def dataset_video(path: str, batch_size: int, params: ModelParameter):
     """
     Creates a video dataset containing shuffled and prefetched windows.
     :param path: Path to dataset (in google cloud bucket)
     :param params: ModelParameter
     :return: tensorflow dataset
     """
+
     three_axes = params.three_axes
     frame_height = params.frame_height
     frame_width = params.frame_width
@@ -174,7 +207,6 @@ def dataset_video(path: str, params: ModelParameter):
     time_patch = params.time_patch
     color_channels = params.color_channels
     patch_size = params.patch_size
-    batch_size = params.train_batch_size
     n_ctx = params.n_ctx
     token_patch_size = params.token_patch_size
     language_token_patch = params.language_token_patch
@@ -235,7 +267,7 @@ def dataset_video(path: str, params: ModelParameter):
             token_mask = tf.reshape(token_mask, (batch_size, time_patch_size, language_token_patch, token_patch_size))
             token_mask = tf.cast(token_mask, tf.bool)
 
-        return {k: v for k, v in {'frame':   out_frame, 'token_x': token_x, 'token_y': token_y,
+        return {k: v for k, v in {'frame':   out_frame / 255, 'token_x': token_x, 'token_y': token_y,
                                   'vid_msk': frame_mask, 'tkn_msk': token_mask
                                   }.items() if v is not None}
 
@@ -265,11 +297,12 @@ def dataset_video(path: str, params: ModelParameter):
     return data
 
 
-def dataset(params: ModelParameter, step: int = 0):
+def dataset(params: ModelParameter, step: int = 0, train: bool = True):
     """
     Creates any dataset containing shuffled and prefetched windows.
     :param params: ModelParameter
     :param step: number of items to skip of dataset
+    :param train: is the model in train or sample mode
     :return: tensorflow dataset
     """
 
@@ -279,8 +312,23 @@ def dataset(params: ModelParameter, step: int = 0):
         x['frame'] = tf.cast(x['frame'], tf.float32)
         return x
 
-    weights = []
+    def concat_op(*args):
+        x, *args = args
+
+        for key in x.keys():
+            x[key] = tf.concat([x[key]] + [arg[key] for arg in args], axis=0)
+
+        return x
+
+    weights = [set['weight'] for set in params.dataset_configs]
     datasets = []
+    batch_size = params.train_batch_size if train else 1
+
+    assert batch_size % sum(weights) == 0, f"The batch size needs to be divisible by the sum of all weights. " \
+                                           f"The batch size {batch_size} is not divisible by the sum of " \
+                                           f"{weights} is not."
+
+    weight_multi = batch_size // sum(weights)
 
     for set in params.dataset_configs:
         dtype = set['type']
@@ -288,17 +336,18 @@ def dataset(params: ModelParameter, step: int = 0):
         weight = set['weight']
 
         assert dtype == 'video' or dtype == 'text', \
-            "{} is not a supported option for type for a dataset.".format(dtype)
+            f"{dtype} is not a supported option for type for a dataset."
 
         if dtype == 'video':
-            datasets.append(dataset_video(path, params))
+            datasets.append(dataset_video(path, weight * weight_multi, params))
         elif dtype == 'text':
-            datasets.append(dataset_text(path, params))
+            datasets.append(dataset_text(path, weight * weight_multi, params))
 
-        weights.append(weight)
-
-    weights = tf.convert_to_tensor(weights, dtype=tf.float32)
-    datasets = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=params.data_seed)
+    if len(datasets) > 1:
+        datasets = tf.data.Dataset.zip(tuple(datasets))
+        datasets = datasets.map(concat_op)
+    else:
+        datasets = datasets[0]
 
     datasets = datasets.prefetch(params.buffer_size)
     datasets = datasets.map(memory_op)
@@ -425,23 +474,6 @@ def gpt_neo_input(params, step=None, eval=False):
     # repeat filenames to infinity
     dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat()
 
-    if not eval:
-
-        # skip forward first in the filenames list, then skip the remaining amount in the parsed tfrecords files
-        skip_idx, remainder = _get_skip_index(filenames, n_batches=step * params.train_batch_size)
-
-        # skip to skip idx
-        dataset = dataset.skip(skip_idx)
-
-        # read tfrecord examples and skip remainder
-        # dataset = dataset.apply(tf.data.TFRecordDataset)
-        dataset = dataset.skip(remainder)
-    else:
-
-        # shuffle filenames if in eval mode
-        dataset = dataset.shuffle(len(filenames))
-        # dataset = dataset.apply(tf.data.TFRecordDataset)
-
     def _memory_func(x):
 
         x = tf.reshape(x, (batch_size, params.n_ctx + 1, 1))
@@ -452,16 +484,30 @@ def gpt_neo_input(params, step=None, eval=False):
 
         return {'token_x': vals1, 'token_y': vals2}
 
-    dataset = dataset.map(tf.data.TFRecordDataset)
-
-    dataset = dataset.flat_map(lambda x: x.flat_map(text_decode))
-    dataset = dataset.window(size=params.n_ctx + 1, shift=params.n_ctx, stride=1, drop_remainder=True)
-    dataset = dataset.flat_map(lambda x: x.batch(params.n_ctx + 1))
+    dataset = dataset.interleave(lambda x: _text_decoder(x, params.n_ctx, -1))
 
     dataset = dataset.shuffle(512, seed=seed)
 
     dataset = dataset.batch(batch_size, drop_remainder=True)
     dataset = dataset.map(_memory_func)
     dataset = dataset.prefetch(params.buffer_size * 2)
+
+    options = tf.data.Options()
+    options.experimental_optimization.autotune = True
+    options.experimental_optimization.autotune_buffers = True
+    options.experimental_optimization.filter_fusion = True
+    options.experimental_optimization.hoist_random_uniform = True
+    options.experimental_optimization.map_and_batch_fusion = True
+    options.experimental_optimization.map_and_filter_fusion = False
+    options.experimental_optimization.map_fusion = True
+    options.experimental_optimization.map_parallelization = True
+    options.experimental_optimization.map_vectorization.enabled = True
+    options.experimental_optimization.map_vectorization.use_choose_fastest = True
+    options.experimental_optimization.noop_elimination = True
+    options.experimental_optimization.parallel_batch = True
+    options.experimental_optimization.shuffle_and_repeat_fusion = True
+    options.experimental_optimization.apply_default_optimizations = False
+
+    # dataset = dataset.with_options(options)
 
     return dataset

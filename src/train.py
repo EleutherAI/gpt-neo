@@ -8,7 +8,8 @@ import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 from tensorflow.python.tpu import tpu_estimator
 
-from .dataclass import ModelParameter, build
+from .dataclass import ModelParameter
+from .model import build
 from .optimizers import get_optimizer
 
 tf.config.optimizer.set_experimental_options({"layout_optimizer":              True,
@@ -83,17 +84,17 @@ def create_host_call(model_dir: str) -> typing.Optional[typing.Tuple[typing.Call
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, serialized_params: typing.Dict[str, typing.Any]
+def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Dict[str, typing.Any]
              ) -> tpu_estimator.TPUEstimatorSpec:
     """
     Create model partitioned graph given example input tensor
     :param features: inputs and targets in dict
     :param mode: training mode
-    :param serialized_params: serialized dict of ModelParameters instance
+    :param params: serialized dict of ModelParameters instance
     :return: tpu estimator spec
     """
     # Get global step
-    params = ModelParameter(serialized_params)
+    params = ModelParameter(params)
     global_step = tf.train.get_global_step()
 
     # Construct mtf graph + mesh from params
@@ -112,10 +113,6 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, serialized_params
     mesh_devices = [""] * mesh_shape.size
     mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(
             mesh_shape, layout_rules, mesh_devices, params.context.device_assignment)
-
-    # Trainable variable precision
-    # Store to checkpoints in master type, train in slice type, compute in activation type
-    variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
     # Build mtf mesh object
     mesh = mtf.Mesh(graph, "mesh", var_placer)
@@ -174,19 +171,111 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, serialized_params
     else:
         raise ValueError("use_video and use_language is both False.")
 
-    with mtf.utils.outside_all_rewrites():
-        with tf.variable_scope('jannet'):
-            logits, loss, video_loss, token_loss = build(params, frame_input, token_x_input, token_y_input,
-                                                         frame_mask, token_mask)
+    if mode == tf.estimator.ModeKeys.PREDICT and params.use_autoregressive_sampling:
+        sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
 
-    _, update_ops, var_grads = get_optimizer(mesh, loss, params)
+        def cond_fn(position):
+            is_done = mtf.greater_equal(position, sequence_dim.size)
+            is_done = mtf.logical_or(is_done, mtf.greater_equal(position - params.initial_autoregressive_position,
+                                                                sequence_dim))
+            is_done = mtf.reduce_sum(is_done)
 
-    if params.use_video:
-        mtf.scalar_summary("video_loss", video_loss)
+            return mtf.logical_not(is_done)
 
-    if params.use_language:
-        mtf.scalar_summary("token_loss", token_loss)
+        def body_fn(position, frame_input, token_x_input, token_y_input, frame_mask, token_mask, *states):
+            with tf.variable_scope('jannet'):
+                if token_mask is None:
+                    token_mask = mtf.ones(params.mesh, [], tf.float32)
+                else:
+                    token_mask = mtf.cast(token_mask, tf.float32)
+                if frame_mask is None:
+                    frame_mask = mtf.ones(params.mesh, [], tf.float32)
+                else:
+                    frame_mask = mtf.cast(frame_mask, tf.float32)
+                video_loss, _, frame_out, token_out = build(params,
+                                                            frame_input,
+                                                            token_x_input,
+                                                            token_y_input,
+                                                            frame_mask,
+                                                            token_mask)
 
+            language_token_per_frame_dim = mtf.Dimension("language_token_per_frame", params.language_token_per_frame)
+
+            # (batch, sequence_dim, language_token_patch, token_patch_size, vocab_size) ->
+            # (batch, sequence_dim, language_token_per_frame, vocab_size)
+            token_out = mtf.reshape(token_out, new_shape=mtf.Shape([batch_dim,
+                                                                    sequence_dim,
+                                                                    language_token_per_frame_dim,
+                                                                    params.vocab_dim]))
+
+            # (batch, sequence_dim, language_token_per_frame, vocab_size) ->
+            # (batch, sequence_dim, language_token_per_frame)
+            token_out: mtf.Tensor = mtf.argmax(token_out, reduced_dim=params.vocab_dim)
+
+            # (language_token_per_frame_dim)
+            token_mask_out_range = mtf.range(mesh, language_token_per_frame_dim, dtype=tf.int32)
+            # (language_token_per_frame_dim) -> (batch, sequence_dim, language_token_per_frame, vocab_size)
+            token_mask_out_range = mtf.broadcast(token_mask_out_range, new_shape=token_out.shape)
+
+            # (batch, sequence_dim, language_token_per_frame) -> (batch, sequence_dim)
+            token_mask_out_argmin = mtf.argmax(mtf.negative(token_out), reduced_dim=language_token_per_frame_dim)
+
+            # (batch, sequence_dim) -> (batch, sequence_dim, language_token_per_frame, vocab_size)
+            token_mask_out_argmin = mtf.broadcast(token_mask_out_argmin, new_shape=token_out.shape)
+
+            token_mask_out = mtf.less_equal(token_mask_out_range, token_mask_out_argmin)
+
+            # (batch, sequence_dim, language_token_per_frame, vocab_size) ->
+            # (batch_dim, sequence_dim, language_token_patch, token_patch_size)
+            token_out = mtf.reshape(token_out, new_shape=token_dim_shape)
+            token_mask_out = mtf.reshape(token_mask_out, new_shape=token_dim_shape)
+
+            # (sequence_dim)
+            one_hot_sequence = mtf.one_hot(position, sequence_dim, dtype=tf.int32)
+            neg_one_hot_sequence = (1 - one_hot_sequence)
+
+            frame_input = frame_out * one_hot_sequence + frame_input * neg_one_hot_sequence
+            token_x_input = token_out * one_hot_sequence + token_x_input * neg_one_hot_sequence
+            token_mask = token_mask_out * one_hot_sequence + token_mask * neg_one_hot_sequence
+
+            position_out = position + 1
+
+            return [position_out, frame_input, token_x_input, token_y_input, frame_mask, token_mask, video_loss]
+
+        while_loop_inputs = [params.initial_autoregressive_position, frame_input,
+                             token_x_input, token_y_input, frame_mask, token_mask]
+
+        _, frame_out, token_out, _, _, _, loss = mtf.while_loop(cond_fn=cond_fn,
+                                                                body_fn=body_fn,
+                                                                inputs=while_loop_inputs)
+    else:
+        with mtf.utils.outside_all_rewrites(), tf.variable_scope('jannet'):
+            if token_mask is None:
+                token_mask = mtf.ones(params.mesh, [], tf.float32)
+            else:
+                token_mask = mtf.cast(token_mask, tf.float32)
+            if frame_mask is None:
+                frame_mask = mtf.ones(params.mesh, [], tf.float32)
+            else:
+                frame_mask = mtf.cast(frame_mask, tf.float32)
+            video_loss, token_loss, frame_out, token_out = build(params,
+                                                                 frame_input,
+                                                                 token_x_input,
+                                                                 token_y_input,
+                                                                 frame_mask,
+                                                                 token_mask)
+            loss = video_loss + token_loss
+            video_loss = video_loss * frame_mask.size / mtf.reduce_sum(frame_mask)
+            token_loss = token_loss * token_mask.size / mtf.reduce_sum(token_mask)
+
+    if mode == tf.estimator.ModeKeys.TRAIN:
+        if params.use_video:
+            mtf.scalar_summary("video_loss", video_loss)
+
+        if params.use_language:
+            mtf.scalar_summary("token_loss", token_loss)
+
+    update_ops = get_optimizer(mesh, loss, params)
     total_parameters = 0
     for variable in graph.trainable_variables:
         shape = variable.shape.dims
@@ -210,12 +299,24 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, serialized_params
     for dim_name in unique_dims:
         print(dim_name)
     print('\n')
-
+    frame_out = mtf.anonymize(frame_out)
+    token_out = mtf.anonymize(token_out)
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
 
     tf_loss = lowering.export_to_tf_tensor(loss)
     tf_loss = tf.cast(tf_loss, tf.float32)
 
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        predictions = {}
+        if params.use_video:
+            predictions.update({'frame_out': lowering.export_to_tf_tensor(frame_out)})
+            predictions.update({'frame_inp': features['frame']})
+
+        if params.use_language:
+            predictions.update({'token_out': lowering.export_to_tf_tensor(token_out)})
+            predictions.update({'token_inp': features['token_y']})
+    else:
+        predictions = None
     # Use our patched version until mtf updates theirs
     host_call = create_host_call(params.model_path)
     mtf.utils.remove_summaries()
@@ -227,10 +328,26 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, serialized_params
     train_op = tf.group(tf_update_ops)
 
     with mtf.utils.outside_all_rewrites():
-        restore_hook = mtf.MtfRestoreHook(lowering)
+        hooks = [mtf.MtfRestoreHook(lowering)]
+        if params.use_checkpointing:
+            tf.add_to_collection(tf.GraphKeys.SAVERS, tf.train.Saver(
+                    tf.global_variables(),
+                    sharded=True,
+                    max_to_keep=10,
+                    keep_checkpoint_every_n_hours=2,
+                    defer_build=False,
+                    save_relative_paths=True))
+            hooks.append(tf.train.CheckpointSaverHook(
+                    params.model_path,
+                    save_steps=params.steps_per_checkpoint,
+                    saver=saver,
+                    listeners=[mtf.MtfCheckpointSaverListener(lowering)]))
+
         return tpu_estimator.TPUEstimatorSpec(
                 tf.estimator.ModeKeys.TRAIN,
+                predictions=predictions,
                 loss=tf_loss,
                 host_call=host_call,
-                training_hooks=[restore_hook],
+                training_hooks=hooks,
+                prediction_hooks=[mtf.MtfRestoreHook(lowering)],
                 train_op=train_op)

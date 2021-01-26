@@ -14,6 +14,7 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 from .dataclass import ModelParameter
 from .inputs import dataset, gpt_neo_input
 from .train import model_fn
+from .eval import gen_sample
 
 
 def main(args: argparse.Namespace) -> None:
@@ -36,7 +37,7 @@ def main(args: argparse.Namespace) -> None:
     # Fetch appropriate input functions
 
     if params.model_mode == 'jannet':
-        input_fn = partial(dataset, step=0)
+        input_fn = partial(dataset, step=0, train=args.run_mode == 'train')
     elif params.model_mode == 'gpt':
         input_fn = partial(gpt_neo_input, step=0, eval=False)
 
@@ -45,8 +46,8 @@ def main(args: argparse.Namespace) -> None:
         params.use_video = False
 
     else:
-        raise ValueError("model_mode need to be 'jannet' or 'gpt' {}, "
-                         "is a not supported option.".format(params.model_mode))
+        raise ValueError(f"model_mode need to be 'jannet' or 'gpt' {params.model_mode}, "
+                         "is a not supported option.")
 
     # Add to params: auto_layout, auto_layout_and_mesh_shape, use_tpu, num_cores
     mesh_shape = mtf.convert_to_shape(params.mesh_shape)
@@ -55,10 +56,6 @@ def main(args: argparse.Namespace) -> None:
     params.gpu_ids = args.gpu_ids
     # Expand attention types param
     params.predict = args.predict
-
-    # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
-    # moe layers are present
-    params.slow_sampling = False
 
     if args.dry:
         inp = {'token_x': tf.zeros([1]), 'token_y': tf.zeros([1]), 'frame': tf.zeros([1]), 'vid_msk': tf.zeros([1]),
@@ -94,6 +91,9 @@ def main(args: argparse.Namespace) -> None:
 
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
 
-    while current_step < params.train_steps:
-        # Else, don't stop and restart
-        estimator.train(input_fn=input_fn, max_steps=params.train_steps)
+    if args.run_mode == 'train':
+        if current_step < params.train_steps:
+            estimator.train(input_fn=input_fn, max_steps=params.train_steps)
+    else:
+        gen_sample(estimator=estimator, params=params)
+
