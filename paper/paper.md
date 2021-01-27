@@ -7,11 +7,7 @@ tags:
   - Model parallelism
   - Language modelling
 authors:
-  - name: Sid Black
-    affiliation: 1
-  - name: Leo Gao
-    affiliation: 1
-  - name: Phil Wang
+  - name: Placeholder
     affiliation: 1
 affiliations:
  - name: EleutherAI
