@@ -31,7 +31,8 @@ parser.add_argument('--test', action='store_true')
 parser.add_argument('--eval', action='store_true')
 parser.add_argument('--predict', action='store_true')
 parser.add_argument('--no_delete_tpu', action='store_true')
-parser.add_argument('--heartbeat_timeout', type=int, default=36000) # kill and restart if nothing logged to tensorboard in this many seconds
+parser.add_argument('--initial_heartbeat_timeout', type=int, default=7200)
+parser.add_argument('--heartbeat_timeout', type=int, default=1800) # kill and restart if nothing logged to tensorboard in this many seconds
 args = parser.parse_args()
 
 params = fetch_model_params(args.model)
@@ -172,14 +173,21 @@ def main(_run):
     curr_step = {}
     seen_predictions = set()
 
+    heartbeat_timeout = args.initial_heartbeat_timeout * 2
     while True:
         last_tb_log_time = time.time()
+        start_time = time.time()
         q = queue.Queue()
         trainthd = threading.Thread(target=train_thread, args=(args, args.tpu, _run._id, q))
         trainthd.start()
 
         while trainthd.is_alive():
             time.sleep(60)
+
+            if start_time + args.initial_heartbeat_timeout < time.time():
+                # after initial args.initial_heartbeat_timeout grace period, now we want to set the timeout threshold much lower
+                heartbeat_timeout = args.heartbeat_timeout
+
             print('Polling tensorboard for metrics...')
             data = get_run_data(tensorboard_port)
             for k in data.keys():
@@ -218,7 +226,7 @@ def main(_run):
                             _run.log_scalar(k, ob[metr], val_step)
                             curr_step[k] = val_step
 
-            if time.time() - last_tb_log_time > args.heartbeat_timeout:
+            if time.time() - last_tb_log_time > heartbeat_timeout:
                 # the run hasn't logged in a while, so we restart it
                 q.put(('kill',))
 
@@ -226,6 +234,10 @@ def main(_run):
                 while trainthd.is_alive():
                     print('logging thread waiting for killing stalled run and for tpu recreate to finish')
                     time.sleep(60)
+                
+                # reset heartbeat timeout to initial
+                heartbeat_timeout = args.initial_heartbeat_timeout
+                last_tb_log_time = time.time()
 
 
         if args.no_delete_tpu:
