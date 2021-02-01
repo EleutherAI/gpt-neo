@@ -1,5 +1,6 @@
 """
 Contains all necessary functions to build a model graph
+TODO(Lucas): Write docstrings for all functions
 """
 
 import typing
@@ -7,9 +8,19 @@ import typing
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
-from .dataclass import ModelParameter
+from .dataclass import BlockConfig, ModelParameter
 from .utils_core import default
-from .utils_mtf import activate, anonymize, anonymize_dim, concat, deduplicate, random_name, slice
+from .utils_mtf import activate, anonymize, anonymize_dim, anonymize_shape, concat, deduplicate, random_name, slice
+
+
+def _get_attention_dim(params: ModelParameter, block_input: typing.Union[mtf.Tensor, mtf.Shape]
+                       ) -> typing.Tuple[int, mtf.Dimension]:
+    if isinstance(block_input, mtf.Tensor):
+        block_input = block_input.shape
+    attention_dims = (block_input - params.feature_dims - params.intermediate)[1:]  # Ex: Shape[Sequence, Width, Height]
+    idx = params.attention_idx % len(attention_dims)
+    dim = attention_dims[idx]
+    return idx, dim
 
 
 def _get_variable(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
@@ -18,12 +29,12 @@ def _get_variable(params: ModelParameter, shape: typing.Union[typing.List[mtf.Di
 
 
 def _orthogonal_var(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape]) -> mtf.Tensor:
-    return _get_variable(params, shape, tf.orthogonal_initializer())
+    return _get_variable(params, shape, tf.random_normal_initializer(stddev=0.02))
 
 
 def _normal_var(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
-                stddev: float = 0.02) -> mtf.Tensor:
-    return _get_variable(params, shape, tf.random_normal_initializer(stddev=stddev))
+                stddev: float = 0.02, mean: float = 0.) -> mtf.Tensor:
+    return _get_variable(params, shape, tf.random_normal_initializer(stddev=stddev, mean=mean))
 
 
 def _constant_var(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
@@ -35,13 +46,28 @@ def _scalar(params: ModelParameter, value: float) -> mtf.Tensor:
     return _constant_var(params, [], value)
 
 
-def _embed(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Dimension]) -> mtf.Tensor:
-    return _normal_var(params, shape, params.embedding_stddev)
+def _attention(params: ModelParameter, base: mtf.Tensor, key: mtf.Tensor):
+    idx, dim = _get_attention_dim(params, base)
+    params.attention_idx += 1
+    tmp = anonymize_dim(dim)
+    qry = _linear_to_features(params, base)
+    val = anonymize(_linear_to_features(params, base), dim)
+
+    lgt = mtf.einsum([qry, key], reduced_dims=[params.key_dim])
+
+    if idx in params.masked_attention_dimensions:  # it's auto-regressive
+        lgt += mtf.cast(mtf.less(mtf.broadcast(mtf.range(params.mesh, tmp, tf.int32), [tmp, dim]),
+                                 mtf.broadcast(mtf.range(params.mesh, dim, tf.int32), [tmp, dim])),
+                        params.dtype) * -1e12
+
+    lgt = mtf.exp(lgt - mtf.reduce_max(mtf.stop_gradient(lgt), reduced_dim=tmp))
+    out = mtf.einsum([lgt, val], qry.shape) / mtf.reduce_sum(lgt, reduced_dim=tmp)
+    return out
 
 
-def _rezero(params, block_input: mtf.Tensor, init: float) -> mtf.Tensor:
-    with tf.variable_scope(random_name()):
-        return block_input * _scalar(params, init)
+def _embed(params: ModelParameter, block_input: typing.Union[mtf.Tensor, mtf.Shape]) -> mtf.Tensor:
+    idx, dim = _get_attention_dim(params, block_input)
+    return _normal_var(params, [dim] + params.feature_dims, params.embedding_stddev)
 
 
 def _linear(params: ModelParameter, block_input: mtf.Tensor, old: typing.List[mtf.Dimension],
@@ -61,6 +87,11 @@ def _linear_from_features(params: ModelParameter, block_input: mtf.Tensor,
     return _linear(params, block_input, params.feature_dims, default(new, params.intermediate))
 
 
+def _rezero(params, block_input: mtf.Tensor, init: float = 0.) -> mtf.Tensor:
+    with tf.variable_scope(random_name()):
+        return block_input * _scalar(params, init)
+
+
 def _feed_forward(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
     return _linear_to_features(params, activate(_linear_from_features(params, block_input)))
 
@@ -70,54 +101,69 @@ def _group_feed_forward(params: ModelParameter, block_input: mtf.Tensor) -> mtf.
     return _linear_to_features(params, activate(_linear_from_features(params, block_input, intermediate)), intermediate)
 
 
-def _attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    attention_dims = (block_input.shape - params.feature_dims)[1:]  # Ex: Shape[Sequence, Width, Height]
-    idx = params.layer_idx // len(params.layer_cycle) % len(attention_dims)
-    dim = attention_dims[idx]
-    tmp = anonymize_dim(dim)
+def _context_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    _, dim = _get_attention_dim(params, block_input)
     base = activate(_linear_from_features(params, block_input))
 
-    qry = _linear_to_features(params, base) + _embed(params, [dim] + params.feature_dims)
-    key = anonymize(_linear_to_features(params, base), dim) * dim.size ** -0.5  # cheaper if seq > key_dim.size
-    val = anonymize(_linear_to_features(params, base), dim)
-
-    lgt = mtf.einsum([qry, key], reduced_dims=[params.key_dim])
-
-    if idx in params.masked_attention_dimensions:  # it's auto-regressive
-        lgt += mtf.cast(mtf.less(mtf.broadcast(mtf.range(params.mesh, tmp, tf.int32), [tmp, dim]),
-                                 mtf.broadcast(mtf.range(params.mesh, dim, tf.int32), [tmp, dim])),
-                        params.dtype) * -1e12
-
-    lgt = mtf.exp(lgt - mtf.reduce_max(mtf.stop_gradient(lgt), reduced_dim=tmp))
-    out = mtf.einsum([lgt, val], qry.shape) / mtf.reduce_sum(lgt, reduced_dim=tmp)
-    return out
+    return _attention(params, base, anonymize(_linear_to_features(params, base) * dim.size ** -0.5, dim))
 
 
-def _normalize(x):
+def _positional_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    _, dim = _get_attention_dim(params, block_input)
+    base = activate(_linear_from_features(params, block_input))
+
+    return _attention(params, base, _embed(params, anonymize_shape(base.shape, dim)))
+
+  
+def _embedded_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    _, dim = _get_attention_dim(params, block_input)
+    base = activate(_linear_from_features(params, block_input))
+
+    return _attention(params, base, anonymize(_linear_to_features(params, base) * dim.size ** -0.5 + _embed(params, base.shape), dim))
+
+  
+
+def _group_normalize(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    _ = params
+    feat = block_input.shape[-1]
+    block_input -= mtf.reduce_mean(block_input, reduced_dim=feat)
+    block_input *= mtf.rsqrt(1e-6 + mtf.reduce_mean(mtf.square(block_input), reduced_dim=feat))
+    block_input *= _normal_var(params, [feat], mean=1)
+    block_input += _normal_var(params, [feat], mean=0)
+    return block_input
+
+
+def _normalize(params: ModelParameter, x: mtf.Tensor) -> mtf.Tensor:
     feat = x.shape[-2:]
     shape = x.shape - feat
-    g = mtf.get_variable(x.mesh, "g", feat, initializer=tf.constant_initializer(1))
-    b = mtf.get_variable(x.mesh, "b", feat, initializer=tf.constant_initializer(0))
+    g = mtf.get_variable(x.mesh, "g", feat, initializer=tf.constant_initializer(1), dtype=params.dtype)
+    b = mtf.get_variable(x.mesh, "b", feat, initializer=tf.constant_initializer(0), dtype=params.dtype)
     x -= mtf.reduce_mean(x, output_shape=shape)
     return x * mtf.rsqrt(1e-6 + mtf.reduce_mean(mtf.square(x), output_shape=shape)) * g + b
 
 
-LAYER_FUNCTIONS = {'feed-forward':       _feed_forward,
-                   'group-feed-forward': _group_feed_forward,
-                   'attention':          _attention
+LAYER_FUNCTIONS = {'feed_forward':         _feed_forward,
+                   'group_feed_forward':   _group_feed_forward,
+                   'context_attention':    _context_attention,
+                   'positional_attention': _positional_attention,
+                   'embedded_attention':   _embedded_attention,
+                   'group_normalize':      _group_normalize,
+                   'normalize':            _normalize,
+                   'rezero':               _rezero,
+                   'embed':                _embed
                    }
 
 
-def _block_fn(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    '''
-    Function to useful between attention layers and fully connected layers.
-    This is useful so we can use RevNet for each, and not only for the hole layer Block.
-    '''
+def _block_part_fn(params: ModelParameter, block_part_config: BlockConfig, block_input: mtf.Tensor) -> mtf.Tensor:
+    out = block_input
+    for layer in block_part_config.layer:
+        out = LAYER_FUNCTIONS[layer](params, out)
 
-    params.layer_idx += 1
-    layer_type = params.layer_cycle[params.layer_idx % len(params.layer_cycle)]
-    with tf.variable_scope(random_name()):
-        return _rezero(params, LAYER_FUNCTIONS[layer_type](params, block_input), 0)
+    if not params.use_revnet:
+        if block_part_config.skip:
+            out += block_input
+
+    return out
 
 
 def build(params: ModelParameter,
@@ -169,23 +215,32 @@ def build(params: ModelParameter,
     elif not params.use_video:
         src: mtf.Tensor = txt_src
 
-    input_list = (src, None, src, None)
+    if params.use_revnet:
+        out = (src, None, src, None)
 
-    # Stack layers and build the actual model
-    for _ in range(params.n_layer):
-        input_list = mtf.layers.reversible_half_residual_and_swap(*input_list, lambda x: _block_fn(params, x))
+        def _layer_builder(block_input: typing.Tuple[mtf.Tensor], block_config: BlockConfig):
+            return mtf.layers.reversible_half_residual_and_swap(*block_input,
+                                                                lambda x: _block_part_fn(params, block_config, x))
+    else:
+        out = src
 
-    out = input_list[0] + input_list[2]
+        def _layer_builder(block_input: mtf.Tensor, block_config: BlockConfig):
+            return mtf.recompute_grad(lambda x: _block_part_fn(params, block_config, x), [block_input])
+
+    for _ in range(params.n_blocks):
+        for block_part in params.block_config:
+            out = _layer_builder(out, block_part)
+
+    if params.use_revnet:
+        out = out[0] + out[2]
 
     # Language Loss
     if params.use_language:
         token_out = _linear_from_features(params, slice(out, 0, params.language_token_patch, spatial_ctx),
                                           [txt_tgt.shape[-1], params.vocab_dim])
-        z_loss = mtf.reduce_sum(mtf.square(token_out)) * (params.z_loss / params.vocab_size)
-        max_tkn = mtf.reduce_max(mtf.stop_gradient(token_out), reduced_dim=params.vocab_dim)
-        logsumexp = mtf.reduce_sum(mtf.log(mtf.reduce_sum(mtf.exp(token_out - max_tkn), reduced_dim=params.vocab_dim)))
-        tkn_loss = mtf.reduce_sum(token_out * mtf.one_hot(txt_tgt, params.vocab_dim, dtype=token_out.dtype) * tkn_msk)
-        token_loss: mtf.Tensor = mtf.add_n([z_loss, logsumexp, -tkn_loss, mtf.reduce_sum(max_tkn)]) / txt_tgt.size
+        cross_entropy = mtf.layers.softmax_cross_entropy_with_logits(token_out, txt_tgt, params.vocab_dim,
+                                                                     params.z_loss)
+        token_loss = mtf.reduce_mean(tkn_msk * cross_entropy)
 
     # Video Loss
     if params.use_video:

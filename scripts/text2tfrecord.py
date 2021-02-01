@@ -7,12 +7,12 @@ import shutil
 import time
 
 import jsonlines
-import numpy as np
 import requests
 import simdjson
 import tensorflow as tf
 import zstandard
 from google.cloud import storage
+from transformers import GPT2TokenizerFast
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--name", type=str, default="text",
@@ -21,7 +21,7 @@ parser.add_argument("--output_dir", type=str, default="gs://tfrecords/a/", help=
 parser.add_argument("--int64", type=bool, default=False, help="Whether to encode as bytes or int64")
 parser.add_argument("--service_account_json_path", type=str, default="./tfrecords", help="Service account json from"
                                                                                          " gcp")
-parser.add_argument("--buffer_size", type=int, default=2 ** 28, help="This is a minimum size, not a maximum size. "
+parser.add_argument("--buffer_size", type=int, default=2 ** 26, help="This is a minimum size, not a maximum size. "
                                                                      "tfrecords will have this minimum size as well.")
 parser.add_argument("--separator", nargs="+", type=int, default=4,
                     help="separator to place between files in chunk mode."
@@ -51,15 +51,17 @@ def file_generator(args):
                     item = item['text']
                 if isinstance(item, list):
                     item = chr(args.separator).join(item)
-                yield item.encode()
+                yield item
+        os.remove(tmp_name)
 
 
 def create_tfrecords(args):
     slash_idx = args.output_dir.find('/')
     bucket_name, output_dir = args.output_dir[:slash_idx], args.output_dir[slash_idx + 1:]
     bucket = storage.Client.from_service_account_json(args.service_account_json_path).get_bucket(bucket_name)
-    join = bytes([args.separator]).join
+    join = chr(args.separator).join
     prefix = f"{'int64' if args.int64 else 'bytes'}_{args.name}_"
+    encode = (GPT2TokenizerFast.from_pretrained('gpt2') if args.int64 else str).encode
 
     files_processed = 0
     tfrecord_count = 0
@@ -84,12 +86,11 @@ def create_tfrecords(args):
         if buffer_size > args.buffer_size:
             filename = f"{prefix}{tfrecord_count}_{files_processed}_{buffer_size}.tfrecord"
 
-            joined = join(tokenized_files)
+            joined = encode(join(tokenized_files))
             tokenized_files.clear()
 
             with tf.io.TFRecordWriter(filename) as writer:
                 if args.int64:
-                    joined = np.cast(np.frombuffer(joined, np.uint8).reshape(-1), np.int64)
                     feature = {"text": tf.train.Feature(int64_list=tf.train.Int64List(value=joined))}
                 else:
                     feature = {"text": tf.train.Feature(bytes_list=tf.train.BytesList(value=[joined]))}

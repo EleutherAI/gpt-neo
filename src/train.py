@@ -50,7 +50,7 @@ def create_host_call(model_dir: str) -> typing.Optional[typing.Tuple[typing.Call
             tensor = tf.reshape(tensor, [1])
         if tensor.dtype == tf.int64:
             return tf.cast(tensor, tf.int32)
-        if tensor.dtype == tf.bfloat16:
+        if tensor.dtype == tf.bfloat16 or tensor.dtype == tf.float16:
             return tf.cast(tensor, tf.float32)
         return tensor
 
@@ -185,13 +185,13 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
         def body_fn(position, frame_input, token_x_input, token_y_input, frame_mask, token_mask, *states):
             with tf.variable_scope('jannet'):
                 if token_mask is None:
-                    token_mask = mtf.ones(params.mesh, [], tf.float32)
+                    token_mask = mtf.ones(params.mesh, [], params.dtype)
                 else:
-                    token_mask = mtf.cast(token_mask, tf.float32)
+                    token_mask = mtf.cast(token_mask, params.dtype)
                 if frame_mask is None:
-                    frame_mask = mtf.ones(params.mesh, [], tf.float32)
+                    frame_mask = mtf.ones(params.mesh, [], params.dtype)
                 else:
-                    frame_mask = mtf.cast(frame_mask, tf.float32)
+                    frame_mask = mtf.cast(frame_mask, params.dtype)
                 video_loss, _, frame_out, token_out = build(params,
                                                             frame_input,
                                                             token_x_input,
@@ -251,13 +251,13 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
     else:
         with mtf.utils.outside_all_rewrites(), tf.variable_scope('jannet'):
             if token_mask is None:
-                token_mask = mtf.ones(params.mesh, [], tf.float32)
+                token_mask = mtf.ones(params.mesh, [], params.dtype)
             else:
-                token_mask = mtf.cast(token_mask, tf.float32)
+                token_mask = mtf.cast(token_mask, params.dtype)
             if frame_mask is None:
-                frame_mask = mtf.ones(params.mesh, [], tf.float32)
+                frame_mask = mtf.ones(params.mesh, [], params.dtype)
             else:
-                frame_mask = mtf.cast(frame_mask, tf.float32)
+                frame_mask = mtf.cast(frame_mask, params.dtype)
             video_loss, token_loss, frame_out, token_out = build(params,
                                                                  frame_input,
                                                                  token_x_input,
@@ -299,8 +299,7 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
     for dim_name in unique_dims:
         print(dim_name)
     print('\n')
-    frame_out = mtf.anonymize(frame_out)
-    token_out = mtf.anonymize(token_out)
+
     lowering = mtf.Lowering(graph, {mesh: mesh_impl}, autostack=True)
 
     tf_loss = lowering.export_to_tf_tensor(loss)
@@ -309,11 +308,11 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
     if mode == tf.estimator.ModeKeys.PREDICT:
         predictions = {}
         if params.use_video:
-            predictions.update({'frame_out': lowering.export_to_tf_tensor(frame_out)})
+            predictions.update({'frame_out': lowering.export_to_tf_tensor(mtf.anonymize(frame_out))})
             predictions.update({'frame_inp': features['frame']})
 
         if params.use_language:
-            predictions.update({'token_out': lowering.export_to_tf_tensor(token_out)})
+            predictions.update({'token_out': lowering.export_to_tf_tensor(mtf.anonymize(token_out))})
             predictions.update({'token_inp': features['token_y']})
     else:
         predictions = None
