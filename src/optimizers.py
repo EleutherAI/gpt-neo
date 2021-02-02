@@ -51,6 +51,8 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
         optimizer = mtf.optimize.AdamWeightDecayOptimizer(learning_rate, params.weight_decay, beta1, beta2)
     elif params.optimizer.lower() == 'factorized_adam':
         optimizer = FactorizedAdam(params.dtype)
+    elif params.optimizer.lower() == 'sm3':
+        optimizer = SM3(learning_rate, params.weight_decay)
     else:
         raise ValueError(f"{params.optimizer} is not the name of a supported optimizer.")
 
@@ -247,12 +249,10 @@ class SM3(mtf.optimize.Optimizer):
     def __init__(self,
                  learning_rate: mtf.Tensor,
                  weight_decay_rate: mtf.Tensor,
-                 beta: mtf.Tensor,
                  epsilon=1e-5):
 
         self.learning_rate = learning_rate
         self.weight_decay_rate = weight_decay_rate
-        self.beta = beta
         self.epsilon = epsilon
 
     def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
@@ -281,10 +281,10 @@ class SM3(mtf.optimize.Optimizer):
         update = buffer[0]
         for buf in buffer[1:]:
             update = mtf.minimum(update, buf)
-        update = weighted_add(update, mtf.square(grad), self.beta)
+        update += mtf.square(grad)
 
         return ([mtf.assign_sub(var_ptr, grad * mtf.rsqrt(update + self.epsilon) * self.learning_rate
                                 + (0 if rank == 0 else mtf.reduce_mean(var.value))
                                 + self.weight_decay_rate * var.value)] +
-                [mtf.assign(buf_ptr, mtf.maximum(buf, mtf.reduce_max(update, output_shape=[dim])))
-                 for buf_ptr, dim, buf in zip(buffer, update.shape.dims, buffer)])
+                [mtf.assign(buf_ptr, mtf.reduce_max(update, output_shape=[dim]))
+                 for buf_ptr, dim in zip(buffer, update.shape.dims)])
