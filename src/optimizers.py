@@ -239,3 +239,60 @@ class FactorizedAdam(mtf.optimize.Optimizer):
                                           * self._learning_rate
                                           / len(grad_factors)))
             return updates
+
+
+class SM3(mtf.optimize.Optimizer):
+    """SM3 https://arxiv.org/abs/1901.11150"""
+
+    def __init__(self,
+                 learning_rate: mtf.Tensor,
+                 weight_decay_rate: mtf.Tensor,
+                 beta: mtf.Tensor,
+                 epsilon=1e-5):
+
+        self.learning_rate = learning_rate
+        self.weight_decay_rate = weight_decay_rate
+        self.beta = beta
+        self.epsilon = epsilon
+
+    def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
+        """
+        See base class.
+        Applies Ranger optimizier to gradient/variable pairs.
+        :param grad: Gradient for variable
+        :param var: Variable to be updates
+        :return: Update operations for variable and buffers
+        """
+        if grad is None:
+            tf.logging.warning("Gradient is None for variable %s" % var.name)
+            return []
+        grad = mtf.cast(grad, self.learning_rate.dtype)
+        var_ptr = var
+        buffer = []
+        rank = var.shape.ndims
+        if rank == 0:
+            buffer.append(mtf.get_variable(var.mesh, var.name + "/sm3/0", var.shape,
+                                           initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype))
+        for i in range(rank):
+            buffer.append(mtf.get_variable(var.mesh, var.name + f"/sm3/{i}", var.shape,
+                                           initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype))
+
+        update = buffer[0]
+        for buf in buffer[1:]:
+            update = mtf.minimum(update, buf)
+        update = weighted_add(update, mtf.square(grad), self.beta)
+
+        new_buffer = []
+        for dim, buf in zip(update.shape.dims, buffer):
+            new_buffer.append(mtf.maximum(buf, mtf.reduce_max(update, output_shape=[dim])))
+        update = grad * mtf.rsqrt(update + self.epsilon)
+
+        if var.shape.ndims > 1:
+            center = mtf.reduce_mean(var.value)
+        else:
+            center = 0
+
+        update = [mtf.assign_sub(var_ptr, update * self.learning_rate + center + self.weight_decay_rate * var.value)]
+        for buf_ptr, new_buf in zip(buffer, new_buffer):
+            update.append(mtf.assign(buf_ptr, new_buf))
+        return update
