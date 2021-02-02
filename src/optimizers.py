@@ -57,17 +57,44 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
         raise ValueError(f"{params.optimizer} is not the name of a supported optimizer.")
 
     clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=dtype)
-    var_grads = [None if t is None else mtf.minimum(mtf.maximum(mtf.cast(t, dtype), -clip_value), clip_value)
-                 for t in mtf.gradients([loss], [v.outputs[0] for v in mesh.graph.trainable_variables])
-                 if t is not None]
-    update_ops = optimizer.apply_grads(var_grads, mesh.graph.trainable_variables)
-
-    return update_ops
+    update_ops = []
+    operations = loss.graph.operations
+    xs = mesh.graph.trainable_variables
+    loss_grad = mtf.Constant(loss.mesh, 1.0, loss.shape, loss.dtype).outputs[0]
+    # figure out what Tensors are downstream of xs
+    downstream = set(xs)
+    for op in operations:
+        if op.has_gradient:
+            if set(op.inputs) & downstream:
+                downstream |= set(op.outputs)
+    tensor_to_gradient: typing.Dict[mtf.Tensor, typing.List[int, int, mtf.Tensor]] = {loss: [0, 0, loss_grad]}
+    with tf.variable_scope(loss.graph.captured_variable_scope):
+        for op in operations[::-1]:
+            grad_outputs = [tensor_to_gradient.get(out) for out in op.outputs]
+            for out in op.outputs:
+                if out in tensor_to_gradient:
+                    tensor_to_gradient[out][0] += 1
+                    if tensor_to_gradient[out][0] == len(tensor_to_gradient[out][2].operation.inputs):
+                        del tensor_to_gradient[out]
+            if op.has_gradient and any(grad_outputs) and (set(op.inputs) & downstream):
+                with tf.variable_scope(op.name + "/gradients"):
+                    input_grads = op.gradient(grad_outputs)
+                    for inp, grad in zip(op.inputs, input_grads):
+                        if inp in downstream and grad is not None:
+                            if inp in tensor_to_gradient:
+                                tensor_to_gradient[inp][1] += 1
+                                tensor_to_gradient[inp][2] += grad
+                            else:
+                                tensor_to_gradient[inp] = [0, 1, grad]
+                            if len(inp.operation.outputs) == tensor_to_gradient[inp][0]:
+                                grad = mtf.minimum(mtf.maximum(mtf.cast(tensor_to_gradient[inp], dtype),
+                                                               -clip_value), clip_value)
+                                update_ops.extend(optimizer.apply_grad(grad, inp))
+    return mesh.graph.trainable_variables[0].graph.combine_assignments(update_ops)
 
 
 def weighted_add(left, right, alpha):
     return left * alpha + right * (1 - alpha)
-
 
 
 def get_variable(var, name, shape):
@@ -145,6 +172,7 @@ class Ranger(mtf.optimize.Optimizer):
                 mtf.assign(exp_avg_ptr, exp_avg),
                 mtf.assign(exp_avg_sq_ptr, exp_avg_sq),
                 mtf.assign(slow_buffer_ptr, slow_buffer)]
+
 
 class NovoGrad(mtf.optimize.Optimizer):
     """WIP Ranger - Highly unstable"""
