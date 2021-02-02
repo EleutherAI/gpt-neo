@@ -69,6 +69,12 @@ def weighted_add(left, right, alpha):
     return left * alpha + right * (1 - alpha)
 
 
+
+def get_variable(var, name, shape):
+    return mtf.get_variable(var.mesh, var.name + name, shape,
+                            initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype)
+
+
 class Ranger(mtf.optimize.Optimizer):
     """WIP Ranger - Highly unstable"""
 
@@ -107,13 +113,9 @@ class Ranger(mtf.optimize.Optimizer):
             return []
         grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
-        exp_avg = exp_avg_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/exp_avg", var.shape,
-                                                 initializer=tf.zeros_initializer(), trainable=False)
-
-        exp_avg_sq = exp_avg_sq_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/exp_avg_sq", var.shape,
-                                                       initializer=tf.zeros_initializer(), trainable=False)
-        slow_buffer = slow_buffer_ptr = mtf.get_variable(var.mesh, var.name + "/ranger/slow_buffer", var.shape,
-                                                         initializer=tf.zeros_initializer(), trainable=False)
+        exp_avg = exp_avg_ptr = get_variable(var, "/ranger/exp_avg", var.shape)
+        exp_avg_sq = exp_avg_sq_ptr = get_variable(var, "/ranger/exp_avg_sq", var.shape)
+        slow_buffer = slow_buffer_ptr = get_variable(var, "/ranger/slow_buffer", var.shape)
         var = var.value
 
         if var.shape.ndims > 1:
@@ -143,7 +145,6 @@ class Ranger(mtf.optimize.Optimizer):
                 mtf.assign(exp_avg_ptr, exp_avg),
                 mtf.assign(exp_avg_sq_ptr, exp_avg_sq),
                 mtf.assign(slow_buffer_ptr, slow_buffer)]
-
 
 class NovoGrad(mtf.optimize.Optimizer):
     """WIP Ranger - Highly unstable"""
@@ -175,11 +176,8 @@ class NovoGrad(mtf.optimize.Optimizer):
             return []
         grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
-        exp_avg = exp_avg_ptr = mtf.get_variable(var.mesh, var.name + "/novograd/exp_avg", var.shape,
-                                                 initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype)
-        exp_avg_sq = exp_avg_sq_ptr = mtf.get_variable(var.mesh, var.name + "/novograd/exp_avg_sq", [],
-                                                       initializer=tf.zeros_initializer(), trainable=False,
-                                                       dtype=var.dtype)
+        exp_avg = exp_avg_ptr = get_variable(var, "/novograd/exp_avg", var.shape)
+        exp_avg_sq = exp_avg_sq_ptr = get_variable(var, "/novograd/exp_avg_sq", [])
 
         exp_avg_sq = weighted_add(exp_avg_sq, mtf.reduce_sum(mtf.square(grad)), self.beta2)
         exp_avg = self.beta1 * exp_avg
@@ -224,12 +222,8 @@ class FactorizedAdam(mtf.optimize.Optimizer):
 
             for idx, dim in enumerate(var.shape.dims if var.shape.ndims else [None]):
                 dim = [dim] if dim else []
-                p1_ptr = mtf.get_variable(var.mesh, var.name + f"_dim{idx}_p1", dim,
-                                          initializer=tf.zeros_initializer(), trainable=False,
-                                          dtype=var.dtype)
-                p2_ptr = mtf.get_variable(var.mesh, var.name + f"_dim{idx}_p2", dim,
-                                          initializer=tf.zeros_initializer(), trainable=False,
-                                          dtype=var.dtype)
+                p1_ptr = get_variable(var, f"_dim{idx}_p1", dim)
+                p2_ptr = get_variable(var, f"_dim{idx}_p2", dim)
                 p1 = weighted_add(p1_ptr, mtf.reduce_mean(grad, output_shape=dim), self._decay_rate)
                 p2 = weighted_add(p2_ptr, mtf.reduce_mean(mtf.square(grad), output_shape=dim), self._decay_rate)
                 updates.extend([mtf.assign(p1_ptr, p1), mtf.assign(p2_ptr, p2)])
@@ -269,13 +263,11 @@ class SM3(mtf.optimize.Optimizer):
         grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
         rank = var.shape.ndims
-        update = mtf.get_variable(var.mesh, var.name + "/sm3/0", var.shape, initializer=tf.zeros_initializer(),
-                                  trainable=False, dtype=var.dtype)
+        update = get_variable(var, "/sm3/0", [] if var.shape.ndims == 0 else var.shape.dims[0])
         buffer = [update]
 
         for i in range(1, rank):
-            buffer.append(mtf.get_variable(var.mesh, var.name + f"/sm3/{i}", var.shape,
-                                           initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype))
+            buffer.append(get_variable(var, f"/sm3/{i}", var.shape.dims[i]))
             update = mtf.minimum(update, buffer[-1])
 
         update += mtf.square(grad)
