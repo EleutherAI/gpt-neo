@@ -72,8 +72,8 @@ We recommend you use [Huggingface's pretrained GPT2 tokenizer](https://huggingfa
 python data/train_tokenizer.py \
     --base_dir ./path/to/your/txt/files \
     --output_dir ./output/path \
-    --file-type txt \
-    --vocab-size 50257
+    --file_type txt \
+    --vocab_size 50257
 
 # if it succeeded, you should see the message
 # 'tokenizer saved at ./output/path/byte-level-bpe.tokenizer.json'
