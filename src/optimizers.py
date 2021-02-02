@@ -268,19 +268,16 @@ class SM3(mtf.optimize.Optimizer):
             return []
         grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
-        buffer = []
         rank = var.shape.ndims
+        update = mtf.get_variable(var.mesh, var.name + "/sm3/0", var.shape, initializer=tf.zeros_initializer(),
+                                  trainable=False, dtype=var.dtype)
+        buffer = [update]
 
-        if rank == 0:
-            buffer.append(mtf.get_variable(var.mesh, var.name + "/sm3/0", var.shape,
-                                           initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype))
-        for i in range(rank):
+        for i in range(1, rank):
             buffer.append(mtf.get_variable(var.mesh, var.name + f"/sm3/{i}", var.shape,
                                            initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype))
+            update = mtf.minimum(update, buffer[-1])
 
-        update = buffer[0]
-        for buf in buffer[1:]:
-            update = mtf.minimum(update, buf)
         update += mtf.square(grad)
 
         return ([mtf.assign_sub(var_ptr, grad * mtf.rsqrt(update + self.epsilon) * self.learning_rate
