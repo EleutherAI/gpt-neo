@@ -261,7 +261,6 @@ class FactorizedAdam(mtf.optimize.Optimizer):
 
             updates.append(mtf.assign_sub(var,
                                           mtf.add_n(grad_factors)
-                                          * mtf.maximum(mtf.optimize.reduce_rms(var.value), 1e-3)
                                           * self._learning_rate
                                           / len(grad_factors)))
             return updates
