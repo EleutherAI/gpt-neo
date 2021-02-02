@@ -270,6 +270,7 @@ class SM3(mtf.optimize.Optimizer):
         var_ptr = var
         buffer = []
         rank = var.shape.ndims
+
         if rank == 0:
             buffer.append(mtf.get_variable(var.mesh, var.name + "/sm3/0", var.shape,
                                            initializer=tf.zeros_initializer(), trainable=False, dtype=var.dtype))
@@ -282,17 +283,8 @@ class SM3(mtf.optimize.Optimizer):
             update = mtf.minimum(update, buf)
         update = weighted_add(update, mtf.square(grad), self.beta)
 
-        new_buffer = []
-        for dim, buf in zip(update.shape.dims, buffer):
-            new_buffer.append(mtf.maximum(buf, mtf.reduce_max(update, output_shape=[dim])))
-        update = grad * mtf.rsqrt(update + self.epsilon)
-
-        if var.shape.ndims > 1:
-            center = mtf.reduce_mean(var.value)
-        else:
-            center = 0
-
-        update = [mtf.assign_sub(var_ptr, update * self.learning_rate + center + self.weight_decay_rate * var.value)]
-        for buf_ptr, new_buf in zip(buffer, new_buffer):
-            update.append(mtf.assign(buf_ptr, new_buf))
-        return update
+        return ([mtf.assign_sub(var_ptr, grad * mtf.rsqrt(update + self.epsilon) * self.learning_rate
+                                + (0 if rank == 0 else mtf.reduce_mean(var.value))
+                                + self.weight_decay_rate * var.value)] +
+                [mtf.assign(buf_ptr, mtf.maximum(buf, mtf.reduce_max(update, output_shape=[dim])))
+                 for buf_ptr, dim, buf in zip(buffer, update.shape.dims, buffer)])
