@@ -306,11 +306,12 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
     :return: tensorflow dataset
     """
 
-    params = ModelParameter(params)
+    #params = ModelParameter(params)
 
     def memory_op(x):
-        x['frame'] = tf.cast(x['frame'], tf.float32)
-        return x
+        print(x['frame'].shape)
+        x['frame'] = tf.cast(tf.reshape(x['frame'], (257,220,768)), tf.float32)
+        return [x[key] for key in x.keys()]
 
     def concat_op(*args):
         x, *args = args

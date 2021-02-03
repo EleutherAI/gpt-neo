@@ -2,18 +2,27 @@
 "Sub Main" that contains one function to start the training loop.
 """
 
+from functools import partial
 import argparse
 import json
-from functools import partial
+import re
 
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
+from tensorflow.compat.v1 import tpu
+from tensorflow.python.tpu.topology import Topology
 from tensorflow.python.tpu import tpu_config, tpu_estimator
 from tensorflow_estimator.python.estimator import estimator as estimator_lib
+#from tensorflow.contrib.tpu import device_assignment
+from tensorflow.python.tpu.device_assignment import device_assignment
+from tensorflow.python.ops import control_flow_ops
+from tensorflow.contrib import summary
+import numpy as np
 
 from .dataclass import ModelParameter
 from .inputs import dataset, gpt_neo_input
-from .train import model_fn
+from .train import get_model_fn, _CkptLoaderHook
+from .utils_mtf import SimdMeshImplInputReader
 from .eval import gen_sample
 
 
@@ -37,9 +46,9 @@ def main(args: argparse.Namespace) -> None:
     # Fetch appropriate input functions
 
     if params.model_mode == 'jannet':
-        input_fn = partial(dataset, step=0, train=args.run_mode == 'train')
+        input_fn = partial(dataset, params=params, step=0, train=args.run_mode == 'train')
     elif params.model_mode == 'gpt':
-        input_fn = partial(gpt_neo_input, step=0, eval=False)
+        input_fn = partial(gpt_neo_input, params=params, step=0, eval=False)
 
         # Set params for text only GPT mode.
         params.use_language = True
@@ -61,39 +70,93 @@ def main(args: argparse.Namespace) -> None:
         inp = {'token_x': tf.zeros([1]), 'token_y': tf.zeros([1]), 'frame': tf.zeros([1]), 'vid_msk': tf.zeros([1]),
                'tkn_msk': tf.zeros([1])
                }
-        model_fn(inp, "TRAIN", params.dict())
+        get_model_fn(params)(inp)
         return
 
+    mtf_mesh_shape = mtf.convert_to_shape(params.mesh_shape)
+    params.layout_rules = mtf.convert_to_layout_rules(params.layout)
+
     tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu)
+    config = tf.ConfigProto()
+    config.allow_soft_placement = True
+    tpu_cluster_spec = tpu_cluster_resolver.cluster_spec()
 
-    tf.tpu.experimental.initialize_tpu_system(tpu_cluster_resolver)
+    if tpu_cluster_spec:
+        config.cluster_def.CopyFrom(tpu_cluster_spec.as_cluster_def())
 
-    config = tpu_config.RunConfig(
-            cluster=tpu_cluster_resolver,
-            model_dir=params.model_path,
-            save_checkpoints_steps=None,  # Disable the default saver
-            save_checkpoints_secs=None,  # Disable the default saver
-            log_step_count_steps=params.iterations,
-            save_summary_steps=params.iterations,
-            tpu_config=tpu_config.TPUConfig(
-                    num_shards=mesh_shape.size,
-                    iterations_per_loop=params.iterations,
-                    num_cores_per_replica=1,
-                    per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
+    with tf.Graph().as_default():
 
-    estimator = tpu_estimator.TPUEstimator(
-            use_tpu=params.use_tpu,
-            model_fn=model_fn,
-            config=config,
-            train_batch_size=params.train_batch_size,
-            predict_batch_size=1,
-            params=params.dict())
+        with tf.Session(target=tpu_cluster_resolver.master(), config=config) as sess:
+            tf.tpu.experimental.initialize_tpu_system(tpu_cluster_resolver)
 
-    current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
+            all_devices = sess.list_devices()
 
-    if args.run_mode == 'train':
-        if current_step < params.train_steps:
-            estimator.train(input_fn=input_fn, max_steps=params.train_steps)
-    else:
-        gen_sample(estimator=estimator, params=params)
+            cpus = []
+            for d in all_devices:
+                if d.device_type == 'CPU':
+                    cpus += [re.sub('device:CPU', 'cpu', d.name)]
+
+            cpu_devices = []
+            for c in cpus:
+                m = re.match('/job:(.*)/replica:(.*)/task:(.*)/.*', c)
+                cpu_devices.append((m.group(1), int(m.group(2)), int(m.group(3)), c))
+
+            cpu_devices = [_[3] for _ in sorted(cpu_devices)]
+            params.cpu_devices = [n for n in cpu_devices if 'coordinator' not in n]
+
+            topology = sess.run(tpu.initialize_system())
+            topo_object = Topology(serialized=topology)
+
+            num_cores = int(np.prod(topo_object.mesh_shape))
+            params.num_hosts = int(topo_object.num_tasks)
+            num_cores_per_host = int(num_cores // params.num_hosts)
+            assert num_cores_per_host == int(topo_object.num_tpus_per_task)
+
+            params.d_assignment = device_assignment(topology,
+                                                    computation_shape=[1, ] * mtf.utils.topology_rank(topology),
+                                                    num_replicas=num_cores)
+
+            params.mesh_impl = mtf.simd_mesh_impl.SimdMeshImpl(mtf_mesh_shape,
+                                                               params.layout_rules,
+                                                               None, params.d_assignment)
+
+        summary_writer = summary.create_file_writer(params.model_path)
+        with summary_writer.as_default(), (summary.always_record_summaries()):
+
+            model_fn, captured_hooks, captured_output_dtypes_shapes = get_model_fn(params)
+
+            simd_input_reader = SimdMeshImplInputReader(params.mesh_impl, input_fn,
+                                                                     params.input_pipeline_shape,
+                                                                     external_worker=True,
+                                                                     is_eval_mode=False)
+
+            train_computation = tpu.replicate(computation=model_fn,
+                                              inputs=[[]] * num_cores,
+                                              infeed_queue=simd_input_reader.infeed_queue,
+                                              device_assignment=params.d_assignment)
+
+            master_to_slice_hook, slice_to_master_hook = captured_hooks.get()
+            ckpt_loader_hook = _CkptLoaderHook(params.model_path)
+            step_counter_hook = tf.train.StepCounterHook(every_n_steps=10)
+            all_hooks = [ckpt_loader_hook, master_to_slice_hook, slice_to_master_hook, step_counter_hook]
+
+            # if params.write_summary:
+            flush_summary = summary.flush()
+
+            with tf.train.MonitoredTrainingSession(master=tpu_cluster_resolver.master(),
+                                                   # scaffold=_get_scaffold(additional_initializers=[]),
+                                                   hooks=all_hooks, config=config) as sess:
+                simd_input_reader.start_infeed_thread(sess)
+
+                current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
+                while current_step < params.train_steps:
+                    sess.run(train_computation)
+                    #sess.run(flush_summary)
+                    print('current_step:', current_step)
+
+                    tf.logging.info('train steps: {}'.format(current_step))
+
+                    current_step += 1
+
+                tf.logging.info('finished.')
 
