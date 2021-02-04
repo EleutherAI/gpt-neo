@@ -13,6 +13,7 @@ from .utils_core import default
 from .utils_mtf import activate, anonymize, anonymize_dim, anonymize_shape, concat, deduplicate, random_name, slice
 
 
+
 def _get_attention_dim(params: ModelParameter, block_input: typing.Union[mtf.Tensor, mtf.Shape]
                        ) -> typing.Tuple[int, mtf.Dimension]:
     if isinstance(block_input, mtf.Tensor):
@@ -46,12 +47,34 @@ def _scalar(params: ModelParameter, value: float) -> mtf.Tensor:
     return _constant_var(params, [], value)
 
 
+def _linear(params: ModelParameter, block_input: mtf.Tensor, old: typing.List[mtf.Dimension],
+            new: typing.List[mtf.Dimension]) -> mtf.Tensor:
+    with tf.variable_scope(random_name()):
+        return mtf.einsum([block_input, _orthogonal_var(params, old + new)],
+                          deduplicate((block_input.shape - old).dims + new))
+
+
+def _linear_to_features(params: ModelParameter, block_input: mtf.Tensor,
+                        old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
+    return _linear(params, block_input, default(old, params.intermediate), params.feature_dims)
+
+
+def _linear_from_features(params: ModelParameter, block_input: mtf.Tensor,
+                          new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
+    return _linear(params, block_input, params.feature_dims, default(new, params.intermediate))
+
+
+def _communicating_linear(params: ModelParameter, block_input: mtf.Tensor):
+    return mtf.add_n([_linear_to_features(params, mtf.shift(block_input, i, params.head_dim, True))
+                      for i in range(params.n_head)])
+
+
 def _attention(params: ModelParameter, base: mtf.Tensor, key: mtf.Tensor):
     idx, dim = _get_attention_dim(params, base)
     params.attention_idx += 1
     tmp = anonymize_dim(dim)
-    qry = _linear_to_features(params, base)
-    val = anonymize(_linear_to_features(params, base), dim)
+    qry = _communicating_linear(params, base)
+    val = anonymize(_communicating_linear(params, base), dim)
 
     lgt = mtf.einsum([qry, key], reduced_dims=[params.key_dim])
 
@@ -70,30 +93,13 @@ def _embed(params: ModelParameter, block_input: typing.Union[mtf.Tensor, mtf.Sha
     return _normal_var(params, [dim] + params.feature_dims, params.embedding_stddev)
 
 
-def _linear(params: ModelParameter, block_input: mtf.Tensor, old: typing.List[mtf.Dimension],
-            new: typing.List[mtf.Dimension]) -> mtf.Tensor:
-    with tf.variable_scope(random_name()):
-        return mtf.einsum([block_input, _orthogonal_var(params, old + new)],
-                          deduplicate((block_input.shape - old).dims + new))
-
-
-def _linear_to_features(params: ModelParameter, block_input: mtf.Tensor,
-                        old: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-    return _linear(params, block_input, default(old, params.intermediate), params.feature_dims)
-
-
-def _linear_from_features(params: ModelParameter, block_input: mtf.Tensor,
-                          new: typing.Optional[typing.List[mtf.Dimension]] = None) -> mtf.Tensor:
-    return _linear(params, block_input, params.feature_dims, default(new, params.intermediate))
-
-
 def _rezero(params, block_input: mtf.Tensor, init: float = 0.) -> mtf.Tensor:
     with tf.variable_scope(random_name()):
         return block_input * _scalar(params, init)
 
 
 def _feed_forward(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    return _linear_to_features(params, activate(_linear_from_features(params, block_input)))
+    return _communicating_linear(params, activate(_linear_from_features(params, block_input)))
 
 
 def _group_feed_forward(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
@@ -114,14 +120,14 @@ def _positional_attention(params: ModelParameter, block_input: mtf.Tensor) -> mt
 
     return _attention(params, base, _embed(params, anonymize_shape(base.shape, dim)))
 
-  
+
 def _embedded_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
     _, dim = _get_attention_dim(params, block_input)
     base = activate(_linear_from_features(params, block_input))
 
-    return _attention(params, base, anonymize(_linear_to_features(params, base) * dim.size ** -0.5 + _embed(params, base.shape), dim))
+    return _attention(params, base,
+                      anonymize(_linear_to_features(params, base) * dim.size ** -0.5 + _embed(params, base.shape), dim))
 
-  
 
 def _group_normalize(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
     _ = params
