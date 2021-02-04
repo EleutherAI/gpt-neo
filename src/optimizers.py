@@ -266,6 +266,44 @@ class FactorizedAdam(mtf.optimize.Optimizer):
             return updates
 
 
+class AdaHessian(mtf.optimize.Optimizer):
+    def __init__(self, weight_decay_rate, learning_rate, beta1, beta2, global_step, epsilon=1e-5):
+        """Construct a new AdaHessian optimizer.
+        See class comment.
+        Raises:
+          ValueError: if absolute_update_scale and relative_update_scale_fn are both
+            present or both absent.
+        """
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.global_step = global_step
+        self.epsilon = epsilon
+        self.learning_rate = learning_rate
+        self.weight_decay_rate = weight_decay_rate
+
+    def apply_grad(self, grad:mtf.Tensor, var:mtf.Variable):
+        if grad is None:
+            tf.logging.warning("Gradient is None for variable %s" % var.name)
+            return []
+
+        with tf.variable_scope(var.name + "/adahessian"):
+            hess = grad
+            uniform = mtf.cast(mtf.greater(mtf.random_uniform(var.mesh, var.shape), 0.5), var.dtype) * 2 - 1
+            mtf.reduce_sum(uniform * grad)
+            p1 = p1_ptr = get_variable(var, "_p1", var.shape)
+            p2 = p2_ptr = get_variable(var, "_p2", var.shape)
+            p1_add = (grad - p1) * (1 - self.beta1)
+            p2_add = (mtf.square(hess) - p2) * (1 - self.beta2)
+            return [mtf.assign_sub(var,
+                                   var.value * self.weight_decay_rate
+                                   + self.learning_rate * (p1 + p1_add)
+                                   * mtf.rsqrt((p2 + p2_add)
+                                               / (1 - mtf.pow(self.beta2, self.global_step)) + self.epsilon)
+                                   / (1 - mtf.pow(self.beta1, self.global_step))),
+                    mtf.assign_add(p1_ptr, p1_add),
+                    mtf.assign(p2_ptr, p2_add)]
+
+
 class SM3(mtf.optimize.Optimizer):
     """SM3 https://arxiv.org/abs/1901.11150"""
 
