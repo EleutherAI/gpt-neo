@@ -39,32 +39,21 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
                                            mtf.Shape([]),
                                            name=name)
 
-    learning_rate = mtf.import_fully_replicated(mesh, tf.cast(learning_rate, dtype), [], "learning_reate")
-    global_steps_float = mtf.import_fully_replicated(mesh, tf.cast(global_step, dtype), [], "global_steps_float")
+    learning_rate = mtf.import_fully_replicated(mesh, tf.cast(learning_rate, dtype), [], "learning_rate")
     beta1 = _import_constant("beta1", 0.9)
     beta2 = _import_constant("beta2", 0.95)
     mtf.scalar_summary("learning_reate", learning_rate)
 
     adam = Adam(learning_rate, params.weight_decay, beta1, beta2)
-
-    if params.optimizer.lower() == 'novograd':
-        optimizer = NovoGrad(learning_rate, params.weight_decay, beta1, beta2)
-    elif params.optimizer.lower() == 'adam':
-        optimizer = Adam(learning_rate, params.weight_decay, beta1, beta2)
-    elif params.optimizer.lower() == 'factorized_adam':
-        optimizer = FactorizedAdam(params.dtype)
-    elif params.optimizer.lower() == 'sm3':
-        optimizer = SM3(learning_rate, params.weight_decay)
-    else:
-        raise ValueError(f"{params.optimizer} is not the name of a supported optimizer.")
-
+    if params.optimizer not in OPTIMIZERS:
+        raise ValueError(f'Unknown optimizer "{params.optimizer}". Supported optimizers: {list(OPTIMIZERS.keys())}')
+    optimizer = OPTIMIZERS[params.optimizer](learning_rate, params.weight_decay, beta1, beta2)
     clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=dtype)
     update_ops = []
     operations = loss.graph.operations
     xs = [x.outputs[0] for x in mesh.graph.trainable_variables]
     tensor_to_var = dict(zip(xs, mesh.graph.trainable_variables))
     loss_grad = mtf.Constant(loss.mesh, 1.0, loss.shape, loss.dtype).outputs[0]
-    # figure out what Tensors are downstream of xs
     downstream = set(xs)
     for op in operations:
         if op.has_gradient and (set(op.inputs) & downstream):
@@ -151,7 +140,6 @@ class Ranger(mtf.optimize.Optimizer):
                  weight_decay_rate: mtf.Tensor,
                  beta_1: mtf.Tensor,
                  beta_2: mtf.Tensor,
-                 global_steps_float: mtf.Tensor,
                  epsilon=1e-5,
                  N_sma_threshhold=5,
                  alpha=0.5,
@@ -166,7 +154,9 @@ class Ranger(mtf.optimize.Optimizer):
         self.k = k
         self.beta2 = beta_2
         self.epsilon = epsilon
-        self.global_steps_float = global_steps_float
+        self.global_steps_float = mtf.import_fully_replicated(learning_rate.mesh,
+                                                              tf.cast(tf.train.get_or_create_global_step(),
+                                                                      learning_rate.dtype), [], "global_steps_float")
 
     def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
         """
@@ -176,9 +166,6 @@ class Ranger(mtf.optimize.Optimizer):
         :param var: Variable to be updates
         :return: Update operations for variable and buffers
         """
-        if grad is None:
-            tf.logging.warning("Gradient is None for variable %s" % var.name)
-            return []
         var_ptr = var
         exp_avg = exp_avg_ptr = get_variable(var, "/ranger/exp_avg", var.shape)
         exp_avg_sq = exp_avg_sq_ptr = get_variable(var, "/ranger/exp_avg_sq", var.shape)
@@ -239,9 +226,6 @@ class NovoGrad(mtf.optimize.Optimizer):
         :param var: Variable to be updates
         :return: Update operations for variable and buffers
         """
-        if grad is None:
-            tf.logging.warning("Gradient is None for variable %s" % var.name)
-            return []
         grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
         exp_avg = exp_avg_ptr = get_variable(var, "/novograd/exp_avg", var.shape)
@@ -262,22 +246,25 @@ class NovoGrad(mtf.optimize.Optimizer):
 
 
 class FactorizedAdam(mtf.optimize.Optimizer):
-    def __init__(self, dtype):
+    def __init__(self,
+                 learning_rate: mtf.Tensor,
+                 weight_decay_rate: mtf.Tensor,
+                 beta1: mtf.Tensor,
+                 beta2: mtf.Tensor,
+                 epsilon=1e-5):
         """Construct a new FactorizedAdam optimizer.
         See class comment.
         Raises:
           ValueError: if absolute_update_scale and relative_update_scale_fn are both
             present or both absent.
         """
-        self._learning_rate = tf.cast(tf.minimum(tf.math.rsqrt(tf.cast(tf.train.get_or_create_global_step(),
-                                                                       tf.float32) + 1.0), 0.01), dtype)
-        self._decay_rate = tf.cast(mtf.optimize.adafactor_decay_rate_pow(0.8), dtype)
+        self._learning_rate = learning_rate
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.weight_decay_rate = weight_decay_rate
+        self.epsilon = epsilon
 
     def apply_grad(self, grad, var):
-        if grad is None:
-            tf.logging.warning("Gradient is None for variable %s" % var.name)
-            return []
-
         updates = []
         grad_factors = []
 
@@ -285,10 +272,10 @@ class FactorizedAdam(mtf.optimize.Optimizer):
             dim = [dim]
             p1_ptr = get_variable(var, f"/fadam/dim{idx}_p1", dim)
             p2_ptr = get_variable(var, f"/fadam/dim{idx}_p2", dim)
-            p1 = weighted_add(p1_ptr, mtf.reduce_mean(grad, output_shape=dim), self._decay_rate)
-            p2 = weighted_add(p2_ptr, mtf.reduce_mean(mtf.square(grad), output_shape=dim), self._decay_rate)
+            p1 = weighted_add(p1_ptr, mtf.reduce_mean(grad, output_shape=dim), self.beta1)
+            p2 = weighted_add(p2_ptr, mtf.reduce_mean(mtf.square(grad), output_shape=dim), self.beta2)
             updates.extend([mtf.assign(p1_ptr, p1), mtf.assign(p2_ptr, p2)])
-            grad_factors.append(p1 * mtf.rsqrt(p2 + 1e-6))
+            grad_factors.append(p1 * mtf.rsqrt(p2 + self.epsilon))
 
         updates.append(mtf.assign_sub(var,
                                       mtf.add_n(grad_factors)
@@ -298,7 +285,7 @@ class FactorizedAdam(mtf.optimize.Optimizer):
 
 
 class AdaHessian(mtf.optimize.Optimizer):
-    def __init__(self, weight_decay_rate, learning_rate, beta1, beta2, global_step, epsilon=1e-5):
+    def __init__(self, weight_decay_rate, learning_rate, beta1, beta2, epsilon=1e-5):
         """Construct a new AdaHessian optimizer.
         See class comment.
         Raises:
@@ -307,7 +294,9 @@ class AdaHessian(mtf.optimize.Optimizer):
         """
         self.beta1 = beta1
         self.beta2 = beta2
-        self.global_step = global_step
+        self.global_steps_float = mtf.import_fully_replicated(learning_rate.mesh,
+                                                              tf.cast(tf.train.get_or_create_global_step(),
+                                                                      learning_rate.dtype), [], "global_steps_float")
         self.epsilon = epsilon
         self.learning_rate = learning_rate
         self.weight_decay_rate = weight_decay_rate
@@ -336,8 +325,11 @@ class SM3(mtf.optimize.Optimizer):
     def __init__(self,
                  learning_rate: mtf.Tensor,
                  weight_decay_rate: mtf.Tensor,
+                 beta1,
+                 beta2,
                  epsilon=1e-5):
-
+        _ = beta1
+        _ = beta2
         self.learning_rate = learning_rate
         self.weight_decay_rate = weight_decay_rate
         self.epsilon = epsilon
@@ -367,3 +359,11 @@ class SM3(mtf.optimize.Optimizer):
                                 + self.weight_decay_rate * var.value)] +
                 [mtf.assign(buf_ptr, mtf.reduce_max(update, output_shape=[dim]))
                  for buf_ptr, dim in zip(buffer, update.shape.dims)])
+
+
+OPTIMIZERS = {'adam':            Adam,
+              'novograd':        NovoGrad,
+              'sm3':             SM3,
+              'factorized_adam': FactorizedAdam,
+              'ranger':          Ranger
+              }
