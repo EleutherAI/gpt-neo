@@ -59,12 +59,13 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=dtype)
     update_ops = []
     operations = loss.graph.operations
-    xs = mesh.graph.trainable_variables
+    xs = [x.outputs[0] for x in mesh.graph.trainable_variables]
+    tensor_to_var = dict(zip(xs, mesh.graph.trainable_variables))
     loss_grad = mtf.Constant(loss.mesh, 1.0, loss.shape, loss.dtype).outputs[0]
     # figure out what Tensors are downstream of xs
     downstream = set(xs)
     for op in operations:
-        if op.has_gradient and set(op.inputs) & downstream:
+        if op.has_gradient and (set(op.inputs) & downstream):
             downstream |= set(op.outputs)
     tensor_to_gradient: typing.Dict[mtf.Tensor, typing.List[int, int, mtf.Tensor]] = {loss: [0, 0, loss_grad]}
     with tf.variable_scope(loss.graph.captured_variable_scope):
@@ -72,12 +73,14 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
             grad_outputs = []
             for out in op.outputs:
                 grad = tensor_to_gradient.get(out)
-                grad_outputs.append(grad)
                 if grad is not None:
+                    grad_outputs.append(grad[2])
                     grad[0] += 1
+                else:
+                    grad_outputs.append(None)
                 if grad is not None and grad[0] == len(grad[2].operation.inputs):
                     del tensor_to_gradient[out]
-            if not op.has_gradient or not any(grad_outputs) or not set(op.inputs) & downstream:
+            if not op.has_gradient or not any(grad_outputs) or not (set(op.inputs) & downstream):
                 continue
             with tf.variable_scope(op.name + "/gradients"):
                 for inp, grad in zip(op.inputs, op.gradient(grad_outputs)):
@@ -89,9 +92,9 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
                     elif valid_grad:
                         grad_list = [0, 1, grad]
                         tensor_to_gradient[inp] = grad_list
-                    if valid_grad and len(inp.operation.outputs) == grad_list[0]:
+                    if valid_grad and len(inp.operation.outputs) == grad_list[1] and inp in tensor_to_var:
                         clipped = mtf.minimum(mtf.maximum(mtf.cast(grad_list[2], dtype), -clip_value), clip_value)
-                        update_ops.extend(optimizer.apply_grad(clipped, inp))
+                        update_ops.extend(optimizer.apply_grad(clipped, tensor_to_var[inp]))
     return mesh.graph.trainable_variables[0].graph.combine_assignments(update_ops)
 
 
