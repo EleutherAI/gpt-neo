@@ -12,16 +12,16 @@ from .dataclass import BlockConfig, ModelParameter
 from .utils_core import default
 from .utils_mtf import activate, anonymize, anonymize_dim, anonymize_shape, concat, deduplicate, random_name, slice
 
+ATTENTION_DIM = typing.NamedTuple("AttentionDim", (('index', int), ('dim', mtf.Dimension)))
 
 
-def _get_attention_dim(params: ModelParameter, block_input: typing.Union[mtf.Tensor, mtf.Shape]
-                       ) -> typing.Tuple[int, mtf.Dimension]:
+def _get_attention_dim(params: ModelParameter, block_input: typing.Union[mtf.Tensor, mtf.Shape]) -> ATTENTION_DIM:
     if isinstance(block_input, mtf.Tensor):
         block_input = block_input.shape
     attention_dims = (block_input - params.feature_dims - params.intermediate)[1:]  # Ex: Shape[Sequence, Width, Height]
     idx = params.attention_idx % len(attention_dims)
     dim = attention_dims[idx]
-    return idx, dim
+    return ATTENTION_DIM(idx, dim)
 
 
 def _get_variable(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
@@ -108,44 +108,53 @@ def _group_feed_forward(params: ModelParameter, block_input: mtf.Tensor) -> mtf.
 
 
 def _context_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    _, dim = _get_attention_dim(params, block_input)
+    dim = _get_attention_dim(params, block_input).dim
     base = activate(_linear_from_features(params, block_input))
 
     return _attention(params, base, anonymize(_linear_to_features(params, base) * dim.size ** -0.5, dim))
 
 
 def _positional_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    _, dim = _get_attention_dim(params, block_input)
+    dim = _get_attention_dim(params, block_input).dim
     base = activate(_linear_from_features(params, block_input))
 
     return _attention(params, base, _embed(params, anonymize_shape(base.shape, dim)))
 
 
 def _embedded_attention(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    _, dim = _get_attention_dim(params, block_input)
+    dim = _get_attention_dim(params, block_input).dim
     base = activate(_linear_from_features(params, block_input))
 
     return _attention(params, base,
                       anonymize(_linear_to_features(params, base) * dim.size ** -0.5 + _embed(params, base.shape), dim))
 
 
-def _group_normalize(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
-    _ = params
-    feat = block_input.shape[-1]
-    block_input -= mtf.reduce_mean(block_input, reduced_dim=feat)
-    block_input *= mtf.rsqrt(1e-6 + mtf.reduce_mean(mtf.square(block_input), reduced_dim=feat))
-    block_input *= _normal_var(params, [feat], mean=1)
-    block_input += _normal_var(params, [feat], mean=0)
+def _base_normalization(params: ModelParameter, block_input: mtf.Tensor, normalized_shape: typing.List[mtf.Dimension],
+                        parameter_shape: typing.List[mtf.Dimension]):
+    normalized_shape = block_input.shape - normalized_shape
+    block_input -= mtf.reduce_mean(block_input, output_shape=normalized_shape)
+    block_input *= mtf.rsqrt(1e-6 + mtf.reduce_mean(mtf.square(block_input), output_shape=normalized_shape))
+    block_input *= _normal_var(params, parameter_shape, mean=1)
+    block_input += _normal_var(params, parameter_shape, mean=0)
     return block_input
 
 
-def _normalize(params: ModelParameter, x: mtf.Tensor) -> mtf.Tensor:
-    feat = x.shape[-2:]
-    shape = x.shape - feat
-    g = mtf.get_variable(x.mesh, "g", feat, initializer=tf.constant_initializer(1), dtype=params.dtype)
-    b = mtf.get_variable(x.mesh, "b", feat, initializer=tf.constant_initializer(0), dtype=params.dtype)
-    x -= mtf.reduce_mean(x, output_shape=shape)
-    return x * mtf.rsqrt(1e-6 + mtf.reduce_mean(mtf.square(x), output_shape=shape)) * g + b
+def _group_instance_norm(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    return _base_normalization(params, block_input, [params.key_dim], [params.key_dim])
+
+
+def _group_norm(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    return _base_normalization(params, block_input, [_get_attention_dim(params, block_input).dim, params.key_dim],
+                               [params.key_dim])
+
+
+def _layer_norm(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    return _base_normalization(params, block_input, [_get_attention_dim(params, block_input).dim] + params.feature_dims,
+                               params.feature_dims)
+
+
+def _instance_norm(params: ModelParameter, block_input: mtf.Tensor) -> mtf.Tensor:
+    return _base_normalization(params, block_input, params.feature_dims, params.feature_dims)
 
 
 LAYER_FUNCTIONS = {'feed_forward':         _feed_forward,
@@ -153,8 +162,10 @@ LAYER_FUNCTIONS = {'feed_forward':         _feed_forward,
                    'context_attention':    _context_attention,
                    'positional_attention': _positional_attention,
                    'embedded_attention':   _embedded_attention,
-                   'group_normalize':      _group_normalize,
-                   'normalize':            _normalize,
+                   'group_instance_norm':  _group_instance_norm,
+                   'group_norm':           _group_norm,
+                   'layer_norm':           _layer_norm,
+                   'instance_norm':        _instance_norm,
                    'rezero':               _rezero,
                    'embed':                _embed
                    }
@@ -164,11 +175,8 @@ def _block_part_fn(params: ModelParameter, block_part_config: BlockConfig, block
     out = block_input
     for layer in block_part_config.layer:
         out = LAYER_FUNCTIONS[layer](params, out)
-
-    if not params.use_revnet:
-        if block_part_config.skip:
-            out += block_input
-
+    if not params.use_revnet and block_part_config.skip:
+        out += block_input
     return out
 
 
