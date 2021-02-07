@@ -47,7 +47,7 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     adam = Adam(params, learning_rate, params.weight_decay, beta1, beta2)
     if params.optimizer not in OPTIMIZERS:
         raise ValueError(f'Unknown optimizer "{params.optimizer}". Supported optimizers: {list(OPTIMIZERS.keys())}')
-    optimizer = OPTIMIZERS[params.optimizer](learning_rate, params.weight_decay, beta1, beta2)
+    optimizer = OPTIMIZERS[params.optimizer](params, learning_rate, params.weight_decay, beta1, beta2)
     clip_value = mtf.constant(mesh, params.gradient_clipping, dtype=dtype)
     update_ops = []
     operations = loss.graph.operations
