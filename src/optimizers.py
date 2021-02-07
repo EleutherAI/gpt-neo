@@ -22,7 +22,7 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     :return: scalar learning rate, update operations, gradients
     """
     global_step = tf.train.get_or_create_global_step()
-    dtype = params.storage_dtype
+    dtype = params.calculation_dtype
     learning_rate = tf.constant(value=params.learning_reate, shape=[], dtype=tf.float32)
     global_steps_float = tf.cast(global_step, tf.float32)
     # Cast to full precision
@@ -117,7 +117,7 @@ class Optimizer(mtf.optimize.Optimizer):
         self.epsilon = epsilon
         self.global_step = mtf.import_fully_replicated(params.mesh,
                                                        tf.cast(tf.train.get_or_create_global_step(),
-                                                               params.storage_dtype),
+                                                               params.calculation_dtype),
                                                        [], "global_steps_float")
         self.assign = lambda x, y: mtf.assign(x, mtf.cast(y, params.storage_dtype))
         self.variable = lambda x, y, z: get_variable(params, x, f"{x.name}/{params.optimizer}/{y}", z)
