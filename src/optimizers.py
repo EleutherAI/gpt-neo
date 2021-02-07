@@ -115,11 +115,11 @@ class Optimizer(mtf.optimize.Optimizer):
         self.beta1 = beta_1
         self.beta2 = beta_2
         self.epsilon = epsilon
-        self.global_step = mtf.import_fully_replicated(learning_rate.mesh,
+        self.global_step = mtf.import_fully_replicated(params.mesh,
                                                        tf.cast(tf.train.get_or_create_global_step(),
-                                                               learning_rate.storage_dtype), [],
-                                                       "global_steps_float")
-        self.assign = lambda x, y: mtf.assign(x, mtf.cast(y, self.params.storage_dtype))
+                                                               params.storage_dtype),
+                                                       [], "global_steps_float")
+        self.assign = lambda x, y: mtf.assign(x, mtf.cast(y, params.storage_dtype))
         self.variable = lambda x, y, z: get_variable(params, x, f"{x.name}/{params.optimizer}/{y}", z)
 
 
