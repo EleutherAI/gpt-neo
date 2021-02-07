@@ -44,7 +44,7 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     beta2 = _import_constant("beta2", 0.95)
     mtf.scalar_summary("learning_reate", learning_rate)
 
-    adam = Adam(learning_rate, params.weight_decay, beta1, beta2)
+    adam = Adam(params, learning_rate, params.weight_decay, beta1, beta2)
     if params.optimizer not in OPTIMIZERS:
         raise ValueError(f'Unknown optimizer "{params.optimizer}". Supported optimizers: {list(OPTIMIZERS.keys())}')
     optimizer = OPTIMIZERS[params.optimizer](learning_rate, params.weight_decay, beta1, beta2)
