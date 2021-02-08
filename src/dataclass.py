@@ -80,6 +80,9 @@ class ModelParameter(typing.Dict[str, typing.Any]):
 
         self.__dict__.update(config)
 
+        if not self.use_language and not self.use_video:
+            raise ValueError("Language and video mode are disabled. No model can be built.")
+
         if isinstance(self.storage_dtype, str):
             self.storage_dtype = getattr(tf, self.storage_dtype)
         if isinstance(self.calculation_dtype, str):
@@ -100,52 +103,38 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.intermediate = [self.head_dim,
                              anonymize_dim(self.key_dim,
                                            int(self.key_dim.size * self.intermediate_feed_forward_multiplier))]
-        
+
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.batch_dim = mtf.Dimension("batch", self.train_batch_size)
 
+        frame_input_shape = [self.batch_dim, mtf.Dimension("_sequence", self.time_patch_size + 1)]
+
+        if self.three_axes:
+            frame_input_shape = frame_input_shape + [mtf.Dimension("height", self.frame_height_patch),
+                                                     mtf.Dimension("width", self.frame_width_patch)]
+        else:
+            frame_input_shape = frame_input_shape + [
+                    mtf.Dimension("height", self.frame_height_patch * self.frame_width_patch)]
+
+        frame_input_shape = frame_input_shape + [mtf.Dimension("color_channels", self.channel_color_size)]
+        self.frame_input_shape = mtf.Shape(frame_input_shape)
         self.input_pipeline_shape = {}
 
+        self.sequence_dim = mtf.Dimension("sequence", self.time_patch_size)
+        self.token_dim_shape = mtf.Shape([self.batch_dim,
+                                          self.sequence_dim,
+                                          mtf.Dimension("language_token_patch", self.token_patch_size)])
+        self.frame_mask_shape = mtf.Shape([self.batch_dim, self.sequence_dim])
+
         if self.use_video:
-            self.frame_input_shape = [self.batch_dim, mtf.Dimension("_sequence", self.time_patch_size + 1)]
-
-            if self.three_axes:
-                self.frame_input_shape = self.frame_input_shape + [mtf.Dimension("height", self.frame_height_patch),
-                                                                   mtf.Dimension("width", self.frame_width_patch)]
-            else:
-                self.frame_input_shape = self.frame_input_shape +\
-                                         [mtf.Dimension("height", self.frame_height_patch * self.frame_width_patch)]
-
-            self.frame_input_shape = self.frame_input_shape + [mtf.Dimension("color_channels", self.channel_color_size)]
-            self.frame_input_shape = mtf.Shape(self.frame_input_shape)
-
-            self.input_pipeline_shape.update({'frame': self.frame_input_shape})
-
-            if self.use_language:
-                self.sequence_dim = mtf.Dimension("sequence", self.time_patch_size)
-
-                self.token_dim_shape = [self.batch_dim,
-                                        self.sequence_dim,
-                                        mtf.Dimension("height", self.language_token_patch),
-                                        mtf.Dimension("language_token_patch", self.token_patch_size)]
-
-                self.token_dim_shape = mtf.Shape(self.token_dim_shape)
-
-                self.frame_mask_shape = mtf.Shape([self.batch_dim, self.sequence_dim])
-
-                self.input_pipeline_shape.update({'token_x': self.token_dim_shape, 'token_y': self.token_dim_shape,
-                                                  'vid_msk': self.frame_mask_shape, 'tkn_msk': self.token_dim_shape})
-
-        elif self.use_language:
-
-            self.token_dim_shape = [self.batch_dim,
-                                    mtf.Dimension("sequence", self.time_patch_size),
-                                    mtf.Dimension("language_tokens", 1)]
-
-            self.input_pipeline_shape.update({'token_x': self.token_dim_shape, 'token_y': self.token_dim_shape})
-
-        else:
-            raise ValueError("use_video and use_language is both False.")
+            self.input_pipeline_shape['frame'] = self.frame_input_shape
+        if self.use_language:
+            self.input_pipeline_shape['token_x'] = self.token_dim_shape
+            self.input_pipeline_shape['token_y'] = self.token_dim_shape
+        if self.use_language and self.use_video:
+            self.token_dim_shape._dims.insert(2, mtf.Dimension("height", self.language_token_patch))
+            self.input_pipeline_shape['vid_msk'] = self.frame_mask_shape
+            self.input_pipeline_shape['tkn_msk'] = self.token_dim_shape
 
         self.input_pipeline_shape = self.align_tensor_op(self.input_pipeline_shape)
         self.attention_idx = 0
