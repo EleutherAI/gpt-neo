@@ -35,14 +35,14 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
 
     def _import_constant(name, x):
         return mtf.import_fully_replicated(mesh,
-                                           tf.constant(x, default(dtype, dtype), []),
+                                           tf.constant(x, dtype, []),
                                            mtf.Shape([]),
                                            name=name)
 
     learning_rate = mtf.import_fully_replicated(mesh, tf.cast(learning_rate, dtype), [], "learning_rate")
     beta1 = _import_constant("beta1", 0.9)
     beta2 = _import_constant("beta2", 0.95)
-    mtf.scalar_summary("learning_reate", learning_rate)
+    mtf.scalar_summary("learning_rate", learning_rate)
 
     adam = Adam(params, learning_rate, params.weight_decay, beta1, beta2)
     if params.optimizer not in OPTIMIZERS:
@@ -129,6 +129,7 @@ class Adam(Optimizer):
     def apply_grad(self, grad, var):
         """See base class."""
         val = self.cast_calculate(var.value)
+        grad = self.cast_calculate(grad)
         exp_avg_p1_ptr = self.variable(var, 'exp_avg_p1', var.shape)
         exp_avg_p2_ptr = self.variable(var, 'exp_avg_p2', var.shape)
         grad_fp16 = self.cast_storage(grad)
@@ -265,3 +266,4 @@ OPTIMIZERS = {'adam':            Adam,
               'sm3':             SM3,
               'factorized_adam': FactorizedAdam
               }
+
