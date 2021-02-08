@@ -130,9 +130,6 @@ class Adam(Optimizer):
         grad = self.cast_calculate(grad)
         exp_avg_p1_ptr = self.variable(var, 'exp_avg_p1', var.shape)
         exp_avg_p2_ptr = self.variable(var, 'exp_avg_p2', var.shape)
-        grad_fp16 = self.cast_storage(grad)
-        beta1_fp16 = self.cast_storage(self.beta1)
-        beta2_fp16 = self.cast_storage(self.beta2)
 
         exp_avg_p1 = weighted_add(self.cast_calculate(exp_avg_p1_ptr), grad, self.beta1)
         exp_avg_p2 = weighted_add(self.cast_calculate(exp_avg_p2_ptr), mtf.square(grad), self.beta2)
