@@ -15,7 +15,7 @@ import numpy as np
 
 from .utils_core import default
 
-random.seed(65537)
+_NAME_INDEX = [0]
 
 
 def unanonymize(inp: mtf.Tensor, dim: typing.Union[mtf.Dimension, str]) -> mtf.Tensor:
@@ -115,8 +115,8 @@ def random_name() -> str:
     For the sake of convenience, special characters are removed from the final string.
     :return: random string
     """
-    return base64.b64encode(random.getrandbits(256).to_bytes(length=32, byteorder='little')
-                            ).decode().replace("+", "").replace("/", "").replace("=", "")
+    _NAME_INDEX[0] += 1
+    return str(_NAME_INDEX[0])
 
 
 def dim_name(dim: typing.Union[mtf.Dimension, str]) -> str:

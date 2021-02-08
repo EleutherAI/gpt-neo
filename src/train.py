@@ -102,7 +102,6 @@ def computation_func(params: ModelParameter, input_fn, session_config, tpu_clust
 
                 for key in value.keys():
                     sum_ops.append(summary.scalar(key, value[key], step=gs))
-
                 with tf.control_dependencies(sum_ops):
                     return tf.identity(tf_loss)
 
@@ -145,7 +144,6 @@ def computation_func(params: ModelParameter, input_fn, session_config, tpu_clust
         token_mask = None
 
         if params.use_video:
-
             frame_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[0]]),
                                                      params.frame_input_shape, "frame_input")
 
