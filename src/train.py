@@ -2,11 +2,16 @@
 Contains functions to create a training loop and log its outputs to tensorboard
 """
 import typing
+import six
 
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
+from tensorflow.compat.v1 import tpu
+from tensorflow.python.tpu.ops import tpu_ops
+#from tensorflow.python.tpu.ops import tpu_ops
 from tensorflow.python.tpu import tpu_estimator
+from tensorflow.python.ops.summary_ops_v2 import scalar, create_file_writer
 
 from .dataclass import ModelParameter
 from .model import build
@@ -29,59 +34,6 @@ tf.config.optimizer.set_experimental_options({"layout_optimizer":              T
                                               "disable_meta_optimizer":        False,
                                               "min_graph_nodes":               0
                                               })
-
-
-def create_host_call(model_dir: str) -> typing.Optional[typing.Tuple[typing.Callable, typing.List[tf.Tensor]]]:
-    """Construct a host_call writing scalar summaries.
-    Borrowed from t2t.
-
-    Args:
-        model_dir: String containing path to train
-    Returns:
-        (fn, args) Pair to be called by TPUEstimator as the host_call.
-    """
-
-    graph = tf.get_default_graph()
-    # A list of (name, lowered tensor) tuples
-    summaries = graph.get_collection(mtf.utils.SCALAR_SUMMARIES_COLLECTION_KEY)
-
-    def maybe_cast(tensor: tf.Tensor) -> tf.Tensor:
-        if tensor.shape.is_compatible_with([]):
-            tensor = tf.reshape(tensor, [1])
-        if tensor.dtype == tf.int64:
-            return tf.cast(tensor, tf.int32)
-        if tensor.dtype == tf.bfloat16 or tensor.dtype == tf.float16:
-            return tf.cast(tensor, tf.float32)
-        return tensor
-
-    reshaped_tensors = [maybe_cast(t) for _, t in summaries]
-
-    # When no supported summaries are found, don't create host_call. Otherwise,
-    # TPU outfeed queue would enqueue global_step while host_call doesn't dequeue
-    # it, eventually causing hang.
-    if not reshaped_tensors:
-        return None
-
-    def host_call_fn(global_step, *args):
-        """Training host call. Creates scalar summaries for training metrics."""
-        # This function is executed on the CPU and should not directly reference
-        # any Tensors in the rest of the `model_fn`. To pass Tensors from the
-        # model to the `model_fn`, provide as part of the `host_call`.
-        global_step = tf.cast(global_step[0], tf.int64)
-        with tf2.summary.create_file_writer(model_dir).as_default():
-            # We cannot directly use any tensor from summaries, because each
-            # tensor here must be a concat of multiple tensors from all shards.
-            # Therefore, we rely on the assumption that args wil have the same
-            # length as summaries, and all tensors in args will have the same
-            # order of self._tup_summaries.
-            assert len(args) == len(summaries)
-            for i, tensor in enumerate(args):
-                name = summaries[i][0]
-                tf2.summary.scalar(name, tf.reduce_mean(tensor), step=global_step)
-        return tf.summary.all_v2_summary_ops()
-
-    global_step_t = tf.reshape(tf.cast(tf.train.get_global_step(), tf.int32), [1])
-    return host_call_fn, [global_step_t] + reshaped_tensors
 
 
 class _CapturedObject(object):
@@ -126,11 +78,12 @@ class _CkptLoaderHook(tf.estimator.SessionRunHook):
                 saver.restore(session, check_point)
 
 
-def get_model_fn(params: ModelParameter):
+def get_model_fn(params: ModelParameter, run_mode):
     captured_hooks = _CapturedObject()
     captured_output_dtypes_shapes = _CapturedObject()
+    host_call = []
 
-    def model_fn(frame) -> tpu_estimator.TPUEstimatorSpec:
+    def model_fn(*args):
         """
         Create model partitioned graph given example input tensor
         :param features: inputs and targets in dict
@@ -138,6 +91,29 @@ def get_model_fn(params: ModelParameter):
         :param params: serialized dict of ModelParameters instance
         :return: tpu estimator spec
         """
+
+        def _add_summary(tf_loss, value, global_step):
+            """Add all summaries."""
+
+            def _host_loss_summary(tf_loss, value, global_step):
+                """Add summary.scalar in host side."""
+                gs = tf.cast(global_step, tf.int64)
+
+                sum_ops = []
+
+                for key in value.keys():
+                    sum_ops.append(scalar(key, value[key], step=gs))
+
+                with tf.control_dependencies(sum_ops):
+                    return tf.identity(tf_loss)
+
+            # Cast the global step to tf.int32, since
+            # outside_compilation does not support tf.int64.
+            tf_loss = tpu.outside_compilation(_host_loss_summary, tf_loss, value,tf.cast(global_step, tf.int32))
+
+            return tf_loss
+
+
         # Get global step
         global_step = tf.train.get_or_create_global_step()
 
@@ -171,31 +147,31 @@ def get_model_fn(params: ModelParameter):
 
         if params.use_video:
 
-            frame_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([frame]),
+            frame_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[0]]),
                                                      params.frame_input_shape, "frame_input")
 
             if params.use_language:
-                token_x_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor(features['token_x']),
+                token_x_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[1]]),
                                                            params.token_dim_shape, "tkn_src")
-                token_y_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor(features['token_y']),
+                token_y_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[2]]),
                                                            params.token_dim_shape, "tkn_tgt")
 
-                frame_mask = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor(features['vid_msk']),
+                frame_mask = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[3]]),
                                                         params.frame_mask_shape, "vid_msk")
-                token_mask = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor(features['tkn_msk']),
+                token_mask = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[4]]),
                                                         params.token_dim_shape, "tkn_msk")
 
         elif params.use_language and False:
 
-            token_x_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor(features['token_x']),
+            token_x_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[0]]),
                                                        params.token_dim_shape, "tkn_src")
-            token_y_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor(features['token_y']),
+            token_y_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[1]]),
                                                        params.token_dim_shape, "tkn_tgt")
 
         else:
             raise ValueError("use_video and use_language is both False.")
 
-        if False and params.use_autoregressive_sampling:
+        if run_mode == 'sample' and params.use_autoregressive_sampling:
             sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
 
             def cond_fn(position):
@@ -258,7 +234,7 @@ def get_model_fn(params: ModelParameter):
                 one_hot_sequence = mtf.one_hot(position, sequence_dim, dtype=tf.int32)
                 neg_one_hot_sequence = (1 - one_hot_sequence)
 
-                frame_input = frame_out * one_hot_sequence + frame_input * neg_one_hot_sequence
+                #frame_input = mtf.pad(anonymize(frame_out, sequence_dim),[1, 0], anonymize_dim(sequence_dim)).name * mtf.cast(one_hot_sequence, tf.float32) + frame_input * mtf.cast(neg_one_hot_sequence, tf.float32)
                 token_x_input = token_out * one_hot_sequence + token_x_input * neg_one_hot_sequence
                 token_mask = token_mask_out * one_hot_sequence + token_mask * neg_one_hot_sequence
 
@@ -294,14 +270,16 @@ def get_model_fn(params: ModelParameter):
                 video_loss = video_loss * frame_mask.size / mtf.reduce_sum(frame_mask)
                 token_loss = token_loss * token_mask.size / mtf.reduce_sum(token_mask)
 
-        if False:
+        if run_mode == 'train':
+            update_ops = get_optimizer(mesh, loss, params)
+        else: #run_mode == 'sample'
+
             if params.use_video:
-                mtf.scalar_summary("video_loss", video_loss)
+                frame_out = mtf.anonymize(frame_out)
 
             if params.use_language:
-                mtf.scalar_summary("token_loss", token_loss)
+                token_out = mtf.anonymize(token_out)
 
-        update_ops = get_optimizer(mesh, loss, params)
         total_parameters = 0
         for variable in graph.trainable_variables:
             shape = variable.shape.dims
@@ -331,44 +309,63 @@ def get_model_fn(params: ModelParameter):
         tf_loss = lowering.export_to_tf_tensor(loss)
         tf_loss = tf.cast(tf_loss, tf.float32)
 
-        if False:
-            predictions = {}
+        log_dict = {}
+
+        if run_mode == 'train':
             if params.use_video:
-                predictions.update({'frame_out': lowering.export_to_tf_tensor(mtf.anonymize(frame_out))})
-                predictions.update({'frame_inp': features['frame']})
+                video_loss = lowering.export_to_tf_tensor(video_loss)
+                video_loss = tf.cast(video_loss, tf.float32)
+                log_dict.update({'video_loss': video_loss})
 
             if params.use_language:
-                predictions.update({'token_out': lowering.export_to_tf_tensor(mtf.anonymize(token_out))})
-                predictions.update({'token_inp': features['token_y']})
-        else:
-            predictions = None
-        # Use our patched version until mtf updates theirs
-        host_call = create_host_call(params.model_path)
-        mtf.utils.remove_summaries()
+                token_loss = lowering.export_to_tf_tensor(token_loss)
+                token_loss = tf.cast(token_loss, tf.float32)
+                log_dict.update({'token_loss': token_loss})
 
+            tf_loss = _add_summary(tf_loss=tf_loss, value=log_dict, global_step=global_step)
 
+        else: #run_mode == 'sample'
+            predictions = {}
+            if params.use_video:
+                predictions.update({'frame_out': lowering.export_to_tf_tensor(frame_out)})
+                predictions.update({'frame_inp': args[0]})
 
-        # Creates train_op
-        tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
-        tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
-        tf.logging.info(f"tf_update_ops: {tf_update_ops}")
+            if params.use_language:
+                predictions.update({'token_out': lowering.export_to_tf_tensor(token_out)})
+                predictions.update({'token_inp': args[2]})
 
         master_to_slice_hook = mtf.MtfRestoreHook(lowering)
 
-        with mtf.utils.outside_all_rewrites():
+        if run_mode == 'train':
 
-            saver = tf.train.Saver(tf.global_variables(), save_relative_paths=True)
-            tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+            # Creates train_op
+            tf_update_ops = [lowering.lowered_operation(op) for op in update_ops]
+            tf_update_ops.append(tf.assign_add(global_step, 1))  # Need to manually increment global_step
+            tf.logging.info(f"tf_update_ops: {tf_update_ops}")
 
-            saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-            slice_to_master_hook = tf.train.CheckpointSaverHook(
-                params.model_path,
-                save_steps=params.steps_per_checkpoint,
-                saver=saver, listeners=[saver_listener])
+            with mtf.utils.outside_all_rewrites():
 
-            captured_hooks.capture([master_to_slice_hook, slice_to_master_hook])
+                saver = tf.train.Saver(tf.global_variables(), save_relative_paths=True)
+                tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
 
-            return tf.group([tf_loss] + tf_update_ops)
+                saver_listener = mtf.MtfCheckpointSaverListener(lowering)
+                slice_to_master_hook = tf.train.CheckpointSaverHook(
+                    params.model_path,
+                    save_steps=params.steps_per_checkpoint,
+                    saver=saver, listeners=[saver_listener])
 
+                captured_hooks.capture([master_to_slice_hook, slice_to_master_hook])
+
+                return tf.group([tf_loss] + tf_update_ops)
+
+        else: #run_mode == 'sample'
+
+            predictions = [tf.cast(predictions[key], tf.float32) for key in predictions.keys()]
+            predictions_dtypes = [pred.dtype for pred in predictions]
+            predictions_shapes = [pred.shape for pred in predictions]
+            captured_hooks.capture([master_to_slice_hook, None])
+            captured_output_dtypes_shapes.capture([predictions_dtypes, predictions_shapes])
+
+            return tpu_ops.outfeed_enqueue_tuple(predictions)
 
     return model_fn, captured_hooks, captured_output_dtypes_shapes

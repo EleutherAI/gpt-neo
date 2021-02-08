@@ -94,29 +94,28 @@ class ModelParameter(typing.Dict[str, typing.Any]):
 
         self.feature_dims = self.head_dimensions + [self.key_dim]
 
-        self.intermediate = [mtf.Dimension('_intermediate',
-                                           int(np.prod([dim.size for dim in self.feature_dims])
+        self.intermediate = [mtf.Dimension('_intermediate', int(np.prod([dim.size for dim in self.feature_dims])
                                                * self.intermediate_feed_forward_multiplier))]
 
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
         self.batch_dim = mtf.Dimension("batch", self.train_batch_size)
 
-        self.input_pipeline_shape = []
+        self.input_pipeline_shape = {}
 
         if self.use_video:
             self.frame_input_shape = [self.batch_dim, mtf.Dimension("_sequence", self.time_patch_size + 1)]
 
             if self.three_axes:
                 self.frame_input_shape = self.frame_input_shape + [mtf.Dimension("height", self.frame_height_patch),
-                                                         mtf.Dimension("width", self.frame_width_patch)]
+                                                                   mtf.Dimension("width", self.frame_width_patch)]
             else:
-                self.frame_input_shape = self.frame_input_shape + [mtf.Dimension("height", self.frame_height_patch
-                                                                       * self.frame_width_patch)]
+                self.frame_input_shape = self.frame_input_shape +\
+                                         [mtf.Dimension("height", self.frame_height_patch * self.frame_width_patch)]
 
             self.frame_input_shape = self.frame_input_shape + [mtf.Dimension("color_channels", self.channel_color_size)]
             self.frame_input_shape = mtf.Shape(self.frame_input_shape)
 
-            self.input_pipeline_shape.append(self.frame_input_shape)
+            self.input_pipeline_shape.update({'frame': self.frame_input_shape})
 
             if self.use_language:
                 self.sequence_dim = mtf.Dimension("sequence", self.time_patch_size)
@@ -126,9 +125,12 @@ class ModelParameter(typing.Dict[str, typing.Any]):
                                         mtf.Dimension("height", self.language_token_patch),
                                         mtf.Dimension("language_token_patch", self.token_patch_size)]
 
+                self.token_dim_shape = mtf.Shape(self.token_dim_shape)
+
                 self.frame_mask_shape = mtf.Shape([self.batch_dim, self.sequence_dim])
 
-                self.input_pipeline_shape.append(self.frame_mask_shape)
+                self.input_pipeline_shape.update({'token_x': self.token_dim_shape, 'token_y': self.token_dim_shape,
+                                                  'vid_msk': self.frame_mask_shape, 'tkn_msk': self.token_dim_shape})
 
         elif self.use_language:
 
@@ -136,11 +138,12 @@ class ModelParameter(typing.Dict[str, typing.Any]):
                                     mtf.Dimension("sequence", self.time_patch_size),
                                     mtf.Dimension("language_tokens", 1)]
 
-            self.input_pipeline_shape.append(self.token_dim_shape)
+            self.input_pipeline_shape.update({'token_x': self.token_dim_shape, 'token_y': self.token_dim_shape})
 
         else:
             raise ValueError("use_video and use_language is both False.")
 
+        self.input_pipeline_shape = self.align_tensor_op(self.input_pipeline_shape)
         self.attention_idx = 0
 
     def __getitem__(self, key: str) -> typing.Any:
@@ -172,3 +175,24 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         :return: dictionary containing parameters
         """
         return self.__dict__
+
+    @staticmethod
+    def align_tensor_op(x):
+        tensors = []
+
+        if 'frame' in x:
+            tensors.append(x['frame'])
+
+        if 'token_x' in x:
+            tensors.append(x['token_x'])
+
+        if 'token_y' in x:
+            tensors.append(x['token_y'])
+
+        if 'vid_msk' in x:
+            tensors.append(x['vid_msk'])
+
+        if 'tkn_msk' in x:
+            tensors.append(x['tkn_msk'])
+
+        return tensors

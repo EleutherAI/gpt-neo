@@ -97,7 +97,7 @@ def text_decode(proto):
     return x
 
 
-def dataset_text(path: str, batch_size: int, params: ModelParameter) -> tf.data.Dataset:
+def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
     """
     Creates a text dataset containing shuffled and prefetched windows.
     :param path: Path to dataset (in google cloud bucket)
@@ -120,50 +120,48 @@ def dataset_text(path: str, batch_size: int, params: ModelParameter) -> tf.data.
     assert not (language_token_per_frame > 0 and time_patch > 1), \
         ("Time patch and language token are currently not supported together")
 
-    padding_token = tf.constant([[[params.padding_token]] * (time_patch_size + 1)] * batch_size, dtype=tf.int32)
+    padding_token = tf.constant([[params.padding_token]] * (time_patch_size + 1), dtype=tf.int32)
     padding_token = tf.data.Dataset.from_tensors(padding_token).repeat()
 
     if three_axes:
-        padding_frame = tf.zeros((batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
+        padding_frame = tf.zeros((time_patch_size + 1, frame_height_patch, frame_width_patch,
                                   channel_color_size), dtype=tf.uint8)
     else:
-        padding_frame = tf.zeros((batch_size, time_patch_size + 1, frame_height_patch * frame_width_patch,
+        padding_frame = tf.zeros((time_patch_size + 1, frame_height_patch * frame_width_patch,
                                   channel_color_size), dtype=tf.uint8)
 
     padding_frame = tf.data.Dataset.from_tensors(padding_frame).repeat()
 
-    padding_frame_mask = tf.zeros((batch_size, time_patch_size), dtype=tf.bool)
+    padding_frame_mask = tf.zeros((time_patch_size), dtype=tf.bool)
     padding_frame_mask = tf.data.Dataset.from_tensors(padding_frame_mask).repeat()
 
-    padding_token_mask = tf.ones((batch_size, time_patch_size, language_token_patch, token_patch_size), dtype=tf.bool)
+    padding_token_mask = tf.ones((time_patch_size, language_token_patch, token_patch_size), dtype=tf.bool)
     padding_token_mask = tf.data.Dataset.from_tensors(padding_token_mask).repeat()
 
     def _memory_func(x, _padding_token, _padding_frame, _padding_frame_mask, _padding_token_mask):
 
-        x = tf.reshape(x, (batch_size, time_patch_size + 1, language_token_per_frame - 1))
+        x = tf.reshape(x, (time_patch_size + 1, language_token_per_frame - 1))
         x = tf.cast(x, tf.int32)
         x = tf.concat([x, _padding_token], axis=2)
 
-        x = tf.reshape(x, (batch_size, time_patch_size + 1, language_token_patch, token_patch_size))
+        x = tf.reshape(x, (time_patch_size + 1, language_token_patch, token_patch_size))
 
-        token_x = x[:, :time_patch_size]
-        token_y = x[:, 1:time_patch_size + 1]
+        token_x = x[:time_patch_size]
+        token_y = x[1:time_patch_size + 1]
 
         if three_axes:
-            _padding_frame = tf.reshape(_padding_frame, (batch_size,
-                                                         time_patch_size + 1,
+            _padding_frame = tf.reshape(_padding_frame, (time_patch_size + 1,
                                                          frame_height_patch,
                                                          frame_width_patch,
                                                          channel_color_size))
         else:
-            _padding_frame = tf.reshape(_padding_frame, (batch_size,
-                                                         time_patch_size + 1,
+            _padding_frame = tf.reshape(_padding_frame, (time_patch_size + 1,
                                                          frame_height_patch * frame_width_patch,
                                                          channel_color_size))
 
-        _padding_frame_mask = tf.reshape(_padding_frame_mask, (batch_size, time_patch_size))
+        #_padding_frame_mask = tf.reshape(_padding_frame_mask, (batch_size, time_patch_size))
         _padding_token_mask = tf.reshape(_padding_token_mask,
-                                         (batch_size, time_patch_size, language_token_patch, token_patch_size))
+                                         (time_patch_size, language_token_patch, token_patch_size))
 
         return {'token_x': token_x, 'token_y': token_y, 'frame': _padding_frame,
                 'vid_msk': _padding_frame_mask, 'tkn_msk': _padding_token_mask}
@@ -184,15 +182,13 @@ def dataset_text(path: str, batch_size: int, params: ModelParameter) -> tf.data.
 
     data = data.shuffle(16384, seed=params.data_seed)
 
-    data = data.batch(batch_size)
-
     data = tf.data.Dataset.zip((data, padding_token, padding_frame, padding_frame_mask, padding_token_mask))
     data = data.map(_memory_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
 
     return data
 
 
-def dataset_video(path: str, batch_size: int, params: ModelParameter):
+def dataset_video(path: str, params: ModelParameter):
     """
     Creates a video dataset containing shuffled and prefetched windows.
     :param path: Path to dataset (in google cloud bucket)
@@ -239,37 +235,35 @@ def dataset_video(path: str, batch_size: int, params: ModelParameter):
         if params.use_language:
             token, frame_mask, token_mask, *args = args
 
-        frame = tf.reshape(frame, (batch_size, time_patch_size + 1, time_patch, frame_height_patch, patch_size,
+        frame = tf.reshape(frame, (time_patch_size + 1, time_patch, frame_height_patch, patch_size,
                                    frame_width_patch, patch_size, color_channels))
 
-        frame = tf.transpose(frame, [0, 1, 3, 5, 2, 4, 6, 7])
+        frame = tf.transpose(frame, [0, 2, 4, 1, 3, 5, 6])
 
         if three_axes:
-            out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch, frame_width_patch,
+            out_frame = tf.reshape(frame, (time_patch_size + 1, frame_height_patch, frame_width_patch,
                                            channel_color_size))
         else:
-            out_frame = tf.reshape(frame, (batch_size, time_patch_size + 1, frame_height_patch * frame_width_patch,
+            out_frame = tf.reshape(frame, (time_patch_size + 1, frame_height_patch * frame_width_patch,
                                            channel_color_size))
 
         if params.use_language:
-            token = tf.reshape(token, (batch_size, time_patch_size + 1, language_token_patch, token_patch_size))
+            token = tf.reshape(token, (time_patch_size + 1, language_token_patch, token_patch_size))
             token = tf.cast(token, tf.int32)
 
-            token_x = token[:, :time_patch_size]
-            token_y = token[:, 1:time_patch_size + 1]
+            token_x = token[:time_patch_size]
+            token_y = token[1:time_patch_size + 1]
 
-            frame_mask = frame_mask[:, 1:time_patch_size + 1]
-            frame_mask = tf.reshape(frame_mask, (batch_size, time_patch_size))
+            frame_mask = frame_mask[1:time_patch_size + 1]
             frame_mask = 1 - frame_mask
             frame_mask = tf.cast(frame_mask, tf.bool)
 
-            token_mask = token_mask[:, 1:time_patch_size + 1]
-            token_mask = tf.reshape(token_mask, (batch_size, time_patch_size, language_token_patch, token_patch_size))
+            token_mask = token_mask[1:time_patch_size + 1]
+            token_mask = tf.reshape(token_mask, (time_patch_size, language_token_patch, token_patch_size))
             token_mask = tf.cast(token_mask, tf.bool)
 
         return {k: v for k, v in {'frame':   out_frame / 255, 'token_x': token_x, 'token_y': token_y,
-                                  'vid_msk': frame_mask, 'tkn_msk': token_mask
-                                  }.items() if v is not None}
+                                  'vid_msk': frame_mask, 'tkn_msk': token_mask}.items() if v is not None}
 
     if language_token_per_frame > 0:
         interleave_func = lambda x, y, z, a: tf.data.Dataset.zip((x, y, z, a)) \
@@ -290,7 +284,6 @@ def dataset_video(path: str, batch_size: int, params: ModelParameter):
                                                                cycle_length=params.interleaved_datasets, block_length=1,
                                                                sloppy=False))
 
-    data = data.batch(batch_size)
     data = data.map(_pre_func, num_parallel_calls=tf.data.experimental.AUTOTUNE)
     data = data
 
@@ -309,15 +302,7 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
     #params = ModelParameter(params)
 
     def memory_op(x):
-        print(x['frame'].shape)
-        x['frame'] = tf.cast(tf.reshape(x['frame'], (257,220,768)), tf.float32)
-        return [x[key] for key in x.keys()]
-
-    def concat_op(*args):
-        x, *args = args
-
-        for key in x.keys():
-            x[key] = tf.concat([x[key]] + [arg[key] for arg in args], axis=0)
+        x['frame'] = tf.cast(x['frame'], tf.float32)
 
         return x
 
@@ -340,18 +325,15 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
             f"{dtype} is not a supported option for type for a dataset."
 
         if dtype == 'video':
-            datasets.append(dataset_video(path, weight * weight_multi, params))
+            datasets.append(dataset_video(path, params))
         elif dtype == 'text':
-            datasets.append(dataset_text(path, weight * weight_multi, params))
+            datasets.append(dataset_text(path, params))
 
-    if len(datasets) > 1:
-        datasets = tf.data.Dataset.zip(tuple(datasets))
-        datasets = datasets.map(concat_op)
-    else:
-        datasets = datasets[0]
+    datasets = datasets[0]
 
     datasets = datasets.prefetch(params.buffer_size)
     datasets = datasets.map(memory_op)
+    datasets = datasets.map(params.align_tensor_op)
 
     datasets = datasets.skip(step)
 
@@ -477,7 +459,7 @@ def gpt_neo_input(params, step=None, eval=False):
 
     def _memory_func(x):
 
-        x = tf.reshape(x, (batch_size, params.n_ctx + 1, 1))
+        x = tf.reshape(x, (params.n_ctx + 1, 1))
         x = tf.cast(x, tf.int32)
 
         vals1 = x[:, :params.n_ctx]
@@ -489,7 +471,6 @@ def gpt_neo_input(params, step=None, eval=False):
 
     dataset = dataset.shuffle(512, seed=seed)
 
-    dataset = dataset.batch(batch_size, drop_remainder=True)
     dataset = dataset.map(_memory_func)
     dataset = dataset.prefetch(params.buffer_size * 2)
 

@@ -250,43 +250,6 @@ def _host_id_to_tf_device(host_id, external_worker):
         return "/task:{}/device:CPU:0".format(host_id)
 
 
-class PlacementMeshImplInputReader(object):
-    """Handles input pipeline for PlacementMeshImpl."""
-
-    def __init__(self,
-                 placement_mesh_impl,
-                 ds_creator,
-                 mtf_input_shapes,
-                 ds_prefetch_size=tf.data.experimental.AUTOTUNE,
-                 is_eval_mode=False):
-
-        self._placement_mesh_impl = placement_mesh_impl
-        self._mtf_input_shapes = mtf_input_shapes
-
-        batch_size = mtf_input_shapes[0].dims[0].size
-        if is_eval_mode:
-            ds = ds_creator().batch(
-                batch_size, drop_remainder=False).prefetch(ds_prefetch_size)
-        else:
-            ds = ds_creator().batch(
-                batch_size, drop_remainder=True).prefetch(ds_prefetch_size)
-        self._ds_iterator = ds.make_initializable_iterator()
-        self._input_initializers = [self._ds_iterator.initializer]
-
-    def initialize(self, sess):
-        sess.run(self._input_initializers)
-
-    def gpu_placement(self, model_fn):
-        image, label = self._ds_iterator.get_next()
-        image_laid_out = self._placement_mesh_impl.make_slices(
-            image, self._mtf_input_shapes[0])
-        label_laid_out = self._placement_mesh_impl.make_slices(
-            label, self._mtf_input_shapes[1])
-        computation = model_fn(image_laid_out, label_laid_out)
-
-        return computation
-
-
 class SubBatchSlicer(object):
     """Reads and distributes a sub-batch on a host."""
 
@@ -301,8 +264,7 @@ class SubBatchSlicer(object):
 
         self._validate_args()
 
-        with ops.device(_host_id_to_tf_device(self._host_id,
-                                              self._external_worker)):
+        with ops.device(_host_id_to_tf_device(self._host_id, self._external_worker)):
             self._ds_iterator = sub_batch_ds_creator().make_initializable_iterator()
 
     @property
@@ -311,14 +273,13 @@ class SubBatchSlicer(object):
 
     def get_slices(self):
         """Yields sliced tensors and which remote pnums they should go to.
-
         Yields:
           tf_tensor: The sliced tensor.
           pnum: Which process number the tf_tensor should to go.
           input_i: The input ordinal of the tf_tensor.
         """
-        with ops.device(_host_id_to_tf_device(self._host_id,
-                                              self._external_worker)):
+        with ops.device(_host_id_to_tf_device(self._host_id, self._external_worker)):
+
             all_input_tensors = self._ds_iterator.get_next()
             if isinstance(all_input_tensors, tf.Tensor):
                 all_input_tensors = [all_input_tensors]
@@ -333,7 +294,6 @@ class SubBatchSlicer(object):
                 self._init_slice_cache()
 
                 for pnum in sub_batch_pnums:
-                    # TODO(lehou): tf.slice is kinda slow. Use tf.split instead.
                     input_slice = self._slice_tensor(input_tensor, mtf_input_shape, pnum)
                     yield input_slice, pnum, input_i
 
@@ -451,7 +411,6 @@ class SimdMeshImplInputReader(object):
                  external_worker=True,
                  is_eval_mode=False):
         """Input pipeline for the SIMD implementation of MeshTensorflow.
-
         Args:
           simd_mesh_impl: A mtf.simd_mesh_impl.SimdMeshImpl object.
           ds_creator: A function that creates a dataset.
@@ -485,17 +444,14 @@ class SimdMeshImplInputReader(object):
             simd_input_reader = SimdMeshImplInputReader(simd_mesh_impl,
                                                         ds_creator,
                                                         mtf_input_shapes)
-
             batch_dim = mtf.Dimension('batch', FLAGS.batch_size)
             io_dim = mtf.Dimension('io', FLAGS.io_size)
             mtf_input_shapes = [mtf.Shape([batch_dim, io_dim])]
-
             infeed_queue = simd_input_reader.infeed_queue
             tpu_train_computation = tpu.replicate(
                 computation=model_fn,
                 inputs=[[]] * num_cores,
                 infeed_queue=infeed_queue, ...)
-
             with tf.Session() as sess:
               simd_input_reader.start_infeed_thread(sess,
                                                     number_steps=num_training_steps)
@@ -523,7 +479,6 @@ class SimdMeshImplInputReader(object):
 
     def start_infeed_thread(self, sess, number_steps=-1, initial_wait_sec=0.5):
         """Start running enqueue ops in a thread.
-
         Args:
           sess: A tf.Session.
           number_steps: Number of times to call sess.run(enqueue_ops).
@@ -532,7 +487,10 @@ class SimdMeshImplInputReader(object):
             loop. Default is 0.5.
         """
 
+        print('sess:', sess)
+
         def _thread_fn():
+            print('sess in _thred_fn:', sess)
             time.sleep(initial_wait_sec)
             if number_steps > 0:
                 for _ in range(number_steps):
@@ -620,7 +578,6 @@ class SimdMeshImplInputReader(object):
 
     def _get_pnum_map(self, mtf_shape):
         """Returns the pnum_map according to mtf_shape.
-
         Args:
           mtf_shape: A mtf.Shape object.
         Returns:
@@ -711,3 +668,40 @@ class SimdMeshImplInputReader(object):
             placement_function=_placement_function_impl)
 
         return infeed_queue, enqueue_ops
+
+
+class PlacementMeshImplInputReader(object):
+    """Handles input pipeline for PlacementMeshImpl."""
+
+    def __init__(self,
+                 placement_mesh_impl,
+                 ds_creator,
+                 mtf_input_shapes,
+                 ds_prefetch_size=tf.data.experimental.AUTOTUNE,
+                 is_eval_mode=False):
+
+        self._placement_mesh_impl = placement_mesh_impl
+        self._mtf_input_shapes = mtf_input_shapes
+
+        batch_size = mtf_input_shapes[0].dims[0].size
+        if is_eval_mode:
+            ds = ds_creator().batch(
+                batch_size, drop_remainder=False).prefetch(ds_prefetch_size)
+        else:
+            ds = ds_creator().batch(
+                batch_size, drop_remainder=True).prefetch(ds_prefetch_size)
+        self._ds_iterator = ds.make_initializable_iterator()
+        self._input_initializers = [self._ds_iterator.initializer]
+
+    def initialize(self, sess):
+        sess.run(self._input_initializers)
+
+    def gpu_placement(self, model_fn):
+        image, label = self._ds_iterator.get_next()
+        image_laid_out = self._placement_mesh_impl.make_slices(
+            image, self._mtf_input_shapes[0])
+        label_laid_out = self._placement_mesh_impl.make_slices(
+            label, self._mtf_input_shapes[1])
+        computation = model_fn(image_laid_out, label_laid_out)
+
+        return computation

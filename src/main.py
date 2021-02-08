@@ -16,13 +16,17 @@ from tensorflow_estimator.python.estimator import estimator as estimator_lib
 #from tensorflow.contrib.tpu import device_assignment
 from tensorflow.python.tpu.device_assignment import device_assignment
 from tensorflow.python.ops import control_flow_ops
-from tensorflow.contrib import summary
+from tensorflow.python.ops.summary_ops_v2 import create_file_writer, always_record_summaries, flush
+from tensorflow import summary
+from tensorflow.python.framework import ops
+from tensorflow.python.tpu.ops import tpu_ops
+from .monitored_session import _MonitoredSession, ChiefSessionCreator, WorkerSessionCreator, MonitoredSession, MonitoredTrainingSession
 import numpy as np
 
 from .dataclass import ModelParameter
 from .inputs import dataset, gpt_neo_input
 from .train import get_model_fn, _CkptLoaderHook
-from .utils_mtf import SimdMeshImplInputReader
+from .utils_mtf import SimdMeshImplInputReader, _host_id_to_tf_device
 from .eval import gen_sample
 
 
@@ -67,10 +71,14 @@ def main(args: argparse.Namespace) -> None:
     params.predict = args.predict
 
     if args.dry:
-        inp = {'token_x': tf.zeros([1]), 'token_y': tf.zeros([1]), 'frame': tf.zeros([1]), 'vid_msk': tf.zeros([1]),
-               'tkn_msk': tf.zeros([1])
-               }
-        get_model_fn(params)(inp)
+        inp = {'token_x': tf.zeros([1]),
+               'token_y': tf.zeros([1]),
+               'frame': tf.zeros([1]),
+               'vid_msk': tf.zeros([1]),
+               'tkn_msk': tf.zeros([1])}
+
+        inp = params.align_tensor_op(inp)
+        get_model_fn(params, args.run_mode)(inp)
         return
 
     mtf_mesh_shape = mtf.convert_to_shape(params.mesh_shape)
@@ -120,10 +128,10 @@ def main(args: argparse.Namespace) -> None:
                                                                params.layout_rules,
                                                                None, params.d_assignment)
 
-        summary_writer = summary.create_file_writer(params.model_path)
-        with summary_writer.as_default(), (summary.always_record_summaries()):
+        summary_writer = create_file_writer(params.model_path)
+        with summary_writer.as_default(), (always_record_summaries()):
 
-            model_fn, captured_hooks, captured_output_dtypes_shapes = get_model_fn(params)
+            model_fn, captured_hooks, captured_output_dtypes_shapes = get_model_fn(params, args.run_mode)
 
             simd_input_reader = SimdMeshImplInputReader(params.mesh_impl, input_fn,
                                                                      params.input_pipeline_shape,
@@ -141,17 +149,20 @@ def main(args: argparse.Namespace) -> None:
             all_hooks = [ckpt_loader_hook, master_to_slice_hook, slice_to_master_hook, step_counter_hook]
 
             # if params.write_summary:
-            flush_summary = summary.flush()
+            flush_summary = flush()
 
-            with tf.train.MonitoredTrainingSession(master=tpu_cluster_resolver.master(),
-                                                   # scaffold=_get_scaffold(additional_initializers=[]),
-                                                   hooks=all_hooks, config=config) as sess:
+            with MonitoredTrainingSession(master=tpu_cluster_resolver.master(), hooks=all_hooks, config=config) as sess:
+                print(sess)
+
+                summary.initialize(session=sess)
                 simd_input_reader.start_infeed_thread(sess)
 
                 current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
-                while current_step < params.train_steps:
+                #while current_step < params.train_steps:
+                while current_step < 10:
                     sess.run(train_computation)
-                    #sess.run(flush_summary)
+                    sess.run(flush_summary)
+
                     print('current_step:', current_step)
 
                     tf.logging.info('train steps: {}'.format(current_step))
@@ -160,3 +171,5 @@ def main(args: argparse.Namespace) -> None:
 
                 tf.logging.info('finished.')
 
+    with tf.Session(target=tpu_cluster_resolver.get_master(), config=config) as sess:
+        sess.run(tpu.shutdown_system())
