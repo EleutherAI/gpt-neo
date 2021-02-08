@@ -74,7 +74,8 @@ class ModelParameter(typing.Dict[str, typing.Any]):
 
         self.mesh = None
         self.mesh_impl = None
-
+        self.num_cores = None
+        self.num_cores_per_host = None
         self.masked_attention_dimensions = [0]
 
         self.__dict__.update(config)

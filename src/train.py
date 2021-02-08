@@ -6,16 +6,16 @@ import six
 
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
-import tensorflow.compat.v2 as tf2
 from tensorflow.compat.v1 import tpu
+from tensorflow.python.framework import ops
 from tensorflow.python.tpu.ops import tpu_ops
-#from tensorflow.python.tpu.ops import tpu_ops
-from tensorflow.python.tpu import tpu_estimator
-from tensorflow.python.ops.summary_ops_v2 import scalar, create_file_writer
+from tensorflow.python.ops import summary_ops_v2 as summary
+from tensorflow_estimator.python.estimator import estimator as estimator_lib
 
 from .dataclass import ModelParameter
 from .model import build
 from .optimizers import get_optimizer
+from .utils_mtf import SimdMeshImplInputReader, _host_id_to_tf_device
 
 tf.config.optimizer.set_experimental_options({"layout_optimizer":              True,
                                               "constant_folding":              True,
@@ -78,10 +78,9 @@ class _CkptLoaderHook(tf.estimator.SessionRunHook):
                 saver.restore(session, check_point)
 
 
-def get_model_fn(params: ModelParameter, run_mode):
+def computation_func(params: ModelParameter, input_fn, session_config, tpu_cluster_resolver, run_mode: str):
     captured_hooks = _CapturedObject()
     captured_output_dtypes_shapes = _CapturedObject()
-    host_call = []
 
     def model_fn(*args):
         """
@@ -102,7 +101,7 @@ def get_model_fn(params: ModelParameter, run_mode):
                 sum_ops = []
 
                 for key in value.keys():
-                    sum_ops.append(scalar(key, value[key], step=gs))
+                    sum_ops.append(summary.scalar(key, value[key], step=gs))
 
                 with tf.control_dependencies(sum_ops):
                     return tf.identity(tf_loss)
@@ -334,8 +333,6 @@ def get_model_fn(params: ModelParameter, run_mode):
                 predictions.update({'token_out': lowering.export_to_tf_tensor(token_out)})
                 predictions.update({'token_inp': args[2]})
 
-        master_to_slice_hook = mtf.MtfRestoreHook(lowering)
-
         if run_mode == 'train':
 
             # Creates train_op
@@ -345,16 +342,24 @@ def get_model_fn(params: ModelParameter, run_mode):
 
             with mtf.utils.outside_all_rewrites():
 
-                saver = tf.train.Saver(tf.global_variables(), save_relative_paths=True)
-                tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
+                hooks = [mtf.MtfRestoreHook(lowering)]
+                if params.use_checkpointing:
+                    saver = tf.train.Saver(
+                        tf.global_variables(),
+                        sharded=True,
+                        max_to_keep=10,
+                        keep_checkpoint_every_n_hours=2,
+                        defer_build=False,
+                        save_relative_paths=True)
+                    tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
 
-                saver_listener = mtf.MtfCheckpointSaverListener(lowering)
-                slice_to_master_hook = tf.train.CheckpointSaverHook(
-                    params.model_path,
-                    save_steps=params.steps_per_checkpoint,
-                    saver=saver, listeners=[saver_listener])
+                    hooks.append(tf.train.CheckpointSaverHook(
+                        params.model_path,
+                        save_steps=params.steps_per_checkpoint,
+                        saver=saver,
+                        listeners=[mtf.MtfCheckpointSaverListener(lowering)]))
 
-                captured_hooks.capture([master_to_slice_hook, slice_to_master_hook])
+                captured_hooks.capture(hooks)
 
                 return tf.group([tf_loss] + tf_update_ops)
 
@@ -363,9 +368,81 @@ def get_model_fn(params: ModelParameter, run_mode):
             predictions = [tf.cast(predictions[key], tf.float32) for key in predictions.keys()]
             predictions_dtypes = [pred.dtype for pred in predictions]
             predictions_shapes = [pred.shape for pred in predictions]
-            captured_hooks.capture([master_to_slice_hook, None])
+            captured_hooks.capture([mtf.MtfRestoreHook(lowering), None])
             captured_output_dtypes_shapes.capture([predictions_dtypes, predictions_shapes])
 
             return tpu_ops.outfeed_enqueue_tuple(predictions)
 
-    return model_fn, captured_hooks, captured_output_dtypes_shapes
+    simd_input_reader = SimdMeshImplInputReader(params.mesh_impl, input_fn,
+                                                params.input_pipeline_shape,
+                                                external_worker=True,
+                                                is_eval_mode=run_mode == 'sample')
+
+    computation = tpu.replicate(computation=model_fn,
+                                inputs=[[]] * params.num_cores,
+                                infeed_queue=simd_input_reader.infeed_queue,
+                                device_assignment=params.d_assignment)
+
+    if run_mode == 'sample':
+        output_dtypes, output_shapes = captured_output_dtypes_shapes.get()
+        outfeed_dequeue_ops = []
+
+        # Create outfeed_dequeue_ops.
+        for host_id in range(params.num_hosts):
+            # pylint: disable=protected-access
+            with ops.device(_host_id_to_tf_device(host_id, external_worker=True)):
+                for device_ordinal in range(params.num_cores_per_host):
+                    outfeed_dequeue_op = tpu_ops.outfeed_dequeue_tuple(
+                        dtypes=output_dtypes,
+                        shapes=output_shapes,
+                        device_ordinal=device_ordinal)
+
+                    # We don't need output other than from core 0.
+                    if outfeed_dequeue_ops:
+                        outfeed_dequeue_ops.append([tf.reduce_mean(x) for x in outfeed_dequeue_op])
+                    else:
+                        outfeed_dequeue_ops.append(outfeed_dequeue_op)
+
+    if run_mode == 'train':
+
+        slice_hook = [hook for hook in captured_hooks.get()]
+        ckpt_loader_hook = _CkptLoaderHook(params.model_path)
+        step_counter_hook = tf.train.StepCounterHook(every_n_steps=10)
+        all_hooks = [ckpt_loader_hook, step_counter_hook] + slice_hook
+
+        # if params.write_summary:
+        flush_summary = summary.flush()
+
+        with tf.train.MonitoredTrainingSession(master=tpu_cluster_resolver.master(),
+                                               hooks=all_hooks, config=session_config) as sess:
+            simd_input_reader.start_infeed_thread(sess)
+            summary.initialize(session=sess)
+
+            current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params.model_path))
+            while current_step < params.train_steps:
+                sess.run(computation)
+                sess.run(flush_summary)
+
+                tf.logging.info('train steps: {}'.format(current_step))
+
+                _current_step = current_step
+                current_step += 1
+
+                yield _current_step
+
+    else:  # run_mode == 'sample'
+
+        slice_hook = [hook for hook in captured_hooks.get()]
+        ckpt_loader_hook = _CkptLoaderHook(params.model_path)
+        all_hooks = [ckpt_loader_hook, slice_hook[0]]
+
+        with tf.train.MonitoredSession(
+                session_creator=tf.train.ChiefSessionCreator(master=tpu_cluster_resolver.master(),
+                                                             config=session_config),
+                hooks=all_hooks) as sess:
+
+            simd_input_reader.start_infeed_thread(sess)
+
+            while True:
+                sess.run(computation)
+                yield sess.run(outfeed_dequeue_ops)[0]

@@ -487,10 +487,7 @@ class SimdMeshImplInputReader(object):
             loop. Default is 0.5.
         """
 
-        print('sess:', sess)
-
         def _thread_fn():
-            print('sess in _thred_fn:', sess)
             time.sleep(initial_wait_sec)
             if number_steps > 0:
                 for _ in range(number_steps):

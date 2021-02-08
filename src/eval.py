@@ -82,33 +82,30 @@ def process_video_output(out_frame: np.ndarray, params: ModelParameter) -> np.nd
     return out_frame
 
 
-def gen_sample(estimator: estimator_lib, params: ModelParameter):
-
-    pred_input_fn = partial(dataset, step=0)
-    predict_estimator = estimator.predict(input_fn=pred_input_fn)
+def gen_sample(computation, params: ModelParameter):
 
     for sample_idx in range(params.num_of_sample):
-        out = next(predict_estimator)
+        out = next(computation)
         print('sample_idx:', sample_idx)
 
-        frame_out = out['frame_out']
+        frame_out = out[0][0]
 
         frame_out = process_video_output(frame_out, params)
 
         if params.use_language:
-            token_out = process_token_output(out['token_out'], params.padding_token)
+            token_out = process_token_output(out[2][0], params.padding_token)
         else:
             token_out = None
 
         render_input = []
 
         if not params.use_autoregressive_sampling:
-            frame_inp = out['frame_inp']
+            frame_inp = out[1][0]
             frame_inp = frame_inp[1:params.time_patch_size + 1]
             frame_inp = process_video_output(frame_inp, params)
 
             if params.use_language:
-                token_inp = process_token_output(out['token_inp'], params.padding_token, False)
+                token_inp = process_token_output(out[3][0], params.padding_token, False)
             else:
                 token_inp = None
 
