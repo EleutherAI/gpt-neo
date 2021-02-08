@@ -615,8 +615,8 @@ def computation_func(params: ModelParameter, input_fn, session_config, tpu_clust
                     frame_mask = mtf.ones(params.mesh, [], tf.float32)
                 else:
                     frame_mask = mtf.cast(frame_mask, tf.float32)
-
-                frame_input = mtf.cast(frame_input, tf.float32)
+                if frame_input is not None:
+                    frame_input = mtf.cast(frame_input, tf.float32)
                 video_loss, token_loss, frame_out, token_out = build(params,
                                                                      frame_input,
                                                                      token_x_input,
