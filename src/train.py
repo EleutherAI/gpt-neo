@@ -231,8 +231,6 @@ class SimdMeshImplInputReader(object):
             self.ordered_ordinals.append(d_assignment.tpu_ordinal(replica=physical_pnum, logical_core=0))
             host_device = d_assignment.host_device(replica=physical_pnum)
             host_id = int(host_device.lower().split("/task:")[1].split("/device:")[0])
-            if str(host_id) != host_device:
-                raise ValueError
             self.ordered_hosts.append(host_device)
             self.ordered_host_ids.append(host_id)
 
