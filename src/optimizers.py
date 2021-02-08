@@ -135,7 +135,6 @@ class Adam(Optimizer):
         exp_avg_p2 = weighted_add(self.cast_calculate(exp_avg_p2_ptr), mtf.square(grad), self.beta2)
 
         return [mtf.assign_sub(var,
-                               mtf.reduce_mean(val) +
                                self.learning_rate * exp_avg_p1 * mtf.rsqrt(exp_avg_p2 + self.epsilon)
                                + self.weight_decay_rate * val),
                 mtf.assign(exp_avg_p1_ptr, exp_avg_p1),
