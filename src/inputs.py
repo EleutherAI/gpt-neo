@@ -8,7 +8,7 @@ from itertools import cycle
 
 import tensorflow.compat.v1 as tf
 
-from .dataclass import ModelParameter
+from .dataclass import ModelParameter, align_tensor_op
 
 
 def get_video_decoder(language_token_num_per_frame=0, frame_height=None, frame_width=None, color_channels=None):
@@ -329,7 +329,7 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
         datasets = datasets[0]
 
     datasets = datasets.map(memory_op)
-    datasets = datasets.map(params.align_tensor_op)
+    datasets = datasets.map(align_tensor_op)
     datasets = datasets.skip(step)
 
     return datasets
@@ -406,13 +406,8 @@ def gpt_neo_input(params, step=None, eval=False):
 
     params = ModelParameter(params)
 
-    if not eval:
-        assert step is not None
-
-    logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated."
-                    "Please ensure your batch size stays constant throughout training.")
-
-    batch_size = params.train_batch_size
+    if not eval and step is None:
+        raise ValueError
 
     filenames = []
 
@@ -449,6 +444,7 @@ def gpt_neo_input(params, step=None, eval=False):
     dataset = dataset.shuffle(512, seed=seed)
 
     dataset = dataset.map(_memory_func)
+    dataset = dataset.map(align_tensor_op)
     dataset = dataset.prefetch(params.buffer_size * 2)
 
     options = tf.data.Options()
