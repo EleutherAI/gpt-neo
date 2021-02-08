@@ -138,7 +138,7 @@ class ModelParameter(typing.Dict[str, typing.Any]):
             self.input_pipeline_shape['vid_msk'] = self.frame_mask_shape
             self.input_pipeline_shape['tkn_msk'] = self.token_dim_shape
 
-        self.input_pipeline_shape = self.align_tensor_op(self.input_pipeline_shape)
+        self.input_pipeline_shape = align_tensor_op(self.input_pipeline_shape)
         self.attention_idx = 0
 
     def __getitem__(self, key: str) -> typing.Any:
@@ -171,23 +171,13 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         """
         return self.__dict__
 
-    @staticmethod
-    def align_tensor_op(x):
-        tensors = []
 
-        if 'frame' in x:
-            tensors.append(x['frame'])
-
-        if 'token_x' in x:
-            tensors.append(x['token_x'])
-
-        if 'token_y' in x:
-            tensors.append(x['token_y'])
-
-        if 'vid_msk' in x:
-            tensors.append(x['vid_msk'])
-
-        if 'tkn_msk' in x:
-            tensors.append(x['tkn_msk'])
-
-        return tensors
+def align_tensor_op(x):
+    tensors = []
+    if 'frame' in x:
+        tensors.append(x['frame'])
+    if 'token_x' in x:
+        tensors.extend([x['token_x'], x['token_y']])
+    if 'vid_msk' in x:
+        tensors.extend([x['vid_msk'], x['tkn_msk']])
+    return tensors
