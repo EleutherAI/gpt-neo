@@ -231,25 +231,20 @@ class SM3(Optimizer):
         grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
         rank = var.shape.ndims
-        update_fp16 = self.variable(var, "dim0", [var.shape.dims[0]])
-        update = self.cast_calculate(update_fp16)
-        buffer_fp16 = [update_fp16]
+        update = self.cast_calculate(self.variable(var, "dim0", [var.shape.dims[0]]))
         buffer = [update]
 
         for i in range(1, rank):
-            buffer_fp16.append(self.variable(var, f"dim{i}", [var.shape.dims[i]]))
             buffer.append(self.variable(var, f"dim{i}", [var.shape.dims[i]]))
-            update_fp16 = mtf.minimum(update_fp16, buffer_fp16[-1])
-            update = mtf.minimum(update, buffer[-1])
+            update = mtf.minimum(update, self.cast_calculate(buffer[-1]))
 
         update += mtf.square(grad)
-        update_fp16 += mtf.square(grad_fp16)
 
         return ([mtf.assign_sub(var_ptr,
                                 grad * mtf.rsqrt(update + self.epsilon) * self.learning_rate
                                 + self.weight_decay_rate * val)] +
-                [mtf.assign(buf_ptr, mtf.reduce_max(update_fp16, output_shape=[dim]))
-                 for buf_ptr, dim in zip(buffer_fp16, update_fp16.shape.dims)])
+                [mtf.assign(buf_ptr, mtf.reduce_max(update, output_shape=[dim]))
+                 for buf_ptr, dim in zip(buffer, update.shape.dims)])
 
 
 OPTIMIZERS = {'adam':            Adam,
