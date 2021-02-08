@@ -138,11 +138,11 @@ class Adam(Optimizer):
         exp_avg_p2 = weighted_add(self.cast_calculate(exp_avg_p2_ptr), mtf.square(grad), self.beta2)
 
         return [mtf.assign_sub(var,
-                               mtf.reduce_mean(val)
-                               + self.learning_rate * exp_avg_p1 * mtf.rsqrt(exp_avg_p2 + self.epsilon)
+                               mtf.reduce_mean(val) +
+                               self.learning_rate * exp_avg_p1 * mtf.rsqrt(exp_avg_p2 + self.epsilon)
                                + self.weight_decay_rate * val),
-                mtf.assign(exp_avg_p1_ptr, weighted_add(exp_avg_p1_ptr, grad_fp16, beta1_fp16)),
-                mtf.assign(exp_avg_p2_ptr, weighted_add(exp_avg_p2_ptr, mtf.square(grad_fp16), beta2_fp16))]
+                mtf.assign(exp_avg_p1_ptr, exp_avg_p1),
+                mtf.assign(exp_avg_p2_ptr, exp_avg_p2)]
 
 
 class NovoGrad(Optimizer):
@@ -166,10 +166,7 @@ class NovoGrad(Optimizer):
         exp_avg_p2 = weighted_add(self.cast_calculate(exp_avg_p2), mtf.reduce_sum(mtf.square(grad)), self.beta2)
         update = self.beta1 * exp_avg_p1 + grad * mtf.rsqrt(self.cast_calculate(exp_avg_p2) + self.epsilon)
         exp_avg_p2_fp16 = weighted_add(exp_avg_p2_ptr, mtf.reduce_sum(mtf.square(grad_fp16)), beta2_fp16)
-        return [mtf.assign_sub(var_ptr,
-                               update * self.learning_rate
-                               + mtf.reduce_mean(val)
-                               + self.weight_decay_rate * val),
+        return [mtf.assign_sub(var_ptr, update * self.learning_rate + self.weight_decay_rate * val),
                 mtf.assign(exp_avg_p1_ptr,
                            beta1_fp16 * exp_avg_p1_ptr + grad * mtf.rsqrt(exp_avg_p2_fp16 + self.epsilon)),
                 mtf.assign(exp_avg_p2_ptr, exp_avg_p2_fp16)]
@@ -196,9 +193,7 @@ class FactorizedAdam(Optimizer):
             updates.extend([mtf.assign(p1_ptr, p1_fp16), mtf.assign(p2_ptr, p2_fp16)])
             grad_factors.append(p1 * mtf.rsqrt(p2 + self.epsilon))
 
-        updates.append(mtf.assign_sub(var,
-                                      mtf.reduce_mean(val)
-                                      + mtf.add_n(grad_factors) * self.learning_rate / len(grad_factors)))
+        updates.append(mtf.assign_sub(var, mtf.add_n(grad_factors) * self.learning_rate / len(grad_factors)))
         return updates
 
 
@@ -216,7 +211,6 @@ class AdaHessian(Optimizer):
                            val
                            - val * self.weight_decay_rate
                            - self.learning_rate * p1
-                           - mtf.reduce_mean(val)
                            * mtf.rsqrt(p2 / (1 - mtf.pow(self.beta2, self.global_step)) + self.epsilon)
                            / (1 - mtf.pow(self.beta1, self.global_step))),
                 mtf.assign(p1_ptr, p1),
@@ -253,7 +247,6 @@ class SM3(Optimizer):
 
         return ([mtf.assign_sub(var_ptr,
                                 grad * mtf.rsqrt(update + self.epsilon) * self.learning_rate
-                                + mtf.reduce_mean(val)
                                 + self.weight_decay_rate * val)] +
                 [mtf.assign(buf_ptr, mtf.reduce_max(update_fp16, output_shape=[dim]))
                  for buf_ptr, dim in zip(buffer_fp16, update_fp16.shape.dims)])
