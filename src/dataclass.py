@@ -78,6 +78,8 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.num_cores_per_host = None
         self.masked_attention_dimensions = [0]
 
+        if hasattr(config, 'dict'):
+            config = config.dict()
         self.__dict__.update(config)
 
         if not self.use_language and not self.use_video:

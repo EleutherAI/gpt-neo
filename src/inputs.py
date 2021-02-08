@@ -406,13 +406,8 @@ def gpt_neo_input(params, step=None, eval=False):
 
     params = ModelParameter(params)
 
-    if not eval:
-        assert step is not None
-
-    logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated."
-                    "Please ensure your batch size stays constant throughout training.")
-
-    batch_size = params.train_batch_size
+    if not eval and step is None:
+        raise ValueError
 
     filenames = []
 
