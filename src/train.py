@@ -519,15 +519,13 @@ def computation_func(params: ModelParameter, input_fn, session_config, tpu_clust
                 token_mask = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[4]]),
                                                         params.token_dim_shape, "tkn_msk")
 
-        elif params.use_language and False:
+        elif params.use_language:
 
             token_x_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[0]]),
                                                        params.token_dim_shape, "tkn_src")
             token_y_input = mtf.import_laid_out_tensor(mesh, params.mesh_impl.LaidOutTensor([args[1]]),
                                                        params.token_dim_shape, "tkn_tgt")
 
-        else:
-            raise ValueError("use_video and use_language is both False.")
 
         if run_mode == 'sample' and params.use_autoregressive_sampling:
             sequence_dim = mtf.Dimension("sequence", params.time_patch_size)
