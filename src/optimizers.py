@@ -9,7 +9,6 @@ import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 
 from .dataclass import ModelParameter
-from .utils_core import default
 
 
 def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
@@ -43,7 +42,6 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     beta1 = _import_constant("beta1", 0.9)
     beta2 = _import_constant("beta2", 0.95)
     mtf.scalar_summary("learning_rate", learning_rate)
-
     adam = Adam(params, learning_rate, params.weight_decay, beta1, beta2)
     if params.optimizer not in OPTIMIZERS:
         raise ValueError(f'Unknown optimizer "{params.optimizer}". Supported optimizers: {list(OPTIMIZERS.keys())}')
@@ -264,6 +262,6 @@ class SM3(Optimizer):
 OPTIMIZERS = {'adam':            Adam,
               'novograd':        NovoGrad,
               'sm3':             SM3,
-              'factorized_adam': FactorizedAdam
+              'factorized_adam': FactorizedAdam,
+              'sgd':             mtf.optimize.SgdOptimizer
               }
-
