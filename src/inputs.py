@@ -142,7 +142,7 @@ def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
 
         x = tf.reshape(x, (time_patch_size + 1, language_token_per_frame - 1))
         x = tf.cast(x, tf.int32)
-        x = tf.concat([x, _padding_token], axis=2)
+        x = tf.concat([x, _padding_token], axis=1)
 
         x = tf.reshape(x, (time_patch_size + 1, language_token_patch, token_patch_size))
 
@@ -159,11 +159,10 @@ def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
                                                          frame_height_patch * frame_width_patch,
                                                          channel_color_size))
 
-        #_padding_frame_mask = tf.reshape(_padding_frame_mask, (batch_size, time_patch_size))
         _padding_token_mask = tf.reshape(_padding_token_mask,
                                          (time_patch_size, language_token_patch, token_patch_size))
 
-        return {'token_x': token_x, 'token_y': token_y, 'frame': _padding_frame,
+        return {'frame': _padding_frame, 'token_x': token_x, 'token_y': token_y,
                 'vid_msk': _padding_frame_mask, 'tkn_msk': _padding_token_mask}
 
     path = tf.io.gfile.glob(path)
@@ -262,7 +261,7 @@ def dataset_video(path: str, params: ModelParameter):
             token_mask = tf.reshape(token_mask, (time_patch_size, language_token_patch, token_patch_size))
             token_mask = tf.cast(token_mask, tf.bool)
 
-        return {k: v for k, v in {'frame':   out_frame / 255, 'token_x': token_x, 'token_y': token_y,
+        return {k: v for k, v in {'frame':   out_frame, 'token_x': token_x, 'token_y': token_y,
                                   'vid_msk': frame_mask, 'tkn_msk': token_mask}.items() if v is not None}
 
     if language_token_per_frame > 0:
@@ -302,19 +301,12 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
     #params = ModelParameter(params)
 
     def memory_op(x):
-        x['frame'] = tf.cast(x['frame'], tf.float32)
+        x['frame'] = tf.cast(x['frame'], tf.float32) / 255
 
         return x
 
-    weights = [set['weight'] for set in params.dataset_configs]
+    weights = []
     datasets = []
-    batch_size = params.train_batch_size if train else 1
-
-    assert batch_size % sum(weights) == 0, f"The batch size needs to be divisible by the sum of all weights. " \
-                                           f"The batch size {batch_size} is not divisible by the sum of " \
-                                           f"{weights} is not."
-
-    weight_multi = batch_size // sum(weights)
 
     for set in params.dataset_configs:
         dtype = set['type']
@@ -322,38 +314,24 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
         weight = set['weight']
 
         assert dtype == 'video' or dtype == 'text', \
-            f"{dtype} is not a supported option for type for a dataset."
+            "{} is not a supported option for type for a dataset.".format(dtype)
 
         if dtype == 'video':
             datasets.append(dataset_video(path, params))
         elif dtype == 'text':
             datasets.append(dataset_text(path, params))
 
-    datasets = datasets[0]
+        weights.append(weight)
 
-    datasets = datasets.prefetch(params.buffer_size)
+    if len(datasets) > 1:
+        weights = tf.convert_to_tensor(weights, dtype=tf.float32)
+        datasets = tf.data.experimental.sample_from_datasets(datasets, weights=weights, seed=params.data_seed)
+    else:
+        datasets = datasets[0]
+
     datasets = datasets.map(memory_op)
     datasets = datasets.map(params.align_tensor_op)
-
     datasets = datasets.skip(step)
-
-    options = tf.data.Options()
-    options.experimental_optimization.autotune = True
-    options.experimental_optimization.autotune_buffers = True
-    options.experimental_optimization.filter_fusion = True
-    options.experimental_optimization.hoist_random_uniform = True
-    options.experimental_optimization.map_and_batch_fusion = True
-    options.experimental_optimization.map_and_filter_fusion = False
-    options.experimental_optimization.map_fusion = True
-    options.experimental_optimization.map_parallelization = True
-    options.experimental_optimization.map_vectorization.enabled = True
-    options.experimental_optimization.map_vectorization.use_choose_fastest = True
-    options.experimental_optimization.noop_elimination = True
-    options.experimental_optimization.parallel_batch = True
-    options.experimental_optimization.shuffle_and_repeat_fusion = True
-    options.experimental_optimization.apply_default_optimizations = False
-
-    datasets = datasets.with_options(options)
 
     return datasets
 
