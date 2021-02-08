@@ -285,7 +285,7 @@ class SimdMeshImplInputReader(object):
         # For each sub-batch, we need to know which host should read it.
         if self._is_eval_mode:
             # There should be just one dataset-holding host. Make the last host do it.
-            hosts_to_hold_ds = [self._p_dev.num_hosts - 1]
+            hosts_to_hold_ds = [self.num_hosts - 1]
         else:
             hosts_to_hold_ds = self._get_hosts_to_hold_ds(pnum_maps[0])
         sub_batch_size = batch_size // len(hosts_to_hold_ds)
@@ -312,7 +312,7 @@ class SimdMeshImplInputReader(object):
 
         # Slots for all laidout tensors.
         all_laidout_tensors = [[_NO_DATA] * len(self._mtf_input_shapes) \
-                               for _ in range(self._p_dev.num_cores)]
+                               for _ in range(self.num_cores)]
 
         # Read tf_tensors, put them in slots.
         for sub_batch_slicer in sub_batch_slicer_list:
@@ -344,14 +344,14 @@ class SimdMeshImplInputReader(object):
                 mtf_shape.to_integer_list, s_shape)]
 
         pnum_map_shape = shape_list + [
-                self._p_dev.num_cores // np.prod(shape_list)]
-        assert np.prod(pnum_map_shape) == self._p_dev.num_cores
+                self.num_cores // np.prod(shape_list)]
+        assert np.prod(pnum_map_shape) == self.num_cores
 
         # Initialize the pnum_map to _NONE_PNUM.
         pnum_map = np.empty(pnum_map_shape, dtype=object)
         pnum_map[:] = _NONE_PNUM
 
-        for pnum in range(self._p_dev.num_cores):
+        for pnum in range(self.num_cores):
             s_begin = self._simd_mesh_impl.slice_begin(mtf_shape, pnum)
             coord = [dim_size // s_dim_size for dim_size, s_dim_size in zip(
                     s_begin, s_shape)]
@@ -371,15 +371,15 @@ class SimdMeshImplInputReader(object):
         assert _NONE_PNUM not in pnum_map
 
         # This records how many datasets (ds) are already stored on each host.
-        num_dss_per_host = [0] * self._p_dev.num_hosts
+        num_dss_per_host = [0] * self.num_hosts
 
         # A list of host_ids that holds datasets (ds).
         hosts_to_hold_ds = []
 
         def _get_num_pnums_per_host(sub_batch_pnum_map):
-            num_pnums_per_host = [0] * self._p_dev.num_hosts
+            num_pnums_per_host = [0] * self.num_hosts
             for pnum in sub_batch_pnum_map.flatten():
-                num_pnums_per_host[self._p_dev.ordered_host_ids[pnum]] += 1
+                num_pnums_per_host[self.ordered_host_ids[pnum]] += 1
             return num_pnums_per_host
 
         def _find_host_id_with_most_pnums_and_least_ds(num_pnums_per_host,
@@ -387,7 +387,7 @@ class SimdMeshImplInputReader(object):
             host_metics = [(
                     host_id, num_pnums_per_host[host_id],
                     num_dss_per_host[host_id]) \
-                    for host_id in range(self._p_dev.num_hosts)]
+                    for host_id in range(self.num_hosts)]
             # Major max key: num_pnums
             # Minor max key: -num_dss. We need to find a relatively spare host.
             host_id, _, _ = max(host_metics, key=lambda keys: (keys[1], -keys[2]))
@@ -406,10 +406,10 @@ class SimdMeshImplInputReader(object):
         """Generate enqueue ops to enqueue all_laidout_tensors."""
 
         def _tpu_ordinal_function_impl(pnum):
-            return self._p_dev.ordered_ordinals[pnum]
+            return self.ordered_ordinals[pnum]
 
         def _placement_function_impl(pnum):
-            return self._p_dev.ordered_hosts[pnum]
+            return self.ordered_hosts[pnum]
 
         laidout_tensors0 = all_laidout_tensors[0]
         infeed_queue = tpu_feed.InfeedQueue(
