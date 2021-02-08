@@ -142,6 +142,10 @@ class Adam(Optimizer):
                 mtf.assign(exp_avg_p2_ptr, exp_avg_p2)]
 
 
+class SGD(Optimizer):
+    def apply_grad(self, grad, var):
+        return [mtf.assign_sub(var, grad * self.learning_rate)]
+
 class NovoGrad(Optimizer):
     def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
         """
@@ -248,5 +252,5 @@ OPTIMIZERS = {'adam':            Adam,
               'novograd':        NovoGrad,
               'sm3':             SM3,
               'factorized_adam': FactorizedAdam,
-              'sgd':             mtf.optimize.SgdOptimizer
+              'sgd':             SGD
               }
