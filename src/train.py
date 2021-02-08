@@ -185,13 +185,13 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
         def body_fn(position, frame_input, token_x_input, token_y_input, frame_mask, token_mask, *states):
             with tf.variable_scope('jannet'):
                 if token_mask is None:
-                    token_mask = mtf.ones(params.mesh, [], params.dtype)
+                    token_mask = mtf.ones(params.mesh, [], params.calculation_dtype)
                 else:
-                    token_mask = mtf.cast(token_mask, params.dtype)
+                    token_mask = mtf.cast(token_mask, params.calculation_dtype)
                 if frame_mask is None:
-                    frame_mask = mtf.ones(params.mesh, [], params.dtype)
+                    frame_mask = mtf.ones(params.mesh, [], params.calculation_dtype)
                 else:
-                    frame_mask = mtf.cast(frame_mask, params.dtype)
+                    frame_mask = mtf.cast(frame_mask, params.calculation_dtype)
                 video_loss, _, frame_out, token_out = build(params,
                                                             frame_input,
                                                             token_x_input,
@@ -251,13 +251,13 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
     else:
         with mtf.utils.outside_all_rewrites(), tf.variable_scope('jannet'):
             if token_mask is None:
-                token_mask = mtf.ones(params.mesh, [], params.dtype)
+                token_mask = mtf.ones(params.mesh, [], params.calculation_dtype)
             else:
-                token_mask = mtf.cast(token_mask, params.dtype)
+                token_mask = mtf.cast(token_mask, params.calculation_dtype)
             if frame_mask is None:
-                frame_mask = mtf.ones(params.mesh, [], params.dtype)
+                frame_mask = mtf.ones(params.mesh, [], params.calculation_dtype)
             else:
-                frame_mask = mtf.cast(frame_mask, params.dtype)
+                frame_mask = mtf.cast(frame_mask, params.calculation_dtype)
             video_loss, token_loss, frame_out, token_out = build(params,
                                                                  frame_input,
                                                                  token_x_input,
@@ -329,13 +329,14 @@ def model_fn(features: typing.Dict[str, tf.Tensor], mode: str, params: typing.Di
     with mtf.utils.outside_all_rewrites():
         hooks = [mtf.MtfRestoreHook(lowering)]
         if params.use_checkpointing:
-            tf.add_to_collection(tf.GraphKeys.SAVERS, tf.train.Saver(
+            saver = tf.train.Saver(
                     tf.global_variables(),
                     sharded=True,
                     max_to_keep=10,
                     keep_checkpoint_every_n_hours=2,
                     defer_build=False,
-                    save_relative_paths=True))
+                    save_relative_paths=True)
+            tf.add_to_collection(tf.GraphKeys.SAVERS, saver)
             hooks.append(tf.train.CheckpointSaverHook(
                     params.model_path,
                     save_steps=params.steps_per_checkpoint,

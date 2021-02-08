@@ -4,7 +4,6 @@ Contains a class as a datastore for model parameters
 import typing
 
 import mesh_tensorflow as mtf
-import numpy as np
 import tensorflow.compat.v1 as tf
 
 from .utils_mtf import anonymize_dim
@@ -45,7 +44,8 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.interleaved_datasets = 256
         self.token_patch_size = 4
         self.learning_reate = 5e-5
-        self.dtype = "bfloat16"
+        self.storage_dtype = "float32"
+        self.calculation_dtype = "float32"
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,h:32"
         self.layout = "batch:x,heads:y,height:h"
@@ -67,10 +67,10 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.model_mode = 'jannet'
         self.optimizer = 'adam'
         self.use_revnet = True
-        self.block_config = [{'layer': ["group_normalize", "feed_forward", "rezero"]},
-                             {'layer': ["group_normalize", "group_feed_forward", "rezero"]},
-                             {'layer': ["group_normalize", "context_attention", "rezero"]},
-                             {'layer': ["group_normalize", "positional_attention", "rezero"]}]
+        self.block_config = [{'layer': ["group_instance_norm", "feed_forward", "rezero"]},
+                             {'layer': ["group_instance_norm", "group_feed_forward", "rezero"]},
+                             {'layer': ["group_instance_norm", "context_attention", "rezero"]},
+                             {'layer': ["group_instance_norm", "positional_attention", "rezero"]}]
 
         self.mesh = None
 
@@ -78,8 +78,10 @@ class ModelParameter(typing.Dict[str, typing.Any]):
 
         self.__dict__.update(config)
 
-        if isinstance(self.dtype, str):
-            self.dtype = getattr(tf, self.dtype)
+        if isinstance(self.storage_dtype, str):
+            self.storage_dtype = getattr(tf, self.storage_dtype)
+        if isinstance(self.calculation_dtype, str):
+            self.calculation_dtype = getattr(tf, self.calculation_dtype)
         self.block_config = [BlockConfig(conf) for conf in self.block_config]
         self.time_patch_size = self.n_ctx // self.time_patch
         self.frame_height_patch = self.frame_height // self.patch_size
@@ -93,9 +95,9 @@ class ModelParameter(typing.Dict[str, typing.Any]):
 
         self.feature_dims = self.head_dimensions + [self.key_dim]
 
-        self.intermediate = [mtf.Dimension('_intermediate',
-                                           int(np.prod([dim.size for dim in self.feature_dims])
-                                               * self.intermediate_feed_forward_multiplier))]
+        self.intermediate = [self.head_dim,
+                             anonymize_dim(self.key_dim,
+                                           int(self.key_dim.size * self.intermediate_feed_forward_multiplier))]
 
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
 

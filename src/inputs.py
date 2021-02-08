@@ -309,7 +309,7 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
     params = ModelParameter(params)
 
     def memory_op(x):
-        x['frame'] = tf.cast(x['frame'], tf.float32)
+        x['frame'] = tf.cast(x['frame'], params.calculation_dtype)
         return x
 
     def concat_op(*args):
