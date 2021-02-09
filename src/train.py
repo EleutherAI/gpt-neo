@@ -311,8 +311,7 @@ class SimdMeshImplInputReader(object):
                                  for sub_batch_i, host_id in enumerate(hosts_to_hold_ds)]
 
         # Slots for all laidout tensors.
-        all_laidout_tensors = [[_NO_DATA] * len(self._mtf_input_shapes) \
-                               for _ in range(self.num_cores)]
+        all_laidout_tensors = [[_NO_DATA] * len(self._mtf_input_shapes) for _ in range(self.num_cores)]
 
         # Read tf_tensors, put them in slots.
         for sub_batch_slicer in sub_batch_slicer_list:

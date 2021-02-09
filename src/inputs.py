@@ -433,8 +433,8 @@ def gpt_neo_input(params, step=None, eval=False):
         x = tf.reshape(x, ((params.n_ctx // params.token_patch_size) + 1, params.token_patch_size))
         x = tf.cast(x, tf.int32)
 
-        vals1 = x[:, :params.n_ctx]
-        vals2 = x[:, 1:params.n_ctx + 1]
+        vals1 = x[:params.n_ctx]
+        vals2 = x[1:params.n_ctx + 1]
 
         return {'token_x': vals1, 'token_y': vals2}
 
