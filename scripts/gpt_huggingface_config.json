@@ -17,7 +17,7 @@
   },
   "layer_norm_epsilon": 1e-05,
   "model_type": "gpt2",
-  "n_ctx": 1024,
+  "n_ctx": 2048,
   "n_embd": 2048,
   "n_head": 32,
   "n_layer": 24,
