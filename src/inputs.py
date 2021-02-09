@@ -64,7 +64,7 @@ def get_video_decoder(language_token_num_per_frame=0, frame_height=None, frame_w
     return tf.function(frame_decoder, experimental_compile=False)
 
 
-def _text_decoder(name: tf.Tensor, ctx: int, chunk_size: int):
+def _text_decoder(name: tf.Tensor, ctx: int, patch_size: int, chunk_size: int):
     """
     Read a given tfrecord and windowed text dataset out of it.
     :param name: protobuf object to decode
@@ -80,8 +80,8 @@ def _text_decoder(name: tf.Tensor, ctx: int, chunk_size: int):
                 tf.reshape(tf.strings.unicode_decode(text_slice, 'UTF-8'), (-1, 1)))
         if chunk_size > 0:
             data = data.batch(chunk_size)
-        data = data.window(size=ctx + 1, shift=ctx, stride=1, drop_remainder=True)
-        data = data.interleave(lambda x: x.batch(ctx + 1, drop_remainder=True))
+        data = data.window(size=ctx + patch_size, shift=ctx, stride=1, drop_remainder=True)
+        data = data.interleave(lambda x: x.batch(ctx + patch_size, drop_remainder=True))
         return data
 
     return tf.data.TFRecordDataset(filenames=name).interleave(_decode_protobuf)
@@ -162,8 +162,9 @@ def dataset_text(path: str, params: ModelParameter) -> tf.data.Dataset:
         _padding_token_mask = tf.reshape(_padding_token_mask,
                                          (time_patch_size, language_token_patch, token_patch_size))
 
-        return {'frame': _padding_frame, 'token_x': token_x, 'token_y': token_y,
-                'vid_msk': _padding_frame_mask, 'tkn_msk': _padding_token_mask}
+        return {'frame':   _padding_frame, 'token_x': token_x, 'token_y': token_y,
+                'vid_msk': _padding_frame_mask, 'tkn_msk': _padding_token_mask
+                }
 
     path = tf.io.gfile.glob(path)
     random.seed(params.data_seed)
@@ -262,7 +263,8 @@ def dataset_video(path: str, params: ModelParameter):
             token_mask = tf.cast(token_mask, tf.bool)
 
         return {k: v for k, v in {'frame':   out_frame, 'token_x': token_x, 'token_y': token_y,
-                                  'vid_msk': frame_mask, 'tkn_msk': token_mask}.items() if v is not None}
+                                  'vid_msk': frame_mask, 'tkn_msk': token_mask
+                                  }.items() if v is not None}
 
     if language_token_per_frame > 0:
         interleave_func = lambda x, y, z, a: tf.data.Dataset.zip((x, y, z, a)) \
@@ -297,8 +299,6 @@ def dataset(params: ModelParameter, step: int = 0, train: bool = True):
     :param train: is the model in train or sample mode
     :return: tensorflow dataset
     """
-
-    #params = ModelParameter(params)
 
     def memory_op(x):
         x['frame'] = tf.cast(x['frame'], params.calculation_dtype) / 255
@@ -430,8 +430,7 @@ def gpt_neo_input(params, step=None, eval=False):
     dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat()
 
     def _memory_func(x):
-
-        x = tf.reshape(x, (params.n_ctx + 1, 1))
+        x = tf.reshape(x, ((params.n_ctx // params.token_patch_size) + 1, params.token_patch_size))
         x = tf.cast(x, tf.int32)
 
         vals1 = x[:, :params.n_ctx]
@@ -439,7 +438,7 @@ def gpt_neo_input(params, step=None, eval=False):
 
         return {'token_x': vals1, 'token_y': vals2}
 
-    dataset = dataset.interleave(lambda x: _text_decoder(x, params.n_ctx, -1))
+    dataset = dataset.interleave(lambda x: _text_decoder(x, params.n_ctx, params.token_patch_size, -1))
 
     dataset = dataset.shuffle(512, seed=seed)
 
