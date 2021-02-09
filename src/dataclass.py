@@ -4,7 +4,6 @@ Contains a class as a datastore for model parameters
 import typing
 
 import mesh_tensorflow as mtf
-import numpy as np
 import tensorflow.compat.v1 as tf
 
 from .utils_mtf import anonymize_dim
@@ -45,7 +44,8 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.interleaved_datasets = 256
         self.token_patch_size = 4
         self.learning_reate = 5e-5
-        self.dtype = "bfloat16"
+        self.storage_dtype = "float32"
+        self.calculation_dtype = "float32"
         self.train_batch_size = 1
         self.mesh_shape = "x:1,y:1,h:32"
         self.layout = "batch:x,heads:y,height:h"
@@ -67,19 +67,28 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.model_mode = 'jannet'
         self.optimizer = 'adam'
         self.use_revnet = True
-        self.block_config = [{'layer': ["group_normalize", "feed_forward", "rezero"]},
-                             {'layer': ["group_normalize", "group_feed_forward", "rezero"]},
-                             {'layer': ["group_normalize", "context_attention", "rezero"]},
-                             {'layer': ["group_normalize", "positional_attention", "rezero"]}]
+        self.block_config = [{'layer': ["group_instance_norm", "feed_forward", "rezero"]},
+                             {'layer': ["group_instance_norm", "group_feed_forward", "rezero"]},
+                             {'layer': ["group_instance_norm", "context_attention", "rezero"]},
+                             {'layer': ["group_instance_norm", "positional_attention", "rezero"]}]
 
         self.mesh = None
-
+        self.mesh_impl = None
+        self.num_cores = None
+        self.num_cores_per_host = None
         self.masked_attention_dimensions = [0]
 
+        if hasattr(config, 'dict'):
+            config = config.dict()
         self.__dict__.update(config)
 
-        if isinstance(self.dtype, str):
-            self.dtype = getattr(tf, self.dtype)
+        if not self.use_language and not self.use_video:
+            raise ValueError("Language and video mode are disabled. No model can be built.")
+
+        if isinstance(self.storage_dtype, str):
+            self.storage_dtype = getattr(tf, self.storage_dtype)
+        if isinstance(self.calculation_dtype, str):
+            self.calculation_dtype = getattr(tf, self.calculation_dtype)
         self.block_config = [BlockConfig(conf) for conf in self.block_config]
         self.time_patch_size = self.n_ctx // self.time_patch
         self.frame_height_patch = self.frame_height // self.patch_size
@@ -93,12 +102,43 @@ class ModelParameter(typing.Dict[str, typing.Any]):
 
         self.feature_dims = self.head_dimensions + [self.key_dim]
 
-        self.intermediate = [mtf.Dimension('_intermediate',
-                                           int(np.prod([dim.size for dim in self.feature_dims])
-                                               * self.intermediate_feed_forward_multiplier))]
+        self.intermediate = [self.head_dim,
+                             anonymize_dim(self.key_dim,
+                                           int(self.key_dim.size * self.intermediate_feed_forward_multiplier))]
 
         self.vocab_dim = mtf.Dimension("vocab", self.vocab_size)
+        self.batch_dim = mtf.Dimension("batch", self.train_batch_size)
 
+        frame_input_shape = [self.batch_dim, mtf.Dimension("_sequence", self.time_patch_size + 1)]
+
+        if self.three_axes:
+            frame_input_shape = frame_input_shape + [mtf.Dimension("height", self.frame_height_patch),
+                                                     mtf.Dimension("width", self.frame_width_patch)]
+        else:
+            frame_input_shape = frame_input_shape + [
+                    mtf.Dimension("height", self.frame_height_patch * self.frame_width_patch)]
+
+        frame_input_shape = frame_input_shape + [mtf.Dimension("color_channels", self.channel_color_size)]
+        self.frame_input_shape = mtf.Shape(frame_input_shape)
+        self.input_pipeline_shape = {}
+
+        self.sequence_dim = mtf.Dimension("sequence", self.time_patch_size)
+        self.token_dim_shape = mtf.Shape([self.batch_dim,
+                                          self.sequence_dim,
+                                          mtf.Dimension("language_token_patch", self.token_patch_size)])
+        self.frame_mask_shape = mtf.Shape([self.batch_dim, self.sequence_dim])
+
+        if self.use_video:
+            self.input_pipeline_shape['frame'] = self.frame_input_shape
+        if self.use_language:
+            self.input_pipeline_shape['token_x'] = self.token_dim_shape
+            self.input_pipeline_shape['token_y'] = self.token_dim_shape
+        if self.use_language and self.use_video:
+            self.token_dim_shape._dims.insert(2, mtf.Dimension("height", self.language_token_patch))
+            self.input_pipeline_shape['vid_msk'] = self.frame_mask_shape
+            self.input_pipeline_shape['tkn_msk'] = self.token_dim_shape
+
+        self.input_pipeline_shape = align_tensor_op(self.input_pipeline_shape)
         self.attention_idx = 0
 
     def __getitem__(self, key: str) -> typing.Any:
@@ -130,3 +170,14 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         :return: dictionary containing parameters
         """
         return self.__dict__
+
+
+def align_tensor_op(x):
+    tensors = []
+    if 'frame' in x:
+        tensors.append(x['frame'])
+    if 'token_x' in x:
+        tensors.extend([x['token_x'], x['token_y']])
+    if 'vid_msk' in x:
+        tensors.extend([x['vid_msk'], x['tkn_msk']])
+    return tensors
