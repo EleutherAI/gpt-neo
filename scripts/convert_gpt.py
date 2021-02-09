@@ -24,6 +24,7 @@ def load_tf_weights_in_gpt2(model, gpt2_checkpoint_path):
         import re
 
         import tensorflow as tf
+        tf.enable_eager_execution()
     except ImportError:
         logger.error(
             "Loading a TensorFlow model in PyTorch, requires TensorFlow to be installed. Please see "
