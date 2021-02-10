@@ -124,13 +124,13 @@ def linear(x, scope, *, nf=None, w_init_stdev=0.02, variable_dtype, params=None,
     with tf.variable_scope("conv1d_main"):
         
         c = mtf.einsum([x, 
-                        mtf.get_variable(mesh, scope, old_features+new_features,
+                        mtf.get_variable(x.mesh, scope, old_features+new_features,
                                          initializer=tf.random_normal_initializer(stddev=w_init_stdev),
                                          master_dtype=variable_dtype.master_dtype,
                                          slice_dtype=variable_dtype.slice_dtype,
                                          activation_dtype=variable_dtype.activation_dtype)
                        ], old_shape)
-        c += mtf.get_variable(mesh, scope, old_features,
+        c += mtf.get_variable(x.mesh, scope, old_features,
                               master_dtype=variable_dtype.master_dtype,
                               slice_dtype=variable_dtype.slice_dtype,
                               activation_dtype=variable_dtype.activation_dtype)
