@@ -579,8 +579,11 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         h += pos_emb
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
-
+    original_shape = h.shape
+    h = mtf.reshape(h, h.shape[:-1] + [mtf.Dimension("heads", params["n_head"]), mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"])])
+    
     for layer in range(params["n_layer"]):
+    
         # attn blocks
         share_parameters = exists(params["share_parameters"]) and params["share_parameters"] == True
         block_scope = f"h{layer}" if not share_parameters else ""
@@ -596,7 +599,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         recompute_grad = params["recompute_grad"] and (params["mode"] == "train") == True
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
-
+    h = mtf.reshape(h, original_shape)
     no_weight_tie_emb = params["no_weight_tie"] == True
     if no_weight_tie_emb:
         with tf.variable_scope("wte_final_linear"):
