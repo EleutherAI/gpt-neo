@@ -25,8 +25,9 @@ def is_incremental_inference(context):
 
 
 def norm(x, axis, epsilon=1e-8):
-    x -= mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
-    s = mtf.reduce_mean(mtf.square(x), reduced_dim=axis, name="norm_reduce_mean_s")
+    s = x.shape - axis
+    x -= mtf.reduce_mean(x, output_shape=s, name="norm_reduce_mean_u")
+    s = mtf.reduce_mean(mtf.square(x), output_shape=s, name="norm_reduce_mean_s")
     return x * mtf.rsqrt(s + epsilon)
 
 
@@ -38,7 +39,7 @@ def rezero(x, scope, dtype):
 
 def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=None):
     if axis is sentinel:
-        axis = x.shape[-1]
+        axis = x.shape[-2:]
 
     with tf.variable_scope(scope):
         g = mtf.get_variable(x.mesh, "g", [], initializer=tf.constant_initializer(1),
@@ -54,16 +55,16 @@ def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
 def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
     if axis is sentinel:
-        axis = x.shape[-1]
+        axis = x.shape[-2:]
 
     with tf.variable_scope(scope):
-        n_state = x.shape[-1]
+        n_state = x.shape[-2:]
 
-        g = mtf.get_variable(x.mesh, "g", [n_state], initializer=tf.constant_initializer(1),
+        g = mtf.get_variable(x.mesh, "g", n_state, initializer=tf.constant_initializer(1),
                              master_dtype=variable_dtype.master_dtype,
                              slice_dtype=variable_dtype.slice_dtype,
                              activation_dtype=variable_dtype.activation_dtype)
-        b = mtf.get_variable(x.mesh, "b", [n_state], initializer=tf.constant_initializer(0),
+        b = mtf.get_variable(x.mesh, "b", n_state, initializer=tf.constant_initializer(0),
                              master_dtype=variable_dtype.master_dtype,
                              slice_dtype=variable_dtype.slice_dtype,
                              activation_dtype=variable_dtype.activation_dtype)
