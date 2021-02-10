@@ -189,9 +189,9 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             variable_dtype=variable_dtype
         )
           
-        q = linear(x, "q")
-        k = linear(x, "k")
-        v = linear(x, "v")
+        q = linear(x, "q", variable_dtype=variable_dtype)
+        k = linear(x, "k", variable_dtype=variable_dtype)
+        v = linear(x, "v", variable_dtype=variable_dtype)
 
         if is_incremental_inference(context):
             one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
