@@ -21,12 +21,12 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     :return: scalar learning rate, update operations, gradients
     """
     global_step = tf.train.get_or_create_global_step()
-    dtype = params.calculation_dtype
-    learning_rate = tf.constant(value=params.learning_reate, shape=[], dtype=tf.float32)
+    dtype = params.variable_dtype.activation_dtype
+    learning_rate = tf.constant(value=params.learning_rate, shape=[], dtype=tf.float32)
     global_steps_float = tf.cast(global_step, tf.float32)
     # Cast to full precision
     learning_rate = tf.train.cosine_decay(learning_rate, global_step, params.train_steps, alpha=0.1)
-    # Alpha is min learning_reate value as a fraction of init learning_reate.
+    # Alpha is min learning_rate value as a fraction of init learning_rate.
     if params.warmup_steps > 0:
         warmup_steps_float = tf.constant(params.warmup_steps, dtype=tf.float32)
         is_warmup = tf.cast(global_steps_float < warmup_steps_float, tf.float32)
@@ -95,7 +95,7 @@ def weighted_add(left, right, alpha):
 
 def get_variable(params: ModelParameter, var, name, shape):
     return mtf.get_variable(var.mesh, name, shape,
-                            initializer=tf.zeros_initializer(), trainable=False, dtype=params.storage_dtype)
+                            initializer=tf.zeros_initializer(), trainable=False, dtype=params.variable_dtype)
 
 
 class Optimizer(mtf.optimize.Optimizer):
@@ -116,8 +116,7 @@ class Optimizer(mtf.optimize.Optimizer):
                                                        tf.cast(tf.train.get_or_create_global_step(),
                                                                params.calculation_dtype),
                                                        [], "global_steps_float")
-        self.cast_storage = lambda x: mtf.cast(x, params.storage_dtype)
-        self.cast_calculate = lambda x: mtf.cast(x, params.calculation_dtype)
+        self.get_value = lambda x: mtf.cast(x.value, params.calculation_dtype)
         self.variable = lambda x, y, z: get_variable(params, x, f"{x.name}/{params.optimizer}/{y}", z)
 
 
@@ -126,13 +125,12 @@ class Adam(Optimizer):
 
     def apply_grad(self, grad, var):
         """See base class."""
-        val = self.cast_calculate(var.value)
-        grad = self.cast_calculate(grad)
+        val = self.get_value(var)
         exp_avg_p1_ptr = self.variable(var, 'exp_avg_p1', var.shape)
         exp_avg_p2_ptr = self.variable(var, 'exp_avg_p2', var.shape)
 
-        exp_avg_p1 = weighted_add(self.cast_calculate(exp_avg_p1_ptr), grad, self.beta1)
-        exp_avg_p2 = weighted_add(self.cast_calculate(exp_avg_p2_ptr), mtf.square(grad), self.beta2)
+        exp_avg_p1 = weighted_add(exp_avg_p1_ptr, grad, self.beta1)
+        exp_avg_p2 = weighted_add(exp_avg_p2_ptr, mtf.square(grad), self.beta2)
 
         return [mtf.assign_sub(var,
                                self.learning_rate * exp_avg_p1 * mtf.rsqrt(exp_avg_p2 + self.epsilon)
@@ -145,6 +143,7 @@ class SGD(Optimizer):
     def apply_grad(self, grad, var):
         return [mtf.assign_sub(var, grad * self.learning_rate)]
 
+
 class NovoGrad(Optimizer):
     def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
         """
@@ -154,43 +153,28 @@ class NovoGrad(Optimizer):
         :param var: Variable to be updates
         :return: Update operations for variable and buffers
         """
-        val = self.cast_calculate(var.value)
-        grad = mtf.cast(grad, self.learning_rate.dtype)
-        grad_fp16 = self.cast_storage(grad)
-        beta1_fp16 = self.cast_storage(self.beta1)
-        beta2_fp16 = self.cast_storage(self.beta2)
-        var_ptr = var
         exp_avg_p1 = exp_avg_p1_ptr = self.variable(var, "exp_avg_p1", var.shape)
         exp_avg_p2 = exp_avg_p2_ptr = self.variable(var, "exp_avg_p1", [])
 
-        exp_avg_p2 = weighted_add(self.cast_calculate(exp_avg_p2), mtf.reduce_sum(mtf.square(grad)), self.beta2)
-        update = self.beta1 * exp_avg_p1 + grad * mtf.rsqrt(self.cast_calculate(exp_avg_p2) + self.epsilon)
-        exp_avg_p2_fp16 = weighted_add(exp_avg_p2_ptr, mtf.reduce_sum(mtf.square(grad_fp16)), beta2_fp16)
-        return [mtf.assign_sub(var_ptr, update * self.learning_rate + self.weight_decay_rate * val),
-                mtf.assign(exp_avg_p1_ptr,
-                           beta1_fp16 * exp_avg_p1_ptr + grad * mtf.rsqrt(exp_avg_p2_fp16 + self.epsilon)),
-                mtf.assign(exp_avg_p2_ptr, exp_avg_p2_fp16)]
+        exp_avg_p2 = weighted_add(exp_avg_p2, mtf.reduce_sum(mtf.square(grad)), self.beta2)
+        update = self.beta1 * exp_avg_p1 + grad * mtf.rsqrt(exp_avg_p2 + self.epsilon)
+        return [mtf.assign_sub(var, update * self.learning_rate + self.weight_decay_rate * self.get_value(var)),
+                mtf.assign(exp_avg_p1_ptr, self.beta1 * exp_avg_p1_ptr + grad * mtf.rsqrt(exp_avg_p2 + self.epsilon)),
+                mtf.assign(exp_avg_p2_ptr, exp_avg_p2)]
 
 
 class FactorizedAdam(Optimizer):
     def apply_grad(self, grad, var):
-        val = self.cast_calculate(var.value)
         updates = []
         grad_factors = []
-        grad_fp16 = self.cast_storage(grad)
-        beta1_fp16 = self.cast_storage(self.beta1)
-        beta2_fp16 = self.cast_storage(self.beta2)
 
         for idx, dim in enumerate(var.shape.dims):
             dim = [dim]
             p1_ptr = self.variable(var, f"dim{idx}_p1", dim)
             p2_ptr = self.variable(var, f"dim{idx}_p2", dim)
-            p1 = weighted_add(self.cast_calculate(p1_ptr), mtf.reduce_mean(grad, output_shape=dim), self.beta1)
-            p2 = weighted_add(self.cast_calculate(p2_ptr), mtf.reduce_mean(mtf.square(grad), output_shape=dim),
-                              self.beta2)
-            p1_fp16 = weighted_add(p1_ptr, mtf.reduce_mean(grad_fp16, output_shape=dim), beta1_fp16)
-            p2_fp16 = weighted_add(p2_ptr, mtf.reduce_mean(mtf.square(grad_fp16), output_shape=dim), beta2_fp16)
-            updates.extend([mtf.assign(p1_ptr, p1_fp16), mtf.assign(p2_ptr, p2_fp16)])
+            p1 = weighted_add(p1_ptr, mtf.reduce_mean(grad, output_shape=dim), self.beta1)
+            p2 = weighted_add(p2_ptr, mtf.reduce_mean(mtf.square(grad), output_shape=dim), self.beta2)
+            updates.extend([mtf.assign(p1_ptr, p1), mtf.assign(p2_ptr, p2)])
             grad_factors.append(p1 * mtf.rsqrt(p2 + self.epsilon))
 
         updates.append(mtf.assign_sub(var, mtf.add_n(grad_factors) * self.learning_rate / len(grad_factors)))
@@ -199,7 +183,7 @@ class FactorizedAdam(Optimizer):
 
 class AdaHessian(Optimizer):
     def apply_grad(self, grad: mtf.Tensor, var: mtf.Variable):
-        val = self.cast_calculate(var.value)
+        val = self.get_value(var)
         hess = grad
         uniform = mtf.cast(mtf.greater(mtf.random_uniform(var.mesh, var.shape), 0.5), var.dtype) * 2 - 1
         mtf.reduce_sum(uniform * grad)
@@ -226,17 +210,15 @@ class SM3(Optimizer):
         :param var: Variable to be updates
         :return: Update operations for variable and buffers
         """
-        val = self.cast_calculate(var.value)
-        grad_fp16 = self.cast_storage(grad)
-        grad = mtf.cast(grad, self.learning_rate.dtype)
+        val = self.get_value(var)
         var_ptr = var
         rank = var.shape.ndims
-        update = self.cast_calculate(self.variable(var, "dim0", [var.shape.dims[0]]))
+        update = self.variable(var, "dim0", [var.shape.dims[0]])
         buffer = [update]
 
         for i in range(1, rank):
             buffer.append(self.variable(var, f"dim{i}", [var.shape.dims[i]]))
-            update = mtf.minimum(update, self.cast_calculate(buffer[-1]))
+            update = mtf.minimum(update, buffer[-1])
 
         update += mtf.square(grad)
 

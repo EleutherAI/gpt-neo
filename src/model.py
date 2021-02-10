@@ -26,8 +26,8 @@ def _get_attention_dim(params: ModelParameter, block_input: typing.Union[mtf.Ten
 
 def _get_variable(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape],
                   initializer: typing.Callable) -> mtf.Tensor:
-    return mtf.cast(mtf.get_variable(params.mesh, random_name(), deduplicate(shape), dtype=params.storage_dtype,
-                                     initializer=initializer), params.calculation_dtype)
+    return mtf.get_variable(params.mesh, random_name(), deduplicate(shape), dtype=params.variable_dtype,
+                            initializer=initializer)
 
 
 def _orthogonal_var(params: ModelParameter, shape: typing.Union[typing.List[mtf.Dimension], mtf.Shape]) -> mtf.Tensor:
@@ -82,7 +82,7 @@ def _attention(params: ModelParameter, base: mtf.Tensor, key: mtf.Tensor):
     if idx in params.masked_attention_dimensions:  # it's auto-regressive
         lgt += mtf.cast(mtf.less(mtf.broadcast(mtf.range(params.mesh, dim, tf.int32), [dim, tmp]),
                                  mtf.broadcast(mtf.range(params.mesh, tmp, tf.int32), [dim, tmp])),
-                        params.calculation_dtype) * -1e12
+                        params.variable_dtype.activation_dtype) * -1e12
 
     lgt = mtf.exp(lgt - mtf.reduce_max(mtf.stop_gradient(lgt), reduced_dim=tmp))
     out = mtf.einsum([lgt, val], qry.shape) / mtf.reduce_sum(lgt, reduced_dim=tmp)
@@ -218,7 +218,9 @@ def build(params: ModelParameter,
 
     # Language embedding and initial feed forward.
     if params.use_language:
-        txt_src = _linear_to_features(params, mtf.one_hot(txt_src, params.vocab_dim, dtype=params.calculation_dtype),
+        txt_src = _linear_to_features(params,
+                                      mtf.one_hot(txt_src, params.vocab_dim,
+                                                  dtype=params.variable_dtype.activation_dtype),
                                       [params.vocab_dim])
         txt_src = _linear(params, txt_src, [txt_tgt.shape[-1], params.key_dim], [params.key_dim])
 

@@ -43,7 +43,7 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.buffer_size = 4
         self.interleaved_datasets = 256
         self.token_patch_size = 4
-        self.learning_reate = 5e-5
+        self.learning_rate = 5e-5
         self.storage_dtype = "float32"
         self.calculation_dtype = "float32"
         self.train_batch_size = 1
@@ -89,6 +89,7 @@ class ModelParameter(typing.Dict[str, typing.Any]):
             self.storage_dtype = getattr(tf, self.storage_dtype)
         if isinstance(self.calculation_dtype, str):
             self.calculation_dtype = getattr(tf, self.calculation_dtype)
+        self.variable_dtype = mtf.VariableDType(self.storage_dtype, self.calculation_dtype, self.calculation_dtype)
         self.block_config = [BlockConfig(conf) for conf in self.block_config]
         self.time_patch_size = self.n_ctx // self.time_patch
         self.frame_height_patch = self.frame_height // self.patch_size
