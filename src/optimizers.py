@@ -22,11 +22,11 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     """
     global_step = tf.train.get_or_create_global_step()
     dtype = params.variable_dtype.master_dtype
-    learning_rate = tf.constant(value=params.learning_reate, shape=[], dtype=tf.float32)
+    learning_rate = tf.constant(value=params.learning_rate, shape=[], dtype=tf.float32)
     global_steps_float = tf.cast(global_step, tf.float32)
     # Cast to full precision
     learning_rate = tf.train.cosine_decay(learning_rate, global_step, params.train_steps, alpha=0.1)
-    # Alpha is min learning_reate value as a fraction of init learning_reate.
+    # Alpha is min learning_rate value as a fraction of init learning_rate.
     if params.warmup_steps > 0:
         warmup_steps_float = tf.constant(params.warmup_steps, dtype=tf.float32)
         is_warmup = tf.cast(global_steps_float < warmup_steps_float, tf.float32)

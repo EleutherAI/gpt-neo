@@ -43,7 +43,7 @@ class ModelParameter(typing.Dict[str, typing.Any]):
         self.buffer_size = 4
         self.interleaved_datasets = 256
         self.token_patch_size = 4
-        self.learning_reate = 5e-5
+        self.learning_rate = 5e-5
         self.storage_dtype = "float32"
         self.calculation_dtype = "float32"
         self.train_batch_size = 1
