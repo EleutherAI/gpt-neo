@@ -21,7 +21,7 @@ def get_optimizer(mesh: mtf.Mesh, loss: mtf.Tensor, params: ModelParameter
     :return: scalar learning rate, update operations, gradients
     """
     global_step = tf.train.get_or_create_global_step()
-    dtype = params.variable_dtype.master_dtype
+    dtype = params.variable_dtype.activation_dtype
     learning_rate = tf.constant(value=params.learning_rate, shape=[], dtype=tf.float32)
     global_steps_float = tf.cast(global_step, tf.float32)
     # Cast to full precision
@@ -153,7 +153,6 @@ class NovoGrad(Optimizer):
         :param var: Variable to be updates
         :return: Update operations for variable and buffers
         """
-        grad = mtf.cast(grad, self.learning_rate.dtype)
         exp_avg_p1 = exp_avg_p1_ptr = self.variable(var, "exp_avg_p1", var.shape)
         exp_avg_p2 = exp_avg_p2_ptr = self.variable(var, "exp_avg_p1", [])
 
@@ -212,7 +211,6 @@ class SM3(Optimizer):
         :return: Update operations for variable and buffers
         """
         val = self.get_value(var)
-        grad = mtf.cast(grad, self.learning_rate.dtype)
         var_ptr = var
         rank = var.shape.ndims
         update = self.variable(var, "dim0", [var.shape.dims[0]])
