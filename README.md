@@ -104,10 +104,10 @@ Document mode is the default mode.
 
 The below command will tokenize all files in acceptable formats in *base_dir* using gpt2 tokenizer and save them to *output_dir*
 ```
-python3 create_tfrecords.py --mode documents --base_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --minimum_size <min> 
+python3 create_tfrecords.py --mode documents --input_dir <base> --name <name> --output_dir <output> --use_gpt2_tokenizer --minimum_size <min> 
 ```
 
-- `base_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
+- `input_dir`: Defines the folder where your data is located. The script will encode all files present in this folder.
 - `name`: Name of output files will be `name_i.tfrecords` where i is the number of the file.
 - `output_dir`: Where to save the tfrecords to
 - `use_gpt2_tokenizer`: Whether to use the pretrained HuggingFace GPT2 tokenizer, in which case the separator will be set to [50256].
