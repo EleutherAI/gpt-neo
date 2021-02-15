@@ -26,7 +26,7 @@ If applicable, add screenshots to help explain your problem.
 **What hardware are you running on?**
 - Google Colab
 - Google TPU
-- GPU
+- GPU (what type?)
 
 **Additional context**
 Add any other context about the problem here.
