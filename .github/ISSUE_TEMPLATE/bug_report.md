@@ -20,13 +20,15 @@ Steps to reproduce the behavior:
 **Expected behavior**
 A clear and concise description of what you expected to happen.
 
+**Proposed solution**
+If you have an idea for how we can fix this problem, describe it here. 
+
 **Screenshots**
 If applicable, add screenshots to help explain your problem.
 
-**What hardware are you running on?**
-- Google Colab
-- Google TPU
-- GPU (what type?)
+**Environment (please complete the following information):**
+ - GPUs:
+- Configs:
 
 **Additional context**
 Add any other context about the problem here.
