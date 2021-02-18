@@ -8,6 +8,7 @@ import logging
 from itertools import cycle
 from utils import natural_sort
 
+
 def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
     logging.warning("DEPRECATION WARNING: generic_text will be phased out in future versions.")
     i = 0 if not eval else 1
@@ -18,7 +19,8 @@ def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
     for dataset in params["datasets"]:
         dataset_id, stitch, datatype, weight = dataset
 
-        assert dataset_id in params['dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
+        assert dataset_id in params[
+            'dataset_configs'], f'Unknown dataset id {dataset_id} given. Please make sure your dataset ids contain that configuration'
         dataset_config = params['dataset_configs'][dataset_id]
 
         path_key = 'path' if not eval else 'eval_path'
@@ -27,10 +29,10 @@ def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
         datasets.append(text_dataset(
             tf.io.gfile.glob(path),
             params,
-            stitch = stitch,
-            datatype = datatype,
-            batch = False,
-            sample_text_fn = sample_text_fn
+            stitch=stitch,
+            datatype=datatype,
+            batch=False,
+            sample_text_fn=sample_text_fn
         ))
 
         weights.append(weight)
@@ -42,9 +44,10 @@ def generic_text(params, eval=False, sample_text_fn=None, **kwargs):
     dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
     return dataset
 
+
 def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=None):
     seed = params.get('seed', None)
-    deterministic =  seed is not None
+    deterministic = seed is not None
     num_parallel_calls = 1 if deterministic else tf.data.experimental.AUTOTUNE
 
     dataset = tf.data.Dataset.from_tensor_slices(files)
@@ -95,12 +98,12 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
         # Hack-y way to stitch together multiple texts
 
         dataset = dataset.shuffle(1000 * stitch, seed=seed).batch(stitch, drop_remainder=True).map(_stitch_text,
-                                                                                        num_parallel_calls=num_parallel_calls)
+                                                                                                   num_parallel_calls=num_parallel_calls)
 
         # Sample 1024(+1) tokens from the stitched together text
         is_random_documents = datatype == "documents_random"
         if sample_text_fn is not None:
-            _sample_text = partial(sample_text_fn, random_documents = is_random_documents)
+            _sample_text = partial(sample_text_fn, random_documents=is_random_documents)
         else:
             _sample_text = autoregressive_sample_text_random_documents if is_random_documents else autoregressive_sample_text
             _sample_text = partial(_sample_text, params)
@@ -114,6 +117,7 @@ def text_dataset(files, params, stitch, datatype, batch=True, sample_text_fn=Non
 
     return dataset
 
+
 def autoregressive_sample_text(params, x):
     vals1 = x[:params["n_ctx"]]
     vals2 = x[1:params["n_ctx"] + 1]
@@ -124,6 +128,7 @@ def autoregressive_sample_text(params, x):
     vals2 = tf.cast(vals2, dtype=tf.int32)
     return vals1, vals2
 
+
 def autoregressive_sample_text_random_documents(params, x):
     seed = params.get('seed', None)
     s = tf.size(x)
@@ -131,7 +136,8 @@ def autoregressive_sample_text_random_documents(params, x):
     r1 = tf.range(r, r + params["n_ctx"])
     r2 = tf.range(r + 1, (r + 1) + params["n_ctx"])
     r1 = tf.reshape(r1, [params["n_ctx"]])  # Somehow, this makes the compiler happy
-    r2 = tf.reshape(r2, [params["n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
+    r2 = tf.reshape(r2, [params[
+                             "n_ctx"]])  # TPUs want constant sized input, and these reshapes makes it recognize the shape of the input
     vals1 = tf.gather(x, r1)
     vals2 = tf.gather(x, r2)
 
@@ -141,7 +147,8 @@ def autoregressive_sample_text_random_documents(params, x):
     vals2 = tf.cast(vals2, dtype=tf.int32)
     return vals1, vals2
 
-def mlm_sample_text(params, x, random_documents = False):
+
+def mlm_sample_text(params, x, random_documents=False):
     seed = params.get('seed', None)
     ctx_len = params["n_ctx"]
     assert 'mlm_mask_id' in params, 'the key `mlm_mask_id` must be set on your config to do masked language model training, specifying the id of the reserved mask token'
@@ -185,12 +192,14 @@ def mlm_sample_text(params, x, random_documents = False):
     mask_mask &= can_mask
 
     # generate mask for actually replacing the tokens, for allowing a small number of tokens to stay the same
-    replace_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed), 1 - same_token_prob)
+    replace_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed),
+                           1 - same_token_prob)
 
     # randomly replace some tokens with random tokens before masking
     if random_token_prob > 0:
-        random_token_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed), random_token_prob)
-        random_tokens = tf.random.uniform(shape, minval = 1, maxval = num_tokens, dtype = tf.dtypes.int32, seed = seed)
+        random_token_mask = tf.less(tf.random.uniform(shape, minval=0., maxval=1., dtype=tf.float32, seed=seed),
+                                    random_token_prob)
+        random_tokens = tf.random.uniform(shape, minval=1, maxval=num_tokens, dtype=tf.dtypes.int32, seed=seed)
 
         # make sure random tokens do not include illegal token ids specified by `mlm_mask_ignore_ids`
         random_can_mask = tf.not_equal(random_tokens, 0)
@@ -212,7 +221,6 @@ def mlm_sample_text(params, x, random_documents = False):
 
 def pred_input(params, logger, enc=None,
                path_to_prompt=""):
-
     unicorns = "In a shocking finding, scientists discovered a herd of unicorns living in a remote, " \
                "previously unexplored valley, in the Andes Mountains. Even more surprising to the " \
                "researchers was the fact that the unicorns spoke perfect English."
@@ -235,27 +243,52 @@ def pred_input(params, logger, enc=None,
     return dataset
 
 
-def handle_pred_output(predictions, logger, enc, params, out_name="test"):
-    with tf.gfile.Open(f"{out_name}.txt", "w") as f:
-        for i, p in enumerate(predictions):
-            p = p["outputs"]
+def pred_input_batch(params, prompts, enc=None):
+    assert len(prompts) == params['batch_size']
+    batch_prompt = []
+    for prompt in prompts:
+        tokens = encode(enc, prompt)
+        if len(tokens) > params["n_ctx"]:
+            logging.info("The length of your input prompt is longer than the model's context length - truncating input.")
+            tokens = tokens[len(tokens) - params["n_ctx"]:]
+        if len(tokens) < params["n_ctx"]:
+            tokens = tf.pad(tokens, [[0, params["n_ctx"] - len(tokens)]], constant_values=params["padding_id"])
+        batch_prompt.append(tokens)
+    t = tf.stack(batch_prompt)
+    t = tf.broadcast_to(t, [params["batch_size"], params["n_ctx"]])
+    dataset = tf.data.Dataset.from_tensors(t)
 
-            # remove eos + padding ids from output
-            idx = np.argmax(p == params['eos_id'])
-            if idx > 0:
-                p = p[:idx]
-            idx = np.argmax(p == params['padding_id'])
-            if idx > 0:
-                p = p[:idx]
+    def _dummy_labels(x):
+        return x, x
 
-            text = enc.decode(p)
-            f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
-            f.write(text)
-            f.write("\n" + "=" * 80 + "\n")
+    dataset = dataset.map(_dummy_labels)
+    return dataset
 
-            logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
-            logger.info(text)
-            logger.info("\n" + "=" * 80 + "\n")
+
+def handle_pred_output(predictions, logger, enc, params, out_name=None):
+    for i, p in enumerate(predictions):
+        p = p["outputs"]
+
+        # remove eos + padding ids from output
+        idx = np.argmax(p == params['eos_id'])
+        if idx > 0:
+            p = p[:idx]
+        idx = np.argmax(p == params['padding_id'])
+        if idx > 0:
+            p = p[:idx]
+
+        text = enc.decode(p)
+        with tf.gfile.Open(f"{out_name}.txt", "w") as f:
+            if out_name is not None:
+                f.write("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+                f.write(text)
+                f.write("\n" + "=" * 80 + "\n")
+
+                logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
+                logger.info(text)
+                logger.info("\n" + "=" * 80 + "\n")
+        return text
+
 
 def _get_number_of_documents(filename):
     # extracts number of files from a filename formatted "<name>_<num_documents>.tfrecords."
@@ -263,14 +296,17 @@ def _get_number_of_documents(filename):
     match = re.search("_(\d{1,}).tfrecords$", filename)
     return int(match.group(1)) if match is not None else match
 
+
 def _get_number_of_documents_by_iteration(filename):
     # extracts number of files from a tfrecord document in the event it doesn't have metadata in the filename
     # this could be very slow.
-    logging.warning("inputs/sequential_input() found no metadata found in filename - iterating through first tfrecord to find global length")
+    logging.warning(
+        "inputs/sequential_input() found no metadata found in filename - iterating through first tfrecord to find global length")
     count = 0
     for item in tf.io.tf_record_iterator(filename):
         count += 1
     return count
+
 
 def _get_skip_index(all_files, n_batches):
     prev_cumsum = 0
@@ -294,12 +330,14 @@ def _get_skip_index(all_files, n_batches):
             break
     return skip_idx, remainder
 
+
 def _parse_function(example_proto):
     features = {
         "text": tf.VarLenFeature(tf.int64)
     }
     parsed_features = tf.parse_single_example(example_proto, features)
     return tf.sparse.to_dense(parsed_features["text"], parsed_features["text"].dense_shape[0])
+
 
 def sequential_input(params, global_step=None, eval=False):
     """
@@ -323,28 +361,31 @@ def sequential_input(params, global_step=None, eval=False):
     """
     if not eval:
         assert global_step is not None
-    logging.warning("Changing batch size with sequential_input() will result in some data being skipped or repeated. Please ensure your batch size stays constant throughout training.")
+    logging.warning(
+        "Changing batch size with sequential_input() will result in some data being skipped or repeated. Please ensure your batch size stays constant throughout training.")
     batch_size = params['eval_batch_size' if eval else 'train_batch_size']
 
     filenames = []
-    for dataset_config in params['dataset_configs'].values(): # iterate through each dataset and read params
+    for dataset_config in params['dataset_configs'].values():  # iterate through each dataset and read params
         path_key = 'path' if not eval else 'eval_path'
         path = dataset_config[path_key]
-        filenames.extend(tf.io.gfile.glob(path)) # then glob all files that fit the pattern specified in dataset_configs
-    
+        filenames.extend(
+            tf.io.gfile.glob(path))  # then glob all files that fit the pattern specified in dataset_configs
+
     filenames = natural_sort(filenames)
     shuffle_filenames = params.get("shuffle_input_filenames", True)
     if shuffle_filenames:
-        seed = params.get('seed', 1) # shuffle deterministically
+        seed = params.get('seed', 1)  # shuffle deterministically
         random.seed(seed)
         random.shuffle(filenames)
-    
-    dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat() # repeat filenames to infinity
+
+    dataset = tf.data.Dataset.from_tensor_slices(filenames).repeat()  # repeat filenames to infinity
 
     if not eval:
         # skip forward first in the filenames list, then skip the remaining amount in the parsed tfrecords files
-        skip_idx, remainder = _get_skip_index(filenames, n_batches=global_step * params["train_batch_size"]) # TODO: fix for > 1 epoch
-        dataset = dataset.skip(skip_idx) # skip to skip idx
+        skip_idx, remainder = _get_skip_index(filenames, n_batches=global_step * params[
+            "train_batch_size"])  # TODO: fix for > 1 epoch
+        dataset = dataset.skip(skip_idx)  # skip to skip idx
 
         # read tfrecord examples and skip remainder
         dataset = dataset.apply(tf.data.TFRecordDataset)
@@ -354,12 +395,10 @@ def sequential_input(params, global_step=None, eval=False):
         dataset = dataset.shuffle(len(filenames))
         dataset = dataset.apply(tf.data.TFRecordDataset)
 
-        
     # parse the tokenized data from the tfrecord files and shuffle
     dataset = dataset.map(_parse_function, num_parallel_calls=1)
     dataset = dataset.map(partial(autoregressive_sample_text, params), num_parallel_calls=1)
-    
+
     # batch data and repeat to infinity
     dataset = dataset.batch(batch_size, drop_remainder=True).prefetch(params["iterations"] * 2)
     return dataset.repeat()
-    

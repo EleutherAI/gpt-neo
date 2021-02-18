@@ -7,9 +7,13 @@ from data.encoders import fetch_encoder, encode
 import tensorflow as tf
 import re
 from functools import partial
+import hashlib
+from inputs import pred_input_batch
+from utils import split_list
 
 lambada_src_uri = 'https://storage.googleapis.com/gpt-2/data/lambada_test.jsonl'
 normalization = 'NFKC'
+
 
 # Note: this task is called "lambada" but it really refers to OpenAI's version
 # of the task, which actually differs in some ways from the task described in
@@ -29,12 +33,14 @@ def lambada_create_tokens_data(params, path):
         json.dump(arrays, f)
         return arrays
 
+
 def lambada_read_or_create_tokens_data(params, path):
     # if you tell me where the file should go, i will helpfully create it for you
     if not os.path.exists(path):
         return lambada_create_tokens_data(params, path)
     with open(path) as f:
         return json.load(f)
+
 
 def bin_pack(params, tokens_data):
     eos_token = params['eos_id']
@@ -43,36 +49,34 @@ def bin_pack(params, tokens_data):
     pad_batch_size = params['eval_batch_size']
     bins = []
     for a in tokens_data:
-        if len(bins) == 0 or len(bins[-1])+len(a)+1 > n_ctx:
+        if len(bins) == 0 or len(bins[-1]) + len(a) + 1 > n_ctx:
             bins.append([])
         bins[-1] += a
         bins[-1].append(eos_token)
-    while len(bins)%pad_batch_size != 0:
+    while len(bins) % pad_batch_size != 0:
         bins.append([])
     bins_array = np.full((len(bins), n_ctx), dummy_token, dtype=np.uint16)
     for i, b in enumerate(bins):
         bins_array[i, 0:len(b)] = b
     return bins_array
 
-def lambada_init(params):
-    ds_configs = params['dataset_configs']
-    l = [
-        ds_configs[ds_id].get('lambada_tokens_path', "./lambada.json")
-        for ds_id, _, _, _ in params['datasets']
-    ]
-    assert len(l) > 0, 'lambada_tokens_path not found in the dataset config'
-    lt_path = l[0]
-    assert lt_path.endswith('.json'), 'lambada_tokens_path must have extension json'
 
+def lambada_init(params):
+    ds_config = params['dataset_configs'][0]
+    tokenizer_hash = hashlib.md5(ds_config['tokenizer_path'].encode()).hexdigest()
+    lt_path = f"lambada_{tokenizer_hash}.json"
+    assert lt_path.endswith('.json'), 'lambada_tokens_path must have extension json'
     tokens_data = lambada_read_or_create_tokens_data(params, lt_path)
     bins_array = bin_pack(params, tokens_data)
     params['lambada_tokens_path'] = lt_path
-    params['lambada_n_steps'] = len(bins_array)//params['eval_batch_size']
+    params['lambada_n_steps'] = len(bins_array) // params['eval_batch_size']
+
 
 def lambada_get_task_info(params):
     return {
         'n_steps': params['lambada_n_steps'],
     }
+
 
 def wikitext_detokenizer(string):
     # contractions
@@ -107,6 +111,7 @@ def wikitext_detokenizer(string):
 
     return string
 
+
 # The LAMBADA evaluation code looks at the logits of each position just before an eos_token
 def lambada_input(params):
     eos_token = 50256 if params['n_vocab'] >= 50257 else 0
@@ -115,21 +120,24 @@ def lambada_input(params):
     tokens_data = lambada_read_or_create_tokens_data(params, lt_path)
     bins_array = bin_pack(params, tokens_data)
     dataset = tf.data.Dataset.from_tensor_slices(bins_array)
+
     def _get_output(bin):
         bin = tf.cast(bin, dtype=tf.int32)
         indexes = tf.range(n_ctx)
-        results = tf.gather(bin, (indexes+1)%n_ctx)
-        eos_next_positions = tf.math.equal(tf.gather(bin, (indexes+2)%n_ctx), eos_token)
+        results = tf.gather(bin, (indexes + 1) % n_ctx)
+        eos_next_positions = tf.math.equal(tf.gather(bin, (indexes + 2) % n_ctx), eos_token)
         output = tf.where(eos_next_positions, results, tf.constant(eos_token, shape=[n_ctx]))
         bin = tf.reshape(bin, [n_ctx])
         bin = tf.cast(bin, dtype=tf.int32)
         output = tf.reshape(output, [n_ctx])
         output = tf.cast(output, dtype=tf.int32)
         return bin, output
+
     dataset = dataset.map(_get_output)
     dataset = dataset.batch(params['eval_batch_size'], drop_remainder=True)
     dataset = dataset.repeat()
     return dataset
+
 
 def wikitext_create_tokens_data(params, path, version):
     assert version.lower() in ["wikitext2", "wikitext103"]
@@ -152,6 +160,7 @@ def wikitext_create_tokens_data(params, path, version):
         json.dump(arrays, f)
         return arrays
 
+
 def wikitext_read_or_create_tokens_data(params, path, version):
     # if you tell me where the file should go, i will helpfully create it for you
     if not os.path.exists(path):
@@ -159,17 +168,22 @@ def wikitext_read_or_create_tokens_data(params, path, version):
     with open(path) as f:
         return json.load(f)
 
+
 def wikitext_init(params, version):
-    wikitext_path = version + ".json"
+    ds_config = params['dataset_configs'][0]
+    tokenizer_hash = hashlib.md5(ds_config['tokenizer_path'].encode()).hexdigest()
+    wikitext_path = f"{version}_{tokenizer_hash}.json"
     tokens_data = wikitext_read_or_create_tokens_data(params, wikitext_path, version)
     bins_array = bin_pack(params, tokens_data)
     params['wikitext_path'] = wikitext_path
-    params['wikitext_n_steps'] = len(bins_array)//params['eval_batch_size']
+    params['wikitext_n_steps'] = len(bins_array) // params['eval_batch_size']
+
 
 def wikitext_get_task_info(params, version):
     return {
         'n_steps': params['wikitext_n_steps'],
     }
+
 
 def wikitext_input(params, version):
     eos_token = 50256 if params['n_vocab'] >= 50257 else 0
@@ -178,21 +192,76 @@ def wikitext_input(params, version):
     tokens_data = wikitext_read_or_create_tokens_data(params, wt_path, version)
     bins_array = bin_pack(params, tokens_data)
     dataset = tf.data.Dataset.from_tensor_slices(bins_array)
+
     def _get_output(bin):
         bin = tf.cast(bin, dtype=tf.int32)
         indexes = tf.range(n_ctx)
-        results = tf.gather(bin, (indexes+1)%n_ctx)
-        eos_next_positions = tf.math.equal(tf.gather(bin, (indexes+2)%n_ctx), eos_token)
+        results = tf.gather(bin, (indexes + 1) % n_ctx)
+        eos_next_positions = tf.math.equal(tf.gather(bin, (indexes + 2) % n_ctx), eos_token)
         output = tf.where(eos_next_positions, results, tf.constant(eos_token, shape=[n_ctx]))
         bin = tf.reshape(bin, [n_ctx])
         bin = tf.cast(bin, dtype=tf.int32)
         output = tf.reshape(output, [n_ctx])
         output = tf.cast(output, dtype=tf.int32)
         return bin, output
+
     dataset = dataset.map(_get_output)
     dataset = dataset.batch(params['eval_batch_size'], drop_remainder=True)
     dataset = dataset.repeat()
     return dataset
+
+
+def coqa_create_tokens_data(params, path="coqa.json"):
+    COQA_URL = "https://nlp.stanford.edu/data/coqa/coqa-dev-v1.0.json"
+    raw_path = path.replace('.json', '_raw.json')
+    os.system(f"wget {COQA_URL} -O {raw_path}")
+    enc = fetch_encoder(params)
+    with open(raw_path, 'rb') as f:
+        data = json.load(f)
+        _data = data['data']
+        for item in _data:
+            item_id = item['id']
+            story = item['story']
+            questions = [q['input_text'] for q in item['questions']]
+            turn_ids = [q['turn_id'] for q in item['questions']]
+            prompts = [story + "\nQ: " + q + "\nA: " for q in questions]
+            prompt_ids = [f"{item_id}_{turn_id}" for turn_id in turn_ids]
+            tokenized_prompts = [encode(enc, text) for text in prompts]
+            item['prompts'] = dict(zip(prompt_ids, tokenized_prompts))
+    with open(path, 'w') as f:
+        json.dump(data, f)
+    return data
+
+
+def coqa_read_or_create_tokens_data(params, path):
+    # if you tell me where the file should go, i will helpfully create it for you
+    if not os.path.exists(path):
+        return coqa_create_tokens_data(params, path)
+    with open(path) as f:
+        return json.load(f)
+
+
+def coqa_init(params):
+    ds_config = params['dataset_configs'][0]
+    coqa_path = f"coqa_{hashlib.md5(ds_config['tokenizer_path'].encode()).hexdigest()}.json"
+    coqa_read_or_create_tokens_data(params, coqa_path)
+    params['coqa_path'] = coqa_path
+
+
+def coqa_input(params):
+    coqa_path = params['coqa_path']
+    tokenized_json = coqa_read_or_create_tokens_data(params, coqa_path)
+    prompts = [list(i['prompts'].values()) for i in tokenized_json['data']]
+    keys = [list(i['prompts'].keys()) for i in tokenized_json['data']]
+    prompts = split_list(prompts, params['predict_batch_size'])
+    keys = split_list(keys, params['predict_batch_size'])
+
+    encoder = fetch_encoder(params)
+
+    def input_fn(p):
+        return pred_input_batch(params, p, enc=encoder)
+
+    return input_fn, prompts, keys
 
 
 task_descriptors = {
@@ -211,4 +280,8 @@ task_descriptors = {
         'get_task_info_fn': partial(wikitext_get_task_info, version='wikitext103'),
         'input_fn': partial(wikitext_input, version='wikitext103'),
     },
+    'coqa': {
+        'init_fn': coqa_init,
+        'input_fn': coqa_input
+    }
 }

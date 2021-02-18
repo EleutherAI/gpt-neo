@@ -18,7 +18,7 @@ def model_fn(features, labels, mode, params):
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
-    if mode == tf.estimator.ModeKeys.PREDICT:
+    if mode == tf.estimator.ModeKeys.PREDICT and params.get('remove_batch_from_layout', False):
         params["layout"] = remove_batch_from_layout(params["layout"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
     
@@ -98,7 +98,9 @@ def model_fn(features, labels, mode, params):
         if not export:
             mtf_samples = sample_autoregressive(
                 inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"], sampling_use_entmax=params['sampling_use_entmax'])
+                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"],
+                sampling_use_entmax=params['sampling_use_entmax'], max_steps=params.get('predict_max_steps', 100),
+                temperature=params.get('predict_temperature', 0.7))
 
         else:
             with mtf.utils.outside_all_rewrites():
