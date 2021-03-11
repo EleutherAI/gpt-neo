@@ -183,7 +183,7 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
 
 
 def create_tfrecords_mp(files, args):
-    files = split_list(files, len(files))
+    files = split_list(files, len(files) // args.processes)
     with Pool(processes=args.processes) as pool:
         pbar = tqdm(pool.imap(create_tfrecords, zip(files, repeat(args), range(len(files)))))
         meta = {"discarded": 0, "processed": 0, "successful": 0}
