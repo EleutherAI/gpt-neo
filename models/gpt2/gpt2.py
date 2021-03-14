@@ -25,8 +25,9 @@ def is_incremental_inference(context):
 
 
 def norm(x, axis, epsilon=1e-8):
-    x -= mtf.reduce_mean(x, reduced_dim=axis, name="norm_reduce_mean_u")
-    s = mtf.reduce_mean(mtf.square(x), reduced_dim=axis, name="norm_reduce_mean_s")
+    s = x.shape - axis
+    x -= mtf.reduce_mean(x, output_shape=s, name="norm_reduce_mean_u")
+    s = mtf.reduce_mean(mtf.square(x), output_shape=s, name="norm_reduce_mean_s")
     return x * mtf.rsqrt(s + epsilon)
 
 
@@ -38,7 +39,7 @@ def rezero(x, scope, dtype):
 
 def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=None):
     if axis is sentinel:
-        axis = x.shape[-1]
+        axis = x.shape[-2:]
 
     with tf.variable_scope(scope):
         g = mtf.get_variable(x.mesh, "g", [], initializer=tf.constant_initializer(1),
@@ -54,16 +55,16 @@ def scale_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=
 def layer_norm(x, scope, *, variable_dtype, axis=sentinel, epsilon=1e-5, params=None):
     """Normalize to mean = 0, std = 1, then do a diagonal affine transform."""
     if axis is sentinel:
-        axis = x.shape[-1]
+        axis = x.shape[-2:]
 
     with tf.variable_scope(scope):
-        n_state = x.shape[-1]
+        n_state = x.shape[-2:]
 
-        g = mtf.get_variable(x.mesh, "g", [n_state], initializer=tf.constant_initializer(1),
+        g = mtf.get_variable(x.mesh, "g", n_state, initializer=tf.constant_initializer(1),
                              master_dtype=variable_dtype.master_dtype,
                              slice_dtype=variable_dtype.slice_dtype,
                              activation_dtype=variable_dtype.activation_dtype)
-        b = mtf.get_variable(x.mesh, "b", [n_state], initializer=tf.constant_initializer(0),
+        b = mtf.get_variable(x.mesh, "b", n_state, initializer=tf.constant_initializer(0),
                              master_dtype=variable_dtype.master_dtype,
                              slice_dtype=variable_dtype.slice_dtype,
                              activation_dtype=variable_dtype.activation_dtype)
@@ -107,19 +108,32 @@ def causal_linear_attention(q, k, v, epsilon=1e-6):
     return attn
 
 
-def linear(x, scope, nf, *, w_init_stdev=0.02, variable_dtype, params=None, scale=False):
+def linear(x, scope, *, nf=None, w_init_stdev=0.02, variable_dtype, params=None, scale=False):
     # nf = number of features
     if params["scale_by_depth"] and scale:
         # Scale by sqrt(num_layers), only happens at the final projection before a res block output
         w_init_stdev = w_init_stdev * (1. / math.sqrt(params["n_layer"]))
     if params["scale_by_in"]:  # Scale by sqrt(num_input_features)
         w_init_stdev = w_init_stdev * (1. / math.sqrt(x.shape[-1].size))  # Dimension is a namedtuple of (name, size)
-    # Not in the variable_scope because mtf already has a variable_scope in it
+    # Not in the variable_scope because mtf already has a variable_scope in it.
+    old_features = x.shape[2:]
+    old_shape = x.shape
+    x = mtf.rename_dimension(x, "heads", "_heads")
+    x = mtf.rename_dimension(x, "features_per_head", "_features_per_head")
+    new_features = x.shape[2:]
     with tf.variable_scope("conv1d_main"):
-        c = mtf.layers.dense(x, new_dims=[nf], reduced_dims=[x.shape[-1]], name=scope, use_bias=True,
-                             kernel_initializer=tf.random_normal_initializer(stddev=w_init_stdev),
-                             variable_dtype=variable_dtype,
-                             )
+        
+        c = mtf.einsum([x, 
+                        mtf.get_variable(x.mesh, scope, old_features+new_features,
+                                         initializer=tf.random_normal_initializer(stddev=w_init_stdev),
+                                         master_dtype=variable_dtype.master_dtype,
+                                         slice_dtype=variable_dtype.slice_dtype,
+                                         activation_dtype=variable_dtype.activation_dtype)
+                       ], old_shape)
+        c += mtf.get_variable(x.mesh, scope, old_features,
+                              master_dtype=variable_dtype.master_dtype,
+                              slice_dtype=variable_dtype.slice_dtype,
+                              activation_dtype=variable_dtype.activation_dtype)
         return c
 
 
@@ -174,9 +188,10 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             heads_dim=dim_heads,
             variable_dtype=variable_dtype
         )
-        q = mtfparams.compute_q(x)
-        k = mtfparams.compute_k(x)
-        v = mtfparams.compute_v(x)
+          
+        q = linear(x, "q", variable_dtype=variable_dtype, params=params)
+        k = linear(x, "k", variable_dtype=variable_dtype, params=params)
+        v = linear(x, "v", variable_dtype=variable_dtype, params=params)
 
         if is_incremental_inference(context):
             one_hot = mtf.one_hot(context.position - 1, dim_seq, dtype=variable_dtype.master_dtype)
@@ -247,11 +262,9 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
             else:
                 raise NotImplementedError("Unknown attention type {}!".format(attention_type))
 
-        with tf.variable_scope("compute_output"):
-            a = mtfparams.compute_output(a, x_shape)
-
+        a = linear(a, "a")
         with tf.variable_scope("compute_output_bias"):
-            b = mtf.get_variable(x.mesh, "o_b", [dim_embd], initializer=tf.constant_initializer(0),
+            b = mtf.get_variable(x.mesh, "o_b", a.shape[-2:], initializer=tf.constant_initializer(0),
                                  master_dtype=variable_dtype.master_dtype,
                                  slice_dtype=variable_dtype.slice_dtype,
                                  activation_dtype=variable_dtype.activation_dtype)
@@ -565,8 +578,11 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         h += pos_emb
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
-
+    original_shape = h.shape
+    h = mtf.reshape(h, h.shape[:-1] + [mtf.Dimension("heads", params["n_head"]), mtf.Dimension("features_per_head", params["n_embd"] // params["n_head"])])
+    
     for layer in range(params["n_layer"]):
+    
         # attn blocks
         share_parameters = exists(params["share_parameters"]) and params["share_parameters"] == True
         block_scope = f"h{layer}" if not share_parameters else ""
@@ -582,7 +598,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         recompute_grad = params["recompute_grad"] and (params["mode"] == "train") == True
         h, loss = block_fn(h) if not recompute_grad else mtf.recompute_grad(block_fn, [h])
         aux_losses += loss
-
+    h = mtf.reshape(h, original_shape)
     no_weight_tie_emb = params["no_weight_tie"] == True
     if no_weight_tie_emb:
         with tf.variable_scope("wte_final_linear"):
