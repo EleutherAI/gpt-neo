@@ -1,15 +1,16 @@
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 from tensorflow.python.tpu import tpu_estimator
-import mesh_tensorflow.auto_mtf
 import mesh_tensorflow.transformer as mtf_transformer
 from optimizers import get_optimizer
-from utils import (create_host_call, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params, get_batch_size, auto_layout, auto_layout_and_mesh_shape)
+from utils import (create_host_call, get_graph_info, remove_batch_from_layout, simd_mesh_setup, add_mode_to_params,
+                   get_batch_size, auto_layout, auto_layout_and_mesh_shape)
 from models.utils import biasmask_attn_weights
 from tensorflow.python.ops import resources
 from sample import sample_autoregressive
 from models.gpt2 import gpt2
 import math
+
 
 def model_fn(features, labels, mode, params):
     # Get global step
@@ -18,10 +19,8 @@ def model_fn(features, labels, mode, params):
     # Construct mtf graph + mesh from params
     graph = mtf.Graph()
     mesh_shape = mtf.convert_to_shape(params["mesh_shape"])
-    if mode == tf.estimator.ModeKeys.PREDICT:
-        params["layout"] = remove_batch_from_layout(params["layout"])
     layout_rules = mtf.convert_to_layout_rules(params["layout"])
-    
+
     # Mesh setup
     if params["use_tpu"]:
         var_placer, mesh_impl = simd_mesh_setup(params, mesh_shape, layout_rules)
@@ -34,7 +33,8 @@ def model_fn(features, labels, mode, params):
     # Trainable variable precision
     # Store to checkpoints in master type, train in slice type, compute in activation type
     if params["precision"] == "bfloat16":
-        variable_dtype = mtf.VariableDType(master_dtype=tf.bfloat16, slice_dtype=tf.float32, activation_dtype=tf.bfloat16)
+        variable_dtype = mtf.VariableDType(master_dtype=tf.bfloat16, slice_dtype=tf.float32,
+                                           activation_dtype=tf.bfloat16)
     else:
         variable_dtype = mtf.VariableDType(master_dtype=tf.float32, slice_dtype=tf.float32, activation_dtype=tf.float32)
 
@@ -98,12 +98,14 @@ def model_fn(features, labels, mode, params):
         if not export:
             mtf_samples = sample_autoregressive(
                 inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"], sampling_use_entmax=params['sampling_use_entmax'])
+                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"],
+                sampling_use_entmax=params['sampling_use_entmax'])
 
         else:
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    mtf_samples, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
+                    mtf_samples, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh,
+                                                               variable_dtype=variable_dtype, context=None)
 
         mtf_samples = mtf.anonymize(mtf_samples)
         inputs = mtf.anonymize(inputs)
@@ -113,7 +115,7 @@ def model_fn(features, labels, mode, params):
         predictions = {
             "inputs": inputs,
             "outputs": outputs}
-        
+
         def scaffold_fn():
             return tf.train.Scaffold(
                 local_init_op=tf.group(
@@ -122,7 +124,7 @@ def model_fn(features, labels, mode, params):
                     name="mtf_local_init_op"),
                 ready_op=tf.concat(
                     [tf.report_uninitialized_variables(),
-                    resources.report_uninitialized_resources()],
+                     resources.report_uninitialized_resources()],
                     axis=0,
                     name="mtf_ready_op"))
 
@@ -139,22 +141,24 @@ def model_fn(features, labels, mode, params):
         # Gets number of microbatches per batch for serialized training
         # if param tokens_per_mb_per_replica = None, this defaults to 1 and no microbatching is performed
         num_microbatches = int(mtf_transformer.utils.serialize_num_microbatches(batch_dim=batch_dim,
-                                                                            sequence_length=sequence_length_dict,
-                                                                            mesh_shape=mesh_shape,
-                                                                            layout_rules=layout_rules,
-                                                                            tokens_per_microbatch_per_replica=params["tokens_per_mb_per_replica"]))
+                                                                                sequence_length=sequence_length_dict,
+                                                                                mesh_shape=mesh_shape,
+                                                                                layout_rules=layout_rules,
+                                                                                tokens_per_microbatch_per_replica=
+                                                                                params["tokens_per_mb_per_replica"]))
     else:
         num_microbatches = 1
 
     params["num_microbatches"] = num_microbatches  # Add num microbatches to params
-    
+
     if num_microbatches > 1:
-        
+
         # For serialize_training_step we need to modify the model to output results in a dict
         def serialized_fn(mtf_features):
             if params["model"] == "GPT":
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype)
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh,
+                                                          variable_dtype=variable_dtype)
                 return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
             else:
                 raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
@@ -169,7 +173,8 @@ def model_fn(features, labels, mode, params):
         if params["model"] == "GPT":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh, variable_dtype=variable_dtype, context=None)
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh,
+                                                          variable_dtype=variable_dtype, context=None)
         else:
             raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
@@ -184,7 +189,8 @@ def model_fn(features, labels, mode, params):
         if params["num_microbatches"] > 1:
             # If we are splitting the batch into microbatches, var grads are created in the serialize_training_step fn
             # So we pass them in here
-            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype, inp_var_grads=var_grads)
+            _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype,
+                                                     inp_var_grads=var_grads)
         else:
             # Otherwise, they are created in the get_optimizer fn, so we leave inp_var_grads blank
             _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
@@ -297,4 +303,3 @@ def model_fn(features, labels, mode, params):
                 evaluation_hooks=[restore_hook],
                 loss=tf_loss,
                 eval_metrics=eval_metrics)
-

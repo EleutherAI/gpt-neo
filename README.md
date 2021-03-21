@@ -2,7 +2,7 @@
 
 🎉 1T or bust my dudes 🎉
 
-An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165)-like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
+An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
 Training and inference supported on both TPUs and GPUs.
 
@@ -14,8 +14,19 @@ Also included are alternative model architectures and linear attention implement
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
 * Masked Language Modelling
 
-Pretrained models will be released as they are finished training.
+# Pretrained Models
 
+**21/03/2021:**
+
+We're proud to release two pretrained GPT-Neo models trained on The Pile, the weights and configs can be freely downloaded from [the-eye.eu](https://the-eye.eu/eleuther_staging/gptneo-release/).
+
+1.3B: https://the-eye.eu/eleuther_staging/gptneo-release/GPT3_XL/
+
+2.7B: https://the-eye.eu/eleuther_staging/gptneo-release/GPT3_2-7B/
+
+For more information on how to get these set up, see the colab notebook, or read through the rest of the readme.
+
+This repository will be (mostly) archived as we move focus to our GPU training repo, [GPT-Neox](https://github.com/EleutherAI/gpt-neox/)
 # Setup
 
 ```bash
@@ -43,10 +54,6 @@ You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit
 
 Google colab provides tpu-v8s for free, which should be enough to finetune our models up to GPT3XL (1.5B parameter) sizes.
 Click the above button to run through our example colab notebook.
-
-# Downloading Pretrained Models
-
-TODO
 
 # Generating Text
 
