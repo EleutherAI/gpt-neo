@@ -57,7 +57,7 @@ Click the above button to run through our example colab notebook.
 
 # Generating Text
 
-Once you have a trained model, or you've downloaded one of our pre-trained models (coming soon), generating text is as simple as running the main.py script with the `--predict` flag on. You can pass a path to your prompt txt file with the `--prompt` flag, like so:
+Once you have a trained model, or you've downloaded one of our pre-trained models, generating text is as simple as running the main.py script with the `--predict` flag on. You can pass a path to your prompt txt file with the `--prompt` flag, like so:
 
 ```bash
 python3 main.py --predict --prompt <example_prompt.txt> --tpu <tpu_name> --model <config_name>
