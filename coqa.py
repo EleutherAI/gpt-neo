@@ -13,6 +13,7 @@ import argparse
 from tasks import coqa_input, coqa_init
 from inputs import handle_pred_output
 import json
+import os
 
 def parse_args():
     # Parse command line arguments
@@ -58,6 +59,7 @@ def main(args):
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
     params["slow_sampling"] = True if params["moe_layers"] is not None else False
+    params['remove_partial_sequences'] = True
     logger.info(f"params = {params}")
 
     # Set up TPUs and Estimator
@@ -79,6 +81,12 @@ def main(args):
             num_cores_per_replica=1,
             per_host_input_for_training=tpu_config.InputPipelineConfig.BROADCAST))
 
+
+
+    coqa_init(params)
+    input_fn, prompts, keys, steps = coqa_input(params)
+    coqa_out = []
+
     estimator = tpu_estimator.TPUEstimator(
         use_tpu=params["use_tpu"],
         model_fn=model_fn,
@@ -88,20 +96,21 @@ def main(args):
         predict_batch_size=params["predict_batch_size"],
         params=params)
 
-    coqa_init(params)
-    input_fn, prompts, keys = coqa_input(params)
-    coqa_out = []
-    with open(args.results_path, 'w') as f:
-        for p, k in zip(prompts, keys):
-            # Predict
-            predictions = estimator.predict(input_fn=input_fn(p))
-            logger.info("Predictions generated")
-            _id, turn_id = k.split('_')
-            txt = handle_pred_output(predictions, logger, encoder, params)
-            txt = txt.split('.')[0] # only take the first sentence
-            coqa_out.append({'id': _id, 'turn_id': turn_id, 'answer': txt})
-            json.dump(coqa_out)
+    # Predict
+    predictions = estimator.predict(input_fn=partial(input_fn, prompts=prompts))
+    logger.info("Predictions generated")
+    predictions = handle_pred_output(predictions, logger, encoder, params)
+    for p, _k in zip(predictions, keys):
+        _id, turn_id = _k.split('_')
+        p = p.split('.')[0].replace('\n', '').replace('A:', '').strip() # only take the first sentence
+        coqa_out.append({'id': _id, 'turn_id': int(turn_id), 'answer': p})
+        with open(args.results_path, 'w') as f:
+            json.dump(coqa_out, f)
 
+    COQA_DEV_SET = "coqa-dev-v1.0.json"
+    if not os.path.isfile(COQA_DEV_SET):
+        os.system(f'wget https://nlp.stanford.edu/data/coqa/coqa-dev-v1.0.json -O {COQA_DEV_SET}')
+    os.system(f'python3 evaluate_coqa.py --data-file {COQA_DEV_SET} --pred-file {args.results_path}')
 
 if __name__ == "__main__":
     tf.disable_v2_behavior()

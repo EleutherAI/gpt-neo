@@ -242,7 +242,7 @@ def coqa_read_or_create_tokens_data(params, path):
 
 
 def coqa_init(params):
-    ds_config = params['dataset_configs'][0]
+    ds_config = params['dataset_configs'][list(params['dataset_configs'].keys())[0]]
     coqa_path = f"coqa_{hashlib.md5(ds_config['tokenizer_path'].encode()).hexdigest()}.json"
     coqa_read_or_create_tokens_data(params, coqa_path)
     params['coqa_path'] = coqa_path
@@ -251,17 +251,19 @@ def coqa_init(params):
 def coqa_input(params):
     coqa_path = params['coqa_path']
     tokenized_json = coqa_read_or_create_tokens_data(params, coqa_path)
-    prompts = [list(i['prompts'].values()) for i in tokenized_json['data']]
-    keys = [list(i['prompts'].keys()) for i in tokenized_json['data']]
-    prompts = split_list(prompts, params['predict_batch_size'])
-    keys = split_list(keys, params['predict_batch_size'])
-
+    _prompts = [list(i['prompts'].values()) for i in tokenized_json['data']]
+    _keys = [list(i['prompts'].keys()) for i in tokenized_json['data']]
+    prompts, keys = [], []
+    [prompts.extend(i) for i in _prompts]
+    [prompts.extend(i) for i in _prompts]
+    [keys.extend(i) for i in _keys]
+    steps = len(prompts) // params['predict_batch_size']
     encoder = fetch_encoder(params)
 
-    def input_fn(p):
-        return pred_input_batch(params, p, enc=encoder)
+    def input_fn(p, params):
+        return pred_input_batch(params, p, enc=encoder, pretokenized=True)
 
-    return input_fn, prompts, keys
+    return input_fn, prompts, keys, steps
 
 
 task_descriptors = {

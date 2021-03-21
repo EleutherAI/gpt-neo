@@ -243,20 +243,22 @@ def pred_input(params, logger, enc=None,
     return dataset
 
 
-def pred_input_batch(params, prompts, enc=None):
-    assert len(prompts) == params['batch_size']
+def pred_input_batch(params, prompts, enc=None, pretokenized=False):
+    assert len(prompts) == params['predict_batch_size'], f"{len(prompts)} != {params['predict_batch_size']}"
     batch_prompt = []
     for prompt in prompts:
-        tokens = encode(enc, prompt)
+        if not pretokenized:
+            tokens = encode(enc, prompt)
+        else:
+            tokens = prompt
         if len(tokens) > params["n_ctx"]:
             logging.info("The length of your input prompt is longer than the model's context length - truncating input.")
             tokens = tokens[len(tokens) - params["n_ctx"]:]
         if len(tokens) < params["n_ctx"]:
             tokens = tf.pad(tokens, [[0, params["n_ctx"] - len(tokens)]], constant_values=params["padding_id"])
         batch_prompt.append(tokens)
-    t = tf.stack(batch_prompt)
-    t = tf.broadcast_to(t, [params["batch_size"], params["n_ctx"]])
-    dataset = tf.data.Dataset.from_tensors(t)
+    dataset = tf.data.Dataset.from_tensor_slices(batch_prompt)
+    dataset = dataset.batch(params['predict_batch_size'], drop_remainder=True)
 
     def _dummy_labels(x):
         return x, x
@@ -266,6 +268,7 @@ def pred_input_batch(params, prompts, enc=None):
 
 
 def handle_pred_output(predictions, logger, enc, params, out_name=None):
+    ret = []
     for i, p in enumerate(predictions):
         p = p["outputs"]
 
@@ -287,7 +290,8 @@ def handle_pred_output(predictions, logger, enc, params, out_name=None):
                 logger.info("=" * 40 + " SAMPLE " + str(i) + " " + "=" * 40 + "\n")
                 logger.info(text)
                 logger.info("\n" + "=" * 80 + "\n")
-        return text
+        ret.append(text)
+    return ret
 
 
 def _get_number_of_documents(filename):
