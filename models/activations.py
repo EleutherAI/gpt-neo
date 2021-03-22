@@ -51,7 +51,7 @@ CUSTOM_FNS = {'lrelu001': lambda x: mtf.leaky_relu(x, alpha=0.01),
               'spike2': lambda x: mtf.exp(-x ** 2),
               'tanhshrink': lambda x: x - tanh(x),
               'softsign': lambda x: x / (mtf.abs(x) + 1),
-              'softmax': lambda x: mtf.softmax(x, x.shape[-1])
+              'softmax': lambda x: mtf.softmax(x, x.shape[-1]),
               'logsoftmax': lambda x: mtf.log_softmax(x, x.shape[-1]),
               'bipolarsigmoid': lambda x: mtf.sigmoid(x) * 2 - 1,
               'rrelu': _rrelu,
