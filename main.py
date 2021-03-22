@@ -217,7 +217,8 @@ def main(args):
     
     if args.eval:
         run_eval_tasks()
-        run_eval()
+        if params["eval_steps"] > 0:
+            run_eval()
         return
 
 
