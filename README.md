@@ -18,15 +18,26 @@ Also included are alternative model architectures and linear attention implement
 
 **21/03/2021:**
 
-We're proud to release two pretrained GPT-Neo models trained on The Pile, the weights and configs can be freely downloaded from [the-eye.eu](https://the-eye.eu/eleuther_staging/gptneo-release/).
+We're proud to release two pretrained GPT-Neo models trained on The Pile, the weights and configs can be freely downloaded from [the-eye.eu](https://the-eye.eu/public/AI/gptneo-release/).
 
-1.3B: https://the-eye.eu/eleuther_staging/gptneo-release/GPT3_XL/
+1.3B: https://the-eye.eu/public/AI/gptneo-release/GPT3_XL/
 
-2.7B: https://the-eye.eu/eleuther_staging/gptneo-release/GPT3_2-7B/
+2.7B: https://the-eye.eu/public/AI/gptneo-release/GPT3_2-7B/
 
 For more information on how to get these set up, see the colab notebook, or read through the rest of the readme.
 
 This repository will be (mostly) archived as we move focus to our GPU training repo, [GPT-Neox](https://github.com/EleutherAI/gpt-neox/)
+
+We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results:
+
+
+| Model         | Pile BPB      | Pile PPL      | Lambada Acc.   | Lambada PPL.   | Wikitext PPL.  |
+| ------------- | ------------- | ------------- |  ------------- |  ------------- |  ------------- |
+| 1.3B          |  0.7527       |6.159          |64.73%          |   5.04         |  13.10         |
+| 2.7B          |  0.7165       | 5.646         |68.83%          |4.137           |     11.39      |
+
+Instructions for replicating the above results on lambada and wikitext can be found in the colab notebook.
+
 # Setup
 
 ```bash
