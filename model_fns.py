@@ -289,9 +289,8 @@ def model_fn(features, labels, mode, params):
                 # so maybe this should be calculated separately in the future
                 answer_loss = tf.gather_nd(tf_loss_batch, answer_positions)
                 log_perplexity = tf.metrics.mean(answer_loss)
-                lambada_ppl = tf.exp(log_perplexity)
 
-                return {"lambada_acc": accuracy, "lambada_log_ppl": log_perplexity, "lambada_ppl": lambada_ppl}
+                return {"lambada_acc": accuracy, "lambada_log_ppl": log_perplexity}
 
             eval_task = params["eval_task"]
             if eval_task == "lambada":
