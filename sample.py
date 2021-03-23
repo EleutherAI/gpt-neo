@@ -23,6 +23,7 @@ def sample_autoregressive(partial_sequences,
                           sampling_keep_top_k=-1,
                           sampling_use_entmax = False,
                           bos_id=50256,
+                          live_output=False,
                           ):
     """Sample randomly one token at a time.
 
@@ -55,6 +56,7 @@ def sample_autoregressive(partial_sequences,
         sampling_keep_top_k: an integer - if not -1, only sample from the top k
         logits.
         bos_id: beginning of sequence id
+        live_output: print tokens to stdout as they are generated
 
     Returns:
         a Tensor with shape [<batch_dims>, length_dim]
@@ -193,6 +195,9 @@ def sample_autoregressive(partial_sequences,
             ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
         else:
             ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
+
+        if live_output:
+            ids_this_step = mtf.Print(ids_this_step, [ids_this_step], "Predicted Tokens")
 
         one_hot = mtf.one_hot(position, length_dim, dtype=tf.int32)
         one_new_id = ids_this_step * one_hot
