@@ -314,5 +314,5 @@ class FunctionCallOperation(Operation):
     def gradient(self, g):
         return g
 
-def hook_grah(x, callback):
+def hook_graph(x, callback):
     return FunctionCallOperation(x, callback).outputs[0]

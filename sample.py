@@ -6,7 +6,7 @@ import mesh_tensorflow.transformer as mtf_transformer
 from models.utils import entmax, sample_categorical
 from models.gpt2 import gpt2
 from data.encoders import fetch_encoder
-from utils import hook_grah
+from utils import hook_graph
 
 def sample_autoregressive(partial_sequences,
                           other_features,
@@ -205,7 +205,7 @@ def sample_autoregressive(partial_sequences,
                 print(enc.decode(tokens[0]), end="")
                 sys.stdout.flush()
             
-            ids_this_step = hook_grah(ids_this_step, tokensGenerated)
+            ids_this_step = hook_graph(ids_this_step, tokensGenerated)
 
         one_hot = mtf.one_hot(position, length_dim, dtype=tf.int32)
         one_new_id = ids_this_step * one_hot
