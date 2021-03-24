@@ -1,9 +1,12 @@
+import sys
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import mesh_tensorflow.transformer as mtf_transformer
 
 from models.utils import entmax, sample_categorical
 from models.gpt2 import gpt2
+from data.encoders import fetch_encoder
+from utils import hook_grah
 
 def sample_autoregressive(partial_sequences,
                           other_features,
@@ -197,7 +200,12 @@ def sample_autoregressive(partial_sequences,
             ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
 
         if live_output:
-            ids_this_step = mtf.Print(ids_this_step, [ids_this_step], "Predicted Tokens")
+            enc = fetch_encoder(params)
+            def tokensGenerated(tokens):
+                print(enc.decode(tokens[0]), end="")
+                sys.stdout.flush()
+            
+            ids_this_step = hook_grah(ids_this_step, tokensGenerated)
 
         one_hot = mtf.one_hot(position, length_dim, dtype=tf.int32)
         one_new_id = ids_this_step * one_hot
