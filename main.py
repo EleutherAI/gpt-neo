@@ -34,6 +34,7 @@ def parse_args():
     parser.add_argument("--new", action="store_true", help="If set, deletes previous checkpoint, if it exists, and "
                                                            "starts a new training run")
     parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
+    parser.add_argument("--live_output", action="store_true", help="If set, print out text as it is generated.")
     parser.add_argument("--eval", action="store_true", help="If set, run model in evaluation mode.")
     parser.add_argument("--prompt", type=str, help="path to .txt file containing a prompt for prediction. If empty, "
                                                    "defaults to unicorns.",
@@ -109,6 +110,7 @@ def main(args):
     params["predict"] = args.predict
     params['model'] = params.get("model", "GPT") # Default model selection to GPT since it's the only option for now
     params["export"] = args.export
+    params["live_output"] = args.live_output
     # Set sampling parameters
     params["sampling_use_entmax"] = args.entmax_sampling
 
