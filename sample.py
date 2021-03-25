@@ -1,9 +1,12 @@
+import sys
 import mesh_tensorflow as mtf
 import tensorflow.compat.v1 as tf
 import mesh_tensorflow.transformer as mtf_transformer
 
 from models.utils import entmax, sample_categorical
 from models.gpt2 import gpt2
+from data.encoders import fetch_encoder
+from utils import hook_graph
 
 def sample_autoregressive(partial_sequences,
                           other_features,
@@ -23,6 +26,7 @@ def sample_autoregressive(partial_sequences,
                           sampling_keep_top_k=-1,
                           sampling_use_entmax = False,
                           bos_id=50256,
+                          live_output=False,
                           ):
     """Sample randomly one token at a time.
 
@@ -55,6 +59,7 @@ def sample_autoregressive(partial_sequences,
         sampling_keep_top_k: an integer - if not -1, only sample from the top k
         logits.
         bos_id: beginning of sequence id
+        live_output: print tokens to stdout as they are generated
 
     Returns:
         a Tensor with shape [<batch_dims>, length_dim]
@@ -193,6 +198,14 @@ def sample_autoregressive(partial_sequences,
             ids_this_step = mtf.shift(ids_this_step, offset=1, dim=length_dim, wrap=False)
         else:
             ids_this_step = mtf.reshape(ids_this_step, (batch_dims))
+
+        if live_output:
+            enc = fetch_encoder(params)
+            def tokensGenerated(tokens):
+                print(enc.decode(tokens[0]), end="")
+                sys.stdout.flush()
+            
+            ids_this_step = hook_graph(ids_this_step, tokensGenerated)
 
         one_hot = mtf.one_hot(position, length_dim, dtype=tf.int32)
         one_new_id = ids_this_step * one_hot

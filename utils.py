@@ -8,6 +8,7 @@ import sys
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 import mesh_tensorflow as mtf
+from mesh_tensorflow.ops import Operation, Tensor
 from data.encoders import fetch_encoder
 import re
 
@@ -289,3 +290,29 @@ def natural_sort(l):
     convert = lambda text: int(text) if text.isdigit() else text.lower() 
     alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
     return sorted(l, key = alphanum_key)
+
+class FunctionCallOperation(Operation):
+    def __init__(self, x, callback):
+        super(FunctionCallOperation, self).__init__([x], x.mesh, name="FunctionCall")
+        self._outputs = [Tensor(self, x.shape, x.dtype)]
+        def wrapper(x):
+            callback(x)
+            return x
+        self._callback = wrapper
+
+    def lower(self, lowering):
+        tensors = lowering.tensors[self.inputs[0]]
+        tensors = tensors.to_laid_out_tensor().tensor_list
+
+        # hack to force the function onto the graph
+        tensors[0] = tf2.tuple([tensors[0]], control_inputs=[
+            tf.py_func(self._callback, [tensors], [tensors[0].dtype])[0]])[0]
+        
+        tensors = lowering.mesh_impl(self).LaidOutTensor(tensors)
+        lowering.set_tensor_lowering(self.outputs[0], tensors)
+
+    def gradient(self, g):
+        return g
+
+def hook_graph(x, callback):
+    return FunctionCallOperation(x, callback).outputs[0]
