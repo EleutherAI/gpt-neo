@@ -305,9 +305,10 @@ class FunctionCallOperation(Operation):
         tensors = tensors.to_laid_out_tensor().tensor_list
 
         # hack to force the function onto the graph
-        tensors[0] = tf2.tuple([tensors[0]], control_inputs=[
-            tf.py_func(self._callback, [tensors], [tensors[0].dtype])[0]])[0]
-        
+        with tf.device("/replica:0/task:0/device:CPU:0"):
+            tensors[0] = tf.tuple([tensors[0]], control_inputs=[
+                tf.compat.v1.py_func(self._callback, [tensors], [tensors[0].dtype])[0]])[0]
+            
         tensors = lowering.mesh_impl(self).LaidOutTensor(tensors)
         lowering.set_tensor_lowering(self.outputs[0], tensors)
 
