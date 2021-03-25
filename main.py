@@ -142,6 +142,7 @@ def main(args):
         save_checkpoints_secs=None,  # Disable the default saver
         log_step_count_steps=params["iterations"],
         save_summary_steps=params["iterations"],
+        session_config=tf.ConfigProto(allow_soft_placement=args.live_output),
         tpu_config=tpu_config.TPUConfig(
             num_shards=mesh_shape.size,
             iterations_per_loop=params["iterations"],
