@@ -41,7 +41,7 @@ We ran evaluations on The Pile test set, lambada, and wikitext, and got the foll
 | GPT-3 Ada 2.7B |  0.9631       | -----         | 67.1%          | 4.60           | -----          |
 | GPT-3 175B     |  0.7177       | -----         | 76.2%          | 3.00           | -----          |
 
-While there is no known train-test contamination, GPT-Neo was trained on the Pile training set and both GPT-Neo and GPT-3 were trained on text that included Wikipedia. This is the primary reason GPT-Neo does so well on the Pile test set and GPT-2 does worse than one would expect on WikiText compared to GPT-3 and GPT-Neo. All GPT-2 and GPT-3 scores are from their respective papers, except for the Pile test results which are from the Pile paper.
+All GPT-2 and GPT-3 scores are from their respective papers, except for the Pile test results which are from the Pile paper.
 
 Instructions for replicating the above results on lambada and wikitext can be found in the colab notebook.
 
