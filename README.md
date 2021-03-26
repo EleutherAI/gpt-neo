@@ -4,11 +4,14 @@
 
 An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
-Training and inference supported on both TPUs and GPUs.
+**If you're just here to play with our pre-trained models, click the button to get started**  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EleutherAI/GPTNeo/blob/master/GPTNeo_example_notebook.ipynb) 
+
+Training and inference is officially supported on TPU and should work on GPU as well. This repository will be (mostly) archived as we move focus to our GPU-specific repo, [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
+
 
 Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context lengths, including:
 
-* Local attention
+* [Local attention](https://arxiv.org/abs/2004.05150)
 * [Linear attention](https://arxiv.org/abs/1812.01243)
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
@@ -26,15 +29,19 @@ We're proud to release two pretrained GPT-Neo models trained on The Pile, the we
 
 For more information on how to get these set up, see the colab notebook, or read through the rest of the readme.
 
-This repository will be (mostly) archived as we move focus to our GPU training repo, [GPT-Neox](https://github.com/EleutherAI/gpt-neox/)
-
-We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results:
+We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results. Also shown are GPT-2 and GPT-3 results for reference:
 
 
-| Model         | Pile BPB      | Pile PPL      | Lambada Acc.   | Lambada PPL.   | Wikitext PPL.  |
-| ------------- | ------------- | ------------- |  ------------- |  ------------- |  ------------- |
-| 1.3B          |  0.7527       |6.159          |64.73%          |   5.04         |  13.10         |
-| 2.7B          |  0.7165       | 5.646         |68.83%          |4.137           |     11.39      |
+| Model and Size | Pile BPB      | Pile PPL      | Lambada Acc.   | Lambada PPL.   | Wikitext PPL.  |
+| -------------- | ------------- | ------------- | -------------- | -------------- | -------------- |
+| GPT-Neo 1.3B   |  0.7527       | 6.159         | 64.73%         | 5.04           | 13.10          |
+| GPT-3 1.3B     |  ------       | -----         | 63.6%          | 5.44           | -----          |
+| GPT-2 1.5B     |  1.0468       | -----         | 63.24%         | 8.63           | 17.48          |
+| GPT-Neo 2.7B   |  0.7165       | 5.646         | 68.83%         | 4.137          | 11.39          |
+| GPT-3 Ada 2.7B |  0.9631       | -----         | 67.1%          | 4.60           | -----          |
+| GPT-3 175B     |  0.7177       | -----         | 76.2%          | 3.00           | -----          |
+
+All GPT-2 and GPT-3 scores are from their respective papers, except for the Pile test results which are from the Pile paper.
 
 Instructions for replicating the above results on lambada and wikitext can be found in the colab notebook.
 
@@ -53,18 +60,16 @@ Sign up for [Google Cloud Platform](https://cloud.google.com/), and create a [st
 
 Create your VM through a google shell (`https://ssh.cloud.google.com/`) with `ctpu up --vm-only` so that it can connect to your Google bucket and TPUs and install the requirements with pip (see above).
 
-Then run through our [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below.
+Google colab provides tpu-v8s for free, which should be enough to finetune our models up to GPT3XL (1.5B parameter) sizes.
+Click [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EleutherAI/GPTNeo/blob/master/GPTNeo_example_notebook.ipynb) to run through our example colab notebook.
+
+For more detailed instructions, run through our [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below.
 
 ## GPUs:
 
-You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead. 
+You can also choose to train GPTNeo locally on your GPUs. To do so, you can omit the Google cloud setup steps above, and git clone the repo locally. Run through the [Training Guide](https://github.com/EleutherAI/GPTNeo#training-guide) below, then when running main.py, you simply have to omit the `tpu` flag, and pass in GPU ids instead.
 
-# Colab:
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EleutherAI/GPTNeo/blob/master/GPTNeo_example_notebook.ipynb)
-
-Google colab provides tpu-v8s for free, which should be enough to finetune our models up to GPT3XL (1.5B parameter) sizes.
-Click the above button to run through our example colab notebook.
+Note: Some users have reported having difficulty getting MTF to recognize their GPUs. See [here](https://github.com/EleutherAI/gpt-neo/issues/150) for details and instructions on how to fix it.
 
 # Generating Text
 
