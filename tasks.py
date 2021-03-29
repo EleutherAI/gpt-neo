@@ -1,12 +1,11 @@
 import os.path
-import json
 import requests
-import numpy as np
 import ftfy
 from data.encoders import fetch_encoder, encode
 import tensorflow as tf
-import re
+import numpy as np
 from functools import partial
+import json
 
 lambada_src_uri = 'http://eaidata.bmk.sh/data/lambada_test.jsonl'
 normalization = 'NFKC'
@@ -105,6 +104,52 @@ def lambada_input(params):
     dataset = dataset.batch(params['eval_batch_size'], drop_remainder=True)
     dataset = dataset.repeat()
     return dataset
+
+
+def save_eval_results(task, eval_results, current_step):
+
+    def as_python(x):
+        if isinstance(x, np.generic):
+            return x.item()
+        return x
+
+    eval_results = {k: as_python(v) for k, v in eval_results.items()}
+    import os
+    save_path = f'eval_{current_step}.jsonl'
+    if os.path.isfile(save_path):
+        while True:
+            num = 0
+            new_save_path = f'{save_path}_{num}'
+            if not os.path.isfile(new_save_path):
+                save_path = new_save_path
+                break
+
+    with open(save_path, 'a') as fh:
+        json.dump({'task': task, 'current_step': current_step, **eval_results}, fh)
+        fh.write('\n')
+
+
+def run_eval(params, estimator, logger, input_fn):
+    logger.info("Running evaluation...")
+    eval_results = estimator.evaluate(
+        input_fn=partial(input_fn, eval=True),
+        steps=params["eval_steps"])
+    logger.info(f"Eval results: {eval_results}")
+    save_eval_results('validation', eval_results)
+
+
+def run_eval_tasks(params, eval_task_estimators, eval_tasks, logger, current_step):
+    for task in eval_tasks:
+        logger.info(f"Starting evaluation task '{task}'")
+        task_info = task_descriptors[task]["get_task_info_fn"](params)
+        task_estimator = eval_task_estimators[task]
+        task_input_fn = task_descriptors[task]["input_fn"]
+        eval_results = task_estimator.evaluate(
+            input_fn=task_input_fn,
+            steps=task_info["n_steps"],
+            name=task)
+        logger.info(f"Eval task '{task}' results: {eval_results}")
+        save_eval_results(task, eval_results, current_step)
 
 
 task_descriptors = {

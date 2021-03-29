@@ -11,6 +11,7 @@ import mesh_tensorflow as mtf
 from data.encoders import fetch_encoder
 import re
 
+
 def setup_logging(args):
     Path("logs").mkdir(exist_ok=True)
     tf.logging.set_verbosity(logging.INFO)
@@ -83,7 +84,7 @@ def remove_batch_from_layout(layout):
 
 def yes_or_no(question):
     while True:
-        reply = str(input(question+' (y/n): ')).lower().strip()
+        reply = str(input(question + ' (y/n): ')).lower().strip()
         if reply[:1] == 'y':
             return True
         if reply[:1] == 'n':
@@ -115,7 +116,7 @@ def save_config(params_dict, logdir):
         if count == total_params - 1:
             text += f'"{str(key)}"' + ' : ' + config_value + '\n\n'
         else:
-            text += f'"{str(key)}"'  + ' : ' + config_value + ',\n\n'
+            text += f'"{str(key)}"' + ' : ' + config_value + ',\n\n'
     text += '\n\n}'
     sess = tf.InteractiveSession()
     summary_op = tf.summary.text("run_config", tf.convert_to_tensor(text))
@@ -145,11 +146,11 @@ def get_n_trainable_vars(graph):
     """
     total_parameters = 0
     for variable in graph.trainable_variables:
-      shape = variable.shape.dims
-      variable_parameters = 1
-      for dim in shape:
-          variable_parameters *= dim.size
-      total_parameters += variable_parameters
+        shape = variable.shape.dims
+        variable_parameters = 1
+        for dim in shape:
+            variable_parameters *= dim.size
+        total_parameters += variable_parameters
     print(f"\n\nN TRAINABLE VARS:\n{total_parameters:,}\n\n")
 
 
@@ -165,7 +166,7 @@ def print_dim_names(graph):
         all_dim_names.append(names)
 
     # Print all dim names in graph & write to file
-    all_dim_names = [item for sublist in all_dim_names for item in sublist] # Flatten all dims
+    all_dim_names = [item for sublist in all_dim_names for item in sublist]  # Flatten all dims
     unique_dims = list(set(all_dim_names))
     print("ALL DIM NAMES:")
     for dim_name in unique_dims:
@@ -202,6 +203,7 @@ def loss_denominator(targets, num_microbatches):
     ret = float(targets.shape.size) * num_microbatches
     return float(ret)
 
+
 def check_dataset(input_fn, params, global_step=None):
     tf.enable_eager_execution()
     if global_step is not None:
@@ -220,17 +222,20 @@ def check_dataset(input_fn, params, global_step=None):
     print('-' * 50)
     exit()
 
+
 def auto_layout(graph, mesh_shape, logits, loss):
     layout_rules = mtf.auto_mtf.layout(graph, mesh_shape, [logits, loss])
     print(f"Auto-selected layout:\n{layout_rules}\nRe-initialize graph with selected layout")
-    quit() 
+    quit()
+
 
 def auto_layout_and_mesh_shape(graph, num_cores, logits, loss):
     layout_rules, mesh_shape = mtf.auto_mtf.layout_and_mesh_shape(graph, num_cores,
-                                                                    [logits, loss], max_mesh_shape_dimensions=4)
+                                                                  [logits, loss], max_mesh_shape_dimensions=4)
     print(f"Num cores:\n{num_cores}\nAuto-selected layout:\n{layout_rules}\nAuto-selected mesh shape:\n{mesh_shape}" \
-            f"\nRe-initialize graph with selected layout & mesh shape")
-    quit() 
+          f"\nRe-initialize graph with selected layout & mesh shape")
+    quit()
+
 
 def create_host_call(model_dir):
     """Construct a host_call writing scalar summaries.
@@ -285,7 +290,7 @@ def create_host_call(model_dir):
     return host_call_fn, [global_step_t] + reshaped_tensors
 
 
-def natural_sort(l): 
-    convert = lambda text: int(text) if text.isdigit() else text.lower() 
-    alphanum_key = lambda key: [ convert(c) for c in re.split('([0-9]+)', key) ] 
-    return sorted(l, key = alphanum_key)
+def natural_sort(l):
+    convert = lambda text: int(text) if text.isdigit() else text.lower()
+    alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
+    return sorted(l, key=alphanum_key)
