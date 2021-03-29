@@ -79,6 +79,14 @@ Once you have a trained model, or you've downloaded one of our pre-trained model
 python3 main.py --predict --prompt <example_prompt.txt> --tpu <tpu_name> --model <config_name>
 ```
 
+(Optional) extra arguments for sampling:
+
+- `--temperature` : Temperature for temperature sampling. Float between 0 and 1.
+- `--top-k` : An optional integer - if not -1, only sample from the top k logits.
+- `--max_steps` : An optional integer, the max number of steps to decode when sampling.
+- `--sampling-stop-token` : An optional integer. Stop sampling when this token is produced. Defaults to EOS token if none is provided.
+- `--remove-prompt` : Boolean. whether to remove the prompt from the sampling output. Defaults to False.
+- `--sample-save-path` : An optional String. Path to save the samples to. If None is provided, defaults to predictions_{current_step}.txt
 or, if using GPUs:
 
 ```bash
