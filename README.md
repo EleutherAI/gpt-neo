@@ -34,12 +34,12 @@ We ran evaluations on The Pile test set, lambada, and wikitext, and got the foll
 
 | Model and Size | Pile BPB      | Pile PPL      | Lambada Acc.   | Lambada PPL.   | Wikitext PPL.  |
 | -------------- | ------------- | ------------- | -------------- | -------------- | -------------- |
-| GPT-Neo 1.3B   |  0.7527       | 6.159         | 64.73%         | 5.04           | 13.10          |
-| GPT-3 1.3B     |  ------       | -----         | 63.6%          | 5.44           | -----          |
-| GPT-2 1.5B     |  1.0468       | -----         | 63.24%         | 8.63           | 17.48          |
-| GPT-Neo 2.7B   |  0.7165       | 5.646         | 68.83%         | 4.137          | 11.39          |
-| GPT-3 Ada 2.7B |  0.9631       | -----         | 67.1%          | 4.60           | -----          |
-| GPT-3 175B     |  0.7177       | -----         | 76.2%          | 3.00           | -----          |
+| GPT-Neo 1.3B   |  0.7527       | 6.159         | -----          | -----          | 13.10          |
+| GPT-3 1.3B     |  ------       | -----         | -----          | -----          | -----          |
+| GPT-2 1.5B     |  1.0468       | -----         | -----          | -----          | 17.48          |
+| GPT-Neo 2.7B   |  0.7165       | 5.646         | -----          | -----          | 11.39          |
+| GPT-3 Ada 2.7B |  0.9631       | -----         | -----          | -----          | -----          |
+| GPT-3 175B     |  0.7177       | -----         | -----          | -----          | -----          |
 
 All GPT-2 and GPT-3 scores are from their respective papers, except for the Pile test results which are from the Pile paper.
 
