@@ -350,4 +350,4 @@ We have experimentally found a moe layer for every two self-attention layers to 
 ## TODO: 
 
 - [x] finalize documentation
-- [ ] update configs
+- [ ] update configs 
