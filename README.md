@@ -4,7 +4,7 @@
 
 An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
-**If you're just here to play with our pre-trained models, click the button to get started**  [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/EleutherAI/GPTNeo/blob/master/GPTNeo_example_notebook.ipynb) 
+**If you're just here to play with our pre-trained models, we strongly recommend you try out the HuggingFace Transformer integration.**
 
 Training and inference is officially supported on TPU and should work on GPU as well. This repository will be (mostly) archived as we move focus to our GPU-specific repo, [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
@@ -34,7 +34,7 @@ We ran evaluations on The Pile test set, lambada, and wikitext, and got the foll
 
 | Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL.  |
 | ---------------- | ------------- | ------------- | -------------- |
-| GPT-Neo 1.3B     |  0.7527       | 6.159         | 13.10          |
+| **GPT-Neo 1.3B** |  0.7527       | 6.159         | 13.10          |
 | GPT-3 1.3B       |  ------       | -----         | -----          |
 | GPT-2 1.5B       |  1.0468       | -----         | 17.48          |
 | **GPT-Neo 2.7B** |  0.7165       | 5.646         | 11.39          |
