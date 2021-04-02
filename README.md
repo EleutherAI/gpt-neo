@@ -30,10 +30,10 @@ We ran evaluations on The Pile test set, lambada, and wikitext, and got the foll
 
 | Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL.  |
 | ---------------- | ------------- | ------------- | -------------- |
-| **GPT-Neo 1.3B** |  0.7527       | 6.159         | 13.10          |
+| **GPT-Neo 1.3B** |  **0.7527**   | **6.159**     | **13.10**      |
 | GPT-3 1.3B       |  ------       | -----         | -----          |
 | GPT-2 1.5B       |  1.0468       | -----         | 17.48          |
-| **GPT-Neo 2.7B** |  0.7165       | 5.646         | 11.39          |
+| **GPT-Neo 2.7B** |  **0.7165**   | **5.646**     | **11.39**      |
 | GPT-3 Ada 2.7B   |  0.9631       | -----         | -----          |
 | GPT-3 175B       |  0.7177       | -----         | -----          |
 
