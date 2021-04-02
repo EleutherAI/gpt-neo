@@ -42,7 +42,7 @@ For more information on how to get these set up, see the colab notebook, or read
 
 | Model and Size   | MathQA     | PubMedQA   | Piqa        |
 | ---------------- | ---------- | ---------- | ----------- |
-| **GPT-Neo 1.3B** | **24.05%** | **54.40&** | **71.11%**  |
+| **GPT-Neo 1.3B** | **24.05%** | **54.40%** | **71.11%**  |
 | GPT-2 1.5B       | 59.40%     | 58.33%     | 70.78%      |
 | **GPT-Neo 2.7B** | **56.50%** | **57.54%** | **72.14%**  |
 | GPT-3 Ada 2.7B   | 52.90%     | 52.80%     | 68.88%      |
