@@ -8,7 +8,7 @@ An implementation of model & data parallel [GPT3](https://arxiv.org/abs/2005.141
 
 Training and inference is officially supported on TPU and should work on GPU as well. This repository will be (mostly) archived as we move focus to our GPU-specific repo, [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
-In addition to the functionality offered by the 
+In addition to the functionality offered by GPT-3, we also offer the following:
 * [Local attention](https://arxiv.org/abs/2004.05150)
 * [Linear attention](https://arxiv.org/abs/1812.01243)
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
