@@ -2,24 +2,21 @@
 
 🎉 1T or bust my dudes 🎉
 
-An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
+An implementation of model & data parallel [GPT3](https://arxiv.org/abs/2005.14165)-like models using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
 **If you're just here to play with our pre-trained models, we strongly recommend you try out the HuggingFace Transformer integration.**
 
 Training and inference is officially supported on TPU and should work on GPU as well. This repository will be (mostly) archived as we move focus to our GPU-specific repo, [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
-
-Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context lengths, including:
-
+In addition to the functionality offered by the 
 * [Local attention](https://arxiv.org/abs/2004.05150)
 * [Linear attention](https://arxiv.org/abs/1812.01243)
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
-* Masked Language Modelling
 
 # Pretrained Models
 
-**21/03/2021:**
+**Update 21/03/2021:**
 
 We're proud to release two pretrained GPT-Neo models trained on The Pile, the weights and configs can be freely downloaded from [the-eye.eu](https://the-eye.eu/public/AI/gptneo-release/).
 
@@ -31,7 +28,6 @@ For more information on how to get these set up, see the colab notebook, or read
 
 We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results. Also shown are GPT-2 and GPT-3 results for reference:
 
-
 | Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL.  |
 | ---------------- | ------------- | ------------- | -------------- |
 | **GPT-Neo 1.3B** |  0.7527       | 6.159         | 13.10          |
@@ -41,7 +37,7 @@ We ran evaluations on The Pile test set, lambada, and wikitext, and got the foll
 | GPT-3 Ada 2.7B   |  0.9631       | -----         | -----          |
 | GPT-3 175B       |  0.7177       | -----         | -----          |
 
-All GPT-2 and GPT-3 scores are from their respective papers, except for the Pile test results which are from the Pile paper.
+Wikitext PPL for GPT-2 is from the GPT-2 paper, while the Pile test results which are from the Pile paper.
 
 Instructions for replicating the above results on lambada and wikitext can be found in the colab notebook.
 
