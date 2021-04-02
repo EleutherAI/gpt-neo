@@ -2,7 +2,7 @@
 
 🎉 1T or bust my dudes 🎉
 
-An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
+An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes* (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
 **If you're just here to play with our pre-trained models, we strongly recommend you try out the HuggingFace Transformer integration.**
 
@@ -16,6 +16,8 @@ Also included are alternative model architectures and linear attention implement
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
 * Masked Language Modelling
+
+*NB, while neo can *technically* run a training step at 200B+ parameters, it is very inefficient at those scales. This, as well as the fact that many GPUs became available to us, among other things, prompted us to move development over to [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
 # Pretrained Models
 
