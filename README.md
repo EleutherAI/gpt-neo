@@ -26,15 +26,19 @@ We're proud to release two pretrained GPT-Neo models trained on The Pile, the we
 
 For more information on how to get these set up, see the colab notebook, or read through the rest of the readme.
 
-We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results. Also shown are GPT-2 and GPT-3 results for reference:
+## Model Evaluations
 
-| Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL  | Lambada PPL | Lambada Acc | Winogrande | Hellaswag   |
-| ---------------- | ------------- | ------------- | ------------- | ----------- | ----------- | ---------- | ----------- |
-| **GPT-Neo 1.3B** |  **0.7527**   | **6.159**     | **13.10**     |  ------     | -----       | -----      | -----       |
-| GPT-2 1.5B       |  1.0468       | -----         | 17.48         |  10.634     | 51.21%      | 23.62%     | 40.03%      |
-| **GPT-Neo 2.7B** |  **0.7165**   | **5.646**     | **11.39**     |  **5.626**  | **62.22%**  | **24.72%** | **42.73%**  |
-| GPT-3 Ada 2.7B   |  0.9631       | -----         | -----         |  9.954      | 51.60%      | 24.29%     | 35.93%      |
+#### Linguistic Reasoning
 
+| Model and Size   | Pile BPB   | Pile PPL   | Wikitext PPL  | Lambada PPL | Lambada Acc | Winogrande | Hellaswag   |
+| ---------------- | ---------- | ---------- | ------------- | ----------- | ----------- | ---------- | ----------- |
+| **GPT-Neo 1.3B** | **0.7527** | **6.159**  | **13.10**     |  ------     | -----       | -----      | -----       |
+| GPT-2 1.5B       | 1.0468     | -----      | 17.48         |  10.634     | 51.21%      | 23.62%     | 40.03%      |
+| **GPT-Neo 2.7B** | **0.7165** | **5.646**  | **11.39**     |  **5.626**  | **62.22%**  | **24.72%** | **42.73%**  |
+| GPT-3 Ada 2.7B   | 0.9631     | -----      | -----         |  9.954      | 51.60%      | 24.29%     | 35.93%      |
+
+
+#### Physical and Scientific Reasoning
 
 | Model and Size   | MathQA Acc | PubMedQA   | Piqa        |
 | ---------------- | ---------- | ---------- | ----------- |
@@ -42,7 +46,6 @@ We ran evaluations on The Pile test set, lambada, and wikitext, and got the foll
 | GPT-2 1.5B       | 59.40%     | 58.33%     | 70.78%      |
 | **GPT-Neo 2.7B** | **56.50%** | **57.54%** | **72.14**   |
 | GPT-3 Ada 2.7B   | 52.90%     | 52.80%     | 68.88%      |
-
 
 
 
