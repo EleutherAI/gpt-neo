@@ -28,18 +28,14 @@ For more information on how to get these set up, see the colab notebook, or read
 
 We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results. Also shown are GPT-2 and GPT-3 results for reference:
 
-| Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL.  |
-| ---------------- | ------------- | ------------- | -------------- |
-| **GPT-Neo 1.3B** |  **0.7527**   | **6.159**     | **13.10**      |
-| GPT-3 1.3B       |  ------       | -----         | -----          |
-| GPT-2 1.5B       |  1.0468       | -----         | 17.48          |
-| **GPT-Neo 2.7B** |  **0.7165**   | **5.646**     | **11.39**      |
-| GPT-3 Ada 2.7B   |  0.9631       | -----         | -----          |
-| GPT-3 175B       |  0.7177       | -----         | -----          |
-
-Wikitext PPL for GPT-2 is from the GPT-2 paper, while the Pile test results which are from the Pile paper.
-
-Instructions for replicating the above results on lambada and wikitext can be found in the colab notebook.
+| Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL.  | Lambada PPL. | Lambada Acc.  | Math Q&A Acc. | PubMed Q&A Acc.|
+| ---------------- | ------------- | ------------- | -------------- | ------------ | ------------- | ------------- | -------------- |
+| **GPT-Neo 1.3B** |  **0.7527**   | **6.159**     | **13.10**      |  ------      | -----         | -----         | -----          |
+| GPT-3 1.3B       |  ------       | -----         | -----          |  ------      | -----         | -----         | -----          |
+| GPT-2 1.5B       |  1.0468       | -----         | 17.48          |  10.634      | 51.21%        | 23.62%        | 59.40%         |
+| **GPT-Neo 2.7B** |  **0.7165**   | **5.646**     | **11.39**      |  **5.626**   | **62.22%**    | **24.72%**    | **56.50%**     |
+| GPT-3 Ada 2.7B   |  0.9631       | -----         | -----          |  9.954       | 51.60%        | 24.29%        | 52.90%         |
+| GPT-3 175B       |  0.7177       | -----         | -----          |  ------      | -----         | -----         | -----          |
 
 # Setup
 
