@@ -88,7 +88,7 @@ def linear_attention(q, k, v):
     return attn
 
 
-def causal_linear_attention(q, k, v, epsilon=1e-6):
+def causal_linear_attention(q, k, v):
     batch_dim, seq_dim, head_dim, dim_out = (v.shape[0], v.shape[1], v.shape[2], v.shape[3])
     q = mtf.rename_dimension(q, "features_per_head", "features_per_head_in")
     k = mtf.rename_dimension(k, "features_per_head", "features_per_head_in")
@@ -99,11 +99,12 @@ def causal_linear_attention(q, k, v, epsilon=1e-6):
     k = mtf.exp(k)
 
     cumulative_k = mtf.cumsum(k, seq_dim)
+    D_inv = 1. / mtf.einsum([q, cumulative_k], output_shape=[batch_dim, seq_dim, head_dim])
+
     context = mtf.einsum([k, v], output_shape=[batch_dim, seq_dim, head_dim, dim_in, dim_out])
     cumulative_context = mtf.cumsum(context, seq_dim)
 
-    cumulative_context /= (cumulative_k + epsilon)
-    attn = mtf.einsum([q, cumulative_context], output_shape=[batch_dim, seq_dim, head_dim, dim_out])
+    attn = mtf.einsum([q, cumulative_context, D_inv], output_shape=[batch_dim, seq_dim, head_dim, dim_out])
     return attn
 
 
