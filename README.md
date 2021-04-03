@@ -47,7 +47,7 @@ For more information on how to get these set up, see the colab notebook, or read
 | **GPT-Neo 2.7B** | **24.72%** | **57.54%** | **72.14%**  |
 | GPT-3 Ada 2.7B   | 24.29%     | 52.80%     | 68.88%      |
 
-**Note:** All evaluations were done using our [evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness). Some results for GPT-2 and GPT-3 are inconsistent with the values reported in the respective papers. We believe that this is due to custom augmentations that OpenAI used on their evaluation datasets.
+**Note:** All evaluations were done using our [evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness). Some results for GPT-2 and GPT-3 are inconsistent with the values reported in the respective papers. We are currently looking into why, and would greatly appreciate feedback and further testing of our eval harness.
 
 # Setup
 
