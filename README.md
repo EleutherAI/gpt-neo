@@ -2,26 +2,23 @@
 
 🎉 1T or bust my dudes 🎉
 
-An implementation of model & data parallel [GPT2](https://openai.com/blog/better-language-models/) & [GPT3](https://arxiv.org/abs/2005.14165) -like models, with the ability to scale up to full GPT3 sizes* (and possibly more!), using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
+An implementation of model & data parallel [GPT3](https://arxiv.org/abs/2005.14165)-like models using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
 
-**If you're just here to play with our pre-trained models, we strongly recommend you try out the HuggingFace Transformer integration.**
+**If you're just here to play with our pre-trained models, we strongly recommend you try out the [HuggingFace Transformer integration](https://huggingface.co/EleutherAI).**
 
 Training and inference is officially supported on TPU and should work on GPU as well. This repository will be (mostly) archived as we move focus to our GPU-specific repo, [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
-
-Also included are alternative model architectures and linear attention implementations that should enable scaling up to even larger model sizes & context lengths, including:
-
+In addition to the functionality offered by GPT-3, we also offer the following:
 * [Local attention](https://arxiv.org/abs/2004.05150)
 * [Linear attention](https://arxiv.org/abs/1812.01243)
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
-* Masked Language Modelling
 
 *NB, while neo can *technically* run a training step at 200B+ parameters, it is very inefficient at those scales. This, as well as the fact that many GPUs became available to us, among other things, prompted us to move development over to [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
 # Pretrained Models
 
-**21/03/2021:**
+**Update 21/03/2021:**
 
 We're proud to release two pretrained GPT-Neo models trained on The Pile, the weights and configs can be freely downloaded from [the-eye.eu](https://the-eye.eu/public/AI/gptneo-release/).
 
@@ -31,21 +28,27 @@ We're proud to release two pretrained GPT-Neo models trained on The Pile, the we
 
 For more information on how to get these set up, see the colab notebook, or read through the rest of the readme.
 
-We ran evaluations on The Pile test set, lambada, and wikitext, and got the following results. Also shown are GPT-2 and GPT-3 results for reference:
+## Model Evaluations
 
-| Model and Size   | Pile BPB      | Pile PPL      | Wikitext PPL.  |
-| ---------------- | ------------- | ------------- | -------------- |
-| **GPT-Neo 1.3B** |  0.7527       | 6.159         | 13.10          |
-| GPT-2 1.5B       |  1.0468       | -----         | 17.48          |
-| **GPT-Neo 2.7B** |  0.7165       | 5.646         | 11.39          |
-| GPT-3 Ada        |  0.9631       | -----         | -----          |
-| GPT-3 Babbage    |  0.8718       | -----         | -----          |
-| GPT-3 Curie      |  0.7980       | -----         | -----          |
-| GPT-3 Davinci    |  0.7177       | -----         | -----          |
+#### Linguistic Reasoning
 
-All GPT-2 and GPT-3 scores are from their respective papers, except for the Pile test results which are from the Pile paper.
+| Model and Size   | Pile BPB   | Pile PPL   | Wikitext PPL  | Lambada PPL | Lambada Acc | Winogrande | Hellaswag   |
+| ---------------- | ---------- | ---------- | ------------- | ----------- | ----------- | ---------- | ----------- |
+| **GPT-Neo 1.3B** | **0.7527** | **6.159**  | **13.10**     |  **7.498**  | **57.23%**  | **55.01%** | **38.66%**  |
+| GPT-2 1.5B       | 1.0468     | -----      | 17.48         |  10.634     | 51.21%      | 59.40%     | 40.03%      |
+| **GPT-Neo 2.7B** | **0.7165** | **5.646**  | **11.39**     |  **5.626**  | **62.22%**  | **56.50%** | **42.73%**  |
+| GPT-3 Ada        | 0.9631     | -----      | -----         |  9.954      | 51.60%      | 52.90%     | 35.93%      |
 
-Instructions for replicating the above results on lambada and wikitext can be found in the colab notebook.
+#### Physical and Scientific Reasoning
+
+| Model and Size   | MathQA     | PubMedQA   | Piqa        |
+| ---------------- | ---------- | ---------- | ----------- |
+| **GPT-Neo 1.3B** | **24.05%** | **54.40%** | **71.11%**  |
+| GPT-2 1.5B       | 23.64%     | 58.33%     | 70.78%      |
+| **GPT-Neo 2.7B** | **24.72%** | **57.54%** | **72.14%**  |
+| GPT-3 Ada        | 24.29%     | 52.80%     | 68.88%      |
+
+**Note:** All evaluations were done using our [evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness). Some results for GPT-2 and GPT-3 are inconsistent with the values reported in the respective papers. We are currently looking into why, and would greatly appreciate feedback and further testing of our eval harness.
 
 # Setup
 
