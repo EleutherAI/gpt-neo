@@ -14,7 +14,7 @@ In addition to the functionality offered by GPT-3, we also offer the following:
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
 
-*NB, while neo can *technically* run a training step at 200B+ parameters, it is very inefficient at those scales. This, as well as the fact that many GPUs became available to us, among other things, prompted us to move development over to [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
+NB, while neo can *technically* run a training step at 200B+ parameters, it is very inefficient at those scales. This, as well as the fact that many GPUs became available to us, among other things, prompted us to move development over to [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
 
 # Pretrained Models
 
