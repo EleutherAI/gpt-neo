@@ -14,6 +14,8 @@ In addition to the functionality offered by GPT-3, we also offer the following:
 * [Mixture of Experts](https://arxiv.org/abs/1701.06538)
 * [Axial Positional embedding](https://arxiv.org/abs/1912.12180)
 
+*NB, while neo can *technically* run a training step at 200B+ parameters, it is very inefficient at those scales. This, as well as the fact that many GPUs became available to us, among other things, prompted us to move development over to [GPT-NeoX](https://github.com/EleutherAI/gpt-neox/).
+
 # Pretrained Models
 
 **Update 21/03/2021:**
@@ -36,7 +38,6 @@ For more information on how to get these set up, see the colab notebook, or read
 | GPT-2 1.5B       | 1.0468     | -----      | 17.48         |  10.634     | 51.21%      | 59.40%     | 40.03%      |
 | **GPT-Neo 2.7B** | **0.7165** | **5.646**  | **11.39**     |  **5.626**  | **62.22%**  | **56.50%** | **42.73%**  |
 | GPT-3 Ada        | 0.9631     | -----      | -----         |  9.954      | 51.60%      | 52.90%     | 35.93%      |
-
 
 #### Physical and Scientific Reasoning
 
