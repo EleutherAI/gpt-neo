@@ -35,7 +35,7 @@ For more information on how to get these set up, see the colab notebook, or read
 | **GPT-Neo 1.3B** | **0.7527** | **6.159**  | **13.10**     |  **7.498**  | **57.23%**  | **55.01%** | **38.66%**  |
 | GPT-2 1.5B       | 1.0468     | -----      | 17.48         |  10.634     | 51.21%      | 59.40%     | 40.03%      |
 | **GPT-Neo 2.7B** | **0.7165** | **5.646**  | **11.39**     |  **5.626**  | **62.22%**  | **56.50%** | **42.73%**  |
-| GPT-3 Ada 2.7B   | 0.9631     | -----      | -----         |  9.954      | 51.60%      | 52.90%     | 35.93%      |
+| GPT-3 Ada        | 0.9631     | -----      | -----         |  9.954      | 51.60%      | 52.90%     | 35.93%      |
 
 
 #### Physical and Scientific Reasoning
@@ -45,7 +45,7 @@ For more information on how to get these set up, see the colab notebook, or read
 | **GPT-Neo 1.3B** | **24.05%** | **54.40%** | **71.11%**  |
 | GPT-2 1.5B       | 23.64%     | 58.33%     | 70.78%      |
 | **GPT-Neo 2.7B** | **24.72%** | **57.54%** | **72.14%**  |
-| GPT-3 Ada 2.7B   | 24.29%     | 52.80%     | 68.88%      |
+| GPT-3 Ada        | 24.29%     | 52.80%     | 68.88%      |
 
 **Note:** All evaluations were done using our [evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness). Some results for GPT-2 and GPT-3 are inconsistent with the values reported in the respective papers. We are currently looking into why, and would greatly appreciate feedback and further testing of our eval harness.
 
