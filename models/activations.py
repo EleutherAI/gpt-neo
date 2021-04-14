@@ -80,7 +80,7 @@ def get_activation_fn(params):
     if "activation_fn" in params:
         activation_fn = params["activation_fn"]
     else:
-        print("Defauling to GELU activation (see here: https://arxiv.org/abs/1606.08415)")
+        print("Defaulting to GELU activation (see here: https://arxiv.org/abs/1606.08415)")
         activation_fn = "gelu"
 
     if activation_fn in BASE_FNS:
