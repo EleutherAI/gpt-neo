@@ -12,15 +12,15 @@ from export import export_model
 from model_fns import model_fn
 from data.encoders import fetch_encoder
 from configs import fetch_model_params
-from tasks import task_descriptors
+from tasks import task_descriptors, run_eval_tasks, run_eval
 import argparse
-import json
-import numpy
 
 
 def parse_args():
     # Parse command line arguments
     parser = argparse.ArgumentParser()
+
+    # training args
     parser.add_argument("--tpu", type=str, help="Name of TPU to train on, if any.")
     parser.add_argument("--gpu_ids", nargs="+", type=str, default=["device:GPU:0"],
                         help="If training on GPU, can specify your GPU names in a list - i.e 'device:GPU:0 device:GPU:1'")
@@ -33,15 +33,32 @@ def parse_args():
                              " MTF auto layout.")
     parser.add_argument("--new", action="store_true", help="If set, deletes previous checkpoint, if it exists, and "
                                                            "starts a new training run")
+
+    # sampling args
     parser.add_argument("--predict", action="store_true", help="If set, uses the model to predict rather than train.")
-    parser.add_argument("--eval", action="store_true", help="If set, run model in evaluation mode.")
     parser.add_argument("--prompt", type=str, help="path to .txt file containing a prompt for prediction. If empty, "
                                                    "defaults to unicorns.",
                         default="")
+    parser.add_argument("--temperature", type=float, help="temperature for temperature sampling. Float between 0 and 1",
+                        default=0.9)
+    parser.add_argument("--top-k", type=int, help="sampling_keep_top_k: an integer - if not -1, only sample from the "
+                                                  "top k logits", default=-1)
+    parser.add_argument("--entmax_sampling", action="store_true", help="(experimental) use entmax sampling")
+    parser.add_argument("--max_steps", type=int, help="an optional integer, the max number of steps to decode when "
+                                                      "sampling.", default=None)
+    parser.add_argument("--sampling-stop-token", type=int, help="An optional integer. Stop sampling when this token is "
+                                                                "produced. Defaults to EOS token if none is provided.",
+                        default=None)
+    parser.add_argument("--remove-prompt", action="store_true", help="whether to remove the prompt from the sampling "
+                                                                     "output. Defaults to False.")
+    parser.add_argument("--sample-save-path", type=str, help="path to save the samples to. If None is provided, "
+                                                             "defaults to predictions_{current_step}.txt")
+
+    # misc args
+    parser.add_argument("--eval", action="store_true", help="If set, run model in evaluation mode.")
     parser.add_argument("--check_dataset", action="store_true",
                         help="If set, outputs sample from the dataset and quits.")
     parser.add_argument("--sacred_id", type=str, default="nosacred", help="Sacred run id.")
-    parser.add_argument("--entmax_sampling", action="store_true", help="(experimental) use entmax sampling")
     parser.add_argument("--export", action="store_true", help="If set, will export the model.")
     args = parser.parse_args()
     assert args.model is not None, "Model must be set"
@@ -62,7 +79,6 @@ def main(args):
     elif input_fn == "generic_text":
         input_fn = generic_text
     pred_input_fn = pred_input
-    handle_pred_output_fn = handle_pred_output
 
     # get current step
     current_step = int(estimator_lib._load_global_step_from_checkpoint_dir(params["model_path"]))
@@ -73,7 +89,6 @@ def main(args):
         input_fn = partial(generic_text, sample_text_fn=mlm_sample_text_fn)
         if args.check_dataset:
             check_dataset(input_fn, params)
-
 
     # Fetch encoder per params
     encoder = fetch_encoder(params)
@@ -105,13 +120,19 @@ def main(args):
     # Expand attention types param
     params["attention_types"] = expand_attention_types_params(params["attention_types"])
     assert len(params["attention_types"]) == params["n_layer"]  # Assert that the length of expanded list = num layers
-    params["predict_batch_size"] = params.get("predict_batch_size", 1)  # Default to 1
-    params["predict"] = args.predict
-    params['model'] = params.get("model", "GPT") # Default model selection to GPT since it's the only option for now
+    params['model'] = params.get("model", "GPT")  # Default model selection to GPT since it's the only option for now
     params["export"] = args.export
-    # Set sampling parameters
-    params["sampling_use_entmax"] = args.entmax_sampling
 
+    # Set sampling parameters
+    params["predict"] = args.predict
+    params["predict_batch_size"] = params.get("predict_batch_size", 1)  # Default to 1
+    params["sampling_temperature"] = args.temperature
+    params["sampling_max_steps"] = args.max_steps
+    params["sampling_top_k"] = args.top_k
+    params["sampling_use_entmax"] = args.entmax_sampling
+    params["sampling_stop_token"] = args.sampling_stop_token if args.sampling_stop_token is not None else params[
+        "eos_id"]
+    params["sampling_remove-prompt"] = args.remove_prompt
     # Sample quality of MoE models suffers when using the faster sampling method, so default to slow_sampling if
     # moe layers are present
     params["slow_sampling"] = True if params["moe_layers"] is not None else False
@@ -131,7 +152,8 @@ def main(args):
     if args.tpu == "colab":
         tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver() if params["use_tpu"] else None
     else:
-        tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params["use_tpu"] else None
+        tpu_cluster_resolver = tf.distribute.cluster_resolver.TPUClusterResolver(args.tpu) if params[
+            "use_tpu"] else None
 
     config = tpu_config.RunConfig(
         cluster=tpu_cluster_resolver,
@@ -181,47 +203,15 @@ def main(args):
         predictions = estimator.predict(input_fn=pred_input_fn)
         logger.info("Predictions generated")
         enc = fetch_encoder(params)
-        handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
+        out_name = f"predictions_{current_step}" if args.sample_save_path is None else args.sample_save_path
+        handle_pred_output(predictions, logger, enc, params, out_name=out_name)
         return
 
-    def save_eval_results(task, eval_results):
-        def as_python(x):
-            if isinstance(x, numpy.generic):
-                return x.item()
-            return x
-        eval_results = {k: as_python(v) for k, v in eval_results.items()}
-        with open(f'eval_{args.sacred_id}.jsonl', 'a') as fh:
-            json.dump({'task': task, 'current_step': current_step, **eval_results}, fh)
-            fh.write('\n')
-
-    def run_eval():
-        logger.info("Running evaluation...")
-        eval_results = estimator.evaluate(
-                input_fn=partial(input_fn, eval=True),
-                steps=params["eval_steps"])
-        logger.info(f"Eval results: {eval_results}")
-        save_eval_results('validation', eval_results)
-
-    def run_eval_tasks():
-        for task in eval_tasks:
-            logger.info(f"Starting evaluation task '{task}'")
-            task_info = task_descriptors[task]["get_task_info_fn"](params)
-            task_estimator = eval_task_estimators[task]
-            task_input_fn = task_descriptors[task]["input_fn"]
-            eval_results = task_estimator.evaluate(
-                input_fn=task_input_fn,
-                steps=task_info["n_steps"],
-                name=task)
-            logger.info(f"Eval task '{task}' results: {eval_results}")
-            save_eval_results(task, eval_results)
-    
     if args.eval:
-        run_eval_tasks()
+        run_eval_tasks(params, eval_task_estimators, eval_tasks, logger, current_step)
         if params["eval_steps"] > 0:
-            run_eval()
+            run_eval(params, estimator, logger, input_fn)
         return
-
-
     elif has_predict_or_eval_steps_or_eval_tasks:
         # Eval and train - stop and predict and/or eval every checkpoint
         while current_step < params["train_steps"]:
@@ -235,20 +225,20 @@ def main(args):
                 logger.info("Running prediction...")
                 predictions = estimator.predict(input_fn=pred_input_fn)
                 enc = fetch_encoder(params)
-                handle_pred_output_fn(predictions, logger, enc, params, out_name=f"predictions_{args.sacred_id}_{current_step}")
+                handle_pred_output(predictions, logger, enc, params,
+                                      out_name=f"predictions_{current_step}")
 
             if params["eval_steps"] > 0:
-                run_eval()
+                run_eval(params, estimator, logger, input_fn)
 
             if eval_tasks:
-                run_eval_tasks()
-                
+                run_eval_tasks(params, eval_task_estimators, eval_tasks, logger, current_step)
+
         return
     else:
         # Else, just train
-        while current_step < params["train_steps"]:
-            # Else, don't stop and restart
-            estimator.train(input_fn=partial(input_fn, global_step=current_step, eval=False), max_steps=params["train_steps"])
+        estimator.train(input_fn=partial(input_fn, global_step=current_step, eval=False),
+                        max_steps=params["train_steps"])
 
 
 if __name__ == "__main__":

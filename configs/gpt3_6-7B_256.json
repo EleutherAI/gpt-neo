@@ -20,7 +20,7 @@
     "predict_batch_size": 1,
     "iterations": 500,
     "n_embd": 4096,
-    "datasets": [["openwebtext-documents", 25, "documents_random", 1.0]],
+    "datasets": [["pile", null, null, null]],
     "model_path": "gs://neo-models/GPT3_6-7B",
     "n_ctx": 2048,
     "n_layer": 32,
@@ -31,6 +31,8 @@
     "layout": "embd:y,batch:x",
     "activation_function": "gelu",
     "recompute_grad": true,
-    "gradient_clipping": 1.0
+    "gradient_clipping": 1.0,
+    "precision": "bfloat16"
+
 }
 

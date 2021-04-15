@@ -96,10 +96,16 @@ def model_fn(features, labels, mode, params):
         export = params.get("export", False)
 
         if not export:
-            mtf_samples = sample_autoregressive(
-                inputs, other_features=other_features, params=params, variable_dtype=variable_dtype,
-                remove_partial_sequences=params["remove_partial_sequences"], stop_at_token=params["eos_id"],
-                sampling_use_entmax=params['sampling_use_entmax'], max_steps=params["predict_max_steps"])
+            mtf_samples = sample_autoregressive(inputs,
+                                                temperature=params["sampling_temperature"],
+                                                sampling_keep_top_k=params["sampling_top_k"],
+                                                max_steps = params["sampling_max_steps"],
+                                                sampling_use_entmax=params['sampling_use_entmax'],
+                                                remove_partial_sequences=params["sampling_remove_prompt"],
+                                                stop_at_token=params["sampling_stop_token"],
+                                                other_features=other_features,
+                                                params=params,
+                                                variable_dtype=variable_dtype)
 
         else:
             with mtf.utils.outside_all_rewrites():

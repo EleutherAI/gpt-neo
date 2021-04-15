@@ -21,7 +21,7 @@
     "predict_batch_size": 8,
     "iterations": 2500,
     "n_embd": 768,
-    "datasets": ["openwebtext2_new_inputs"],
+    "datasets": [["pile", null, null, null]],
     "model_path": "gs://neo-models/GPT2_SMALL",
     "n_ctx": 1024,
     "n_layer": 12,
@@ -32,5 +32,6 @@
     "mesh_shape": "all:64",
     "layout": "batch:all",
     "recompute_grad": false,
-    "gradient_clipping": 1.0
+    "gradient_clipping": 1.0,
+    "precision": "bfloat16"
 }
