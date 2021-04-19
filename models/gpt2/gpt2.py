@@ -9,7 +9,7 @@ from models.layers import *
 # --------------------------------------------------------------------------------
 # TRANSFORMER BLOCK:
 
-def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, variable_dtype, context=None):
+def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, pos_emb, variable_dtype, context=None):
     use_mlp_glu = params["mlp_glu"] == True
     use_scale_norm = params["scalenorm"] == True
     use_moe = exists(params["moe_layers"]) and (layer_num in params["moe_layers"])
@@ -47,7 +47,7 @@ def block(params, scope, layer_num, bias, sequence_dim, memory_length_dim, varia
                 res_x = prenorm(x, "norm_1", variable_dtype=variable_dtype, params=params)
                 a = attn(res_x, "attn", nx, attention_type=attention_type,
                          params=params, bias=bias, dim_seq=sequence_dim, memory_length_dim=memory_length_dim,
-                         variable_dtype=variable_dtype, context=context)
+                         variable_dtype=variable_dtype, context=context, pos_emb=pos_emb)
             else:
                 a = x
 
@@ -106,17 +106,8 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         x = mtf.gather(x, context.position - 1, sequence_dim)
         x = mtf.reshape(x, [batch_dim])
 
-    use_axial_pos_emb = params["axial_pos_emb"] is not None
-
-    if not use_axial_pos_emb:
-        # Use standard position encoding
-        wpe = mtf.get_variable(mesh, "wpe", mtf.Shape([embed_sequence_dim, embd_dim]),
-                               initializer=tf.random_normal_initializer(stddev=0.01),
-                               master_dtype=variable_dtype.master_dtype,
-                               slice_dtype=variable_dtype.slice_dtype,
-                               activation_dtype=variable_dtype.activation_dtype)
-    else:
-        wpe = axial_positional_emb(embd_dim, mesh, params, variable_dtype)
+    use_axial_pos_emb = exists(params["axial_pos_emb"])
+    use_rotary_emb = exists(params["rotary_emb"])
 
     # Text encoding
     wte = mtf.get_variable(mesh, "wte", mtf.Shape([vocab_dim, embd_dim]),
@@ -131,14 +122,32 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
         if params["embed_dropout"] > 0 and params["mode"] == "train":
             h = mtf.dropout(h, rate=params["embed_dropout"], name="wte_dropout")
 
-    with tf.variable_scope("pos_embd"):
-        # Positional embedding
-        position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (
-                context.position - 1)
-        pos_emb = mtf.gather(wpe, position_indices, wpe.shape[0])
-        if params["embed_dropout"] > 0 and params["mode"] == "train":
-            pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"], name="wte_dropout")
-        h += pos_emb
+    # Position encoding
+
+    if use_rotary_emb:
+        wpe = None
+        layer_pos_emb = rotary_positional_emb(mesh, sequence_dim, params, variable_dtype)
+    elif use_axial_pos_emb:
+        wpe = axial_positional_emb(embd_dim, mesh, params, variable_dtype)
+        layer_pos_emb = None
+    else:
+        # Use standard position encoding
+        wpe = mtf.get_variable(mesh, "wpe", mtf.Shape([embed_sequence_dim, embd_dim]),
+                               initializer=tf.random_normal_initializer(stddev=0.01),
+                               master_dtype=variable_dtype.master_dtype,
+                               slice_dtype=variable_dtype.slice_dtype,
+                               activation_dtype=variable_dtype.activation_dtype)
+        layer_pos_emb = None
+
+    if exists(wpe):
+        with tf.variable_scope("pos_embd"):
+            # Positional embedding
+            position_indices = mtf.range(mesh, sequence_dim, tf.int64) if not is_incremental_inference(context) else (
+                    context.position - 1)
+            pos_emb = mtf.gather(wpe, position_indices, wpe.shape[0])
+            if params["embed_dropout"] > 0 and params["mode"] == "train":
+                pos_emb = mtf.dropout(pos_emb, rate=params["embed_dropout"], name="wte_dropout")
+            h += pos_emb
 
     aux_losses = 0  # instantiate auxiliary losses (for MOE models)
 
@@ -151,6 +160,7 @@ def model(mtf_features, other_features, params, mesh, variable_dtype, context=No
                          bias=other_features["attn_bias"],
                          sequence_dim=sequence_dim,
                          memory_length_dim=other_features["memory_length_dim"],
+                         pos_emb = layer_pos_emb,
                          variable_dtype=variable_dtype,
                          context=context)
 
