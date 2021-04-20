@@ -153,7 +153,7 @@ def memory_key_values(k, v, num_mem_kv, dim_batch, dim_heads, variable_dtype, me
     return k, v
 
 
-def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None):
+def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_length_dim, variable_dtype, context=None, pos_emb=None):
     # x :: [batch, seq, n_embd]
     x_shape, dim_batch, *_, dim_embd, mesh = x.shape, *x.shape, x.mesh
 
@@ -188,6 +188,17 @@ def attn(x, scope, n_state, *, attention_type, params, bias, dim_seq, memory_len
 
         if exists(context):
             context.record_new_states([k, v])
+
+        if exists(pos_emb):
+            cos, sin = pos_emb
+            k = apply_rotary_emb(k, cos, sin)
+
+            if is_incremental_inference(context):
+                seq_dim = cos.shape.get_dim_by_name('sequence')
+                cos = mtf.gather(cos, context.position - 1, seq_dim)
+                sin = mtf.gather(sin, context.position - 1, seq_dim)
+
+            q = apply_rotary_emb(q, cos, sin)
 
         with tf.variable_scope("attention"):
             if attention_type == "local":
@@ -316,3 +327,31 @@ def axial_positional_emb(embd_dim, mesh, params, variable_dtype):
 
     return wpe
 
+def rotary_positional_emb(mesh, sequence_dim, params, variable_dtype):
+    dtype = variable_dtype.master_dtype
+    dim_head = params["n_embd"] // params["n_head"]
+
+    dim_head = mtf.Dimension("features_per_head", dim_head)
+    half_dim_head = mtf.Dimension("half_features_per_head", dim_head.size // 2)
+
+    dim_range = mtf.range(mesh, half_dim_head, dtype) * 2 / dim_head.size
+    half_freqs = 1. / mtf.pow(mtf.constant(mesh, 10000, dtype = dtype), dim_range)
+
+    seq = mtf.range(mesh, sequence_dim, dtype)
+    half_freqs = mtf.einsum([half_freqs, seq], [sequence_dim, half_dim_head])
+
+    freqs = mtf.concat((half_freqs, half_freqs), half_dim_head.name)
+    freqs = mtf.rename_dimension(freqs, half_dim_head.name, dim_head.name)
+    return mtf.cos(freqs), mtf.sin(freqs)
+
+def rotate_half(x):
+    dim_head_name = "features_per_head"
+    dim_head = x.shape.get_dim_by_name(dim_head_name)
+    half_dim_head_size = dim_head.size // 2
+    x1 = mtf.slice(x, 0, half_dim_head_size, dim_head_name)
+    x2 = mtf.slice(x, half_dim_head_size, half_dim_head_size, dim_head_name)
+    return mtf.concat((-x2, x1), dim_head.name)
+
+def apply_rotary_emb(x, cos, sin):
+    rotated_x = rotate_half(x)
+    return x * cos + rotated_x * sin
