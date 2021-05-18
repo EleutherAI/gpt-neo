@@ -356,3 +356,28 @@ We have experimentally found a moe layer for every two self-attention layers to 
 
 - [x] finalize documentation
 - [ ] update configs
+
+## Citing GPT-Neo
+
+If you have found GPT-Neo helpful in your work, you can cite this repository as
+
+```
+@software{gpt-neo,
+  author = {Black, Sid and Gao, Leo and Wang, Phil and Leahy, Connor and Biderman, Stella},
+  title = {{GPT-Neo}: Large Scale Autoregressive Language Modeling with Mesh-Tensorflow},
+  url = {http://github.com/eleutherai/gpt-neo},
+  version = {1.0},
+  year = {2021},
+}
+```
+The version number should be replaced with the version number you are using, and the year corresponds to the project's open-source release.
+
+If you are specifically interested in citing the GPT-Neo models trained on [the Pile](https://arxiv.org/abs/2101.00027), we would appreciate also citing
+```
+@article{gao2020pile,
+  title={The Pile: An 800GB Dataset of Diverse Text for Language Modeling},
+  author={Gao, Leo and Biderman, Stella and Black, Sid and Golding, Laurence and Hoppe, Travis and Foster, Charles and Phang, Jason and He, Horace and Thite, Anish and Nabeshima, Noa and others},
+  journal={arXiv preprint arXiv:2101.00027},
+  year={2020}
+}
+```
