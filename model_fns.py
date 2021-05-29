@@ -157,10 +157,9 @@ def model_fn(features, labels, mode, params):
         def serialized_fn(mtf_features):
             if params["model"] == "GPT":
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch, l_aux_losses = gpt2.model(mtf_features, other_features, params, mesh,
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh,
                                                           variable_dtype=variable_dtype)
-                
-                return {"logits": logits, "loss": loss, "loss_batch": loss_batch, **{f"loss_aux_{i}": v for i, v in enumerate(l_aux_losses)}}
+                return {"logits": logits, "loss": loss, "loss_batch": loss_batch}
             else:
                 raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
@@ -169,15 +168,13 @@ def model_fn(features, labels, mode, params):
         loss = output_dict["loss"]
         loss_batch = output_dict["loss_batch"]
         logits = output_dict["logits"]
-        loss_aux = [output_dict[f"loss_aux_{i}"] for i in range(params["n_layer"])]
     else:
         # If we're not splitting into microbatches, return logits & loss as is
         if params["model"] == "GPT":
             with mtf.utils.outside_all_rewrites():
                 with tf.variable_scope('gpt2'):
-                    logits, loss, loss_batch, loss_aux = gpt2.model(mtf_features, other_features, params, mesh,
+                    logits, loss, loss_batch = gpt2.model(mtf_features, other_features, params, mesh,
                                                           variable_dtype=variable_dtype, context=None)
-                
         else:
             raise Exception(f"'{params['model']}' is not a valid model - please select from [GPT]")
 
@@ -199,8 +196,6 @@ def model_fn(features, labels, mode, params):
             _, update_ops, var_grads = get_optimizer(mesh, loss, params, variable_dtype=variable_dtype)
         # Log summaries to tensorboard
         mtf.scalar_summary("loss", loss)
-        for i, v in enumerate(loss_aux):
-            mtf.scalar_summary(f"loss_aux_{i}", v)
         # Log gradients if in params
         if params["log_grads"] not in [None, False]:
             for g in var_grads:
