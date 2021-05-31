@@ -8,6 +8,7 @@ import sys
 import tensorflow.compat.v1 as tf
 import tensorflow.compat.v2 as tf2
 import mesh_tensorflow as mtf
+import mesh_tensorflow.auto_mtf
 from data.encoders import fetch_encoder
 import re
 
