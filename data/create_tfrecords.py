@@ -149,7 +149,12 @@ def get_files(input_dir, filetypes=None):
     if filetypes == None:
         filetypes = ["jsonl.zst", ".txt", ".xz", ".tar.gz"]
     files = [list(Path(input_dir).glob(f"*{ft}")) for ft in filetypes]
-    return [str(item) for sublist in files for item in sublist]  # flatten list of list -> list and stringify Paths
+    # flatten list of list -> list and stringify Paths
+    flattened_list = [str(item) for sublist in files for item in sublist]
+    if not flattened_list:
+        raise Exception(f"""did not find any files at this path {input_dir},\
+ please also ensure your files are in format {filetypes}""")
+    return flattened_list
 
 
 def read_checkpoint(checkpoint_path, resume_from_checkpoint=True):
