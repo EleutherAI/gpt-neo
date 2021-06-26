@@ -189,13 +189,13 @@ def create_tfrecords(params, write_remainder=True, write_every_n_files=1, save_c
                 continue  # resume from checkpoint
 
             # if the last chunk < chunk size, but > minimum_size, take it and append it to the beginning of the next file
+            data_to_prepend = []
             n_tokens = len(tokenized_files[-1])
             if n_tokens < args.chunk_size:
                 data = tokenized_files.pop(-1)
                 if n_tokens >= args.minimum_size:
                     data_to_prepend = data
                 else:
-                    data_to_prepend = []
                     discarded_files += 1
 
             # add tokenized files > chunk size to main array
