@@ -124,7 +124,9 @@ def write_files(files, files_per, output_dir, out_name, start_no, write_remainde
     if files == None:
         return
     chunks = split_list(files, files_per)
-
+    if not chunks:
+        return
+      
     if len(chunks[-1]) != files_per and not write_remainder:  # pop the last file if it's length != files per
         remainder = chunks.pop(-1)
     else:
