@@ -1,5 +1,9 @@
 # GPT Neo
 
+
+
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.5297715.svg)](https://doi.org/10.5281/zenodo.5297715) [![arXiv](https://img.shields.io/badge/arXiv-2101.00027-f9f107.svg)](https://arxiv.org/abs/2101.00027)
+
 🎉 1T or bust my dudes 🎉
 
 An implementation of model & data parallel [GPT3](https://arxiv.org/abs/2005.14165)-like models using the [mesh-tensorflow](https://github.com/tensorflow/mesh) library.
