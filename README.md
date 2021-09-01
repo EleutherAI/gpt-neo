@@ -367,6 +367,7 @@ If you have found GPT-Neo helpful in your work, you can cite this repository as
   title = {{GPT-Neo}: Large Scale Autoregressive Language Modeling with Mesh-Tensorflow},
   url = {http://github.com/eleutherai/gpt-neo},
   version = {1.0},
+  doi = {10.5281/zenodo.5297715},
   year = {2021},
 }
 ```
