@@ -5,8 +5,8 @@ authors:
     family-names: Black
     given-names: Sid
   - affiliation: EleutherAI
-    family-names: Leo
-    given-names: Gao
+    family-names: Gao
+    given-names: Leo
   - affiliation: EleutherAI
     family-names: Wang
     given-names: Phil
