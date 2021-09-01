@@ -36,21 +36,35 @@ For more information on how to get these set up, see the colab notebook, or read
 
 #### Linguistic Reasoning
 
-| Model and Size   | Pile BPB   | Pile PPL   | Wikitext PPL  | Lambada PPL | Lambada Acc | Winogrande | Hellaswag   |
-| ---------------- | ---------- | ---------- | ------------- | ----------- | ----------- | ---------- | ----------- |
-| **GPT-Neo 1.3B** | **0.7527** | **6.159**  | **13.10**     |  **7.498**  | **57.23%**  | **55.01%** | **38.66%**  |
-| GPT-2 1.5B       | 1.0468     | -----      | 17.48         |  10.634     | 51.21%      | 59.40%     | 40.03%      |
-| **GPT-Neo 2.7B** | **0.7165** | **5.646**  | **11.39**     |  **5.626**  | **62.22%**  | **56.50%** | **42.73%**  |
-| GPT-3 Ada        | 0.9631     | -----      | -----         |  9.954      | 51.60%      | 52.90%     | 35.93%      |
+| Model and Size   | Pile BPB   | Pile PPL  | Wikitext PPL | Lambada PPL | Lambada Acc | Winogrande | Hellaswag  |
+|------------------|------------|-----------|--------------|-------------|-------------|------------|------------|
+| **GPT-Neo 125M** |            |           | 32.285       | 30.266      | 37.36%      | 50.43%     | 28.67%     |
+| GPT-3 124M       |            |           | -----        | 18.6        | 42.7%       | 52.0%      | 33.7%      |
+| **GPT-Neo 350M** |            |           | 22.5657      | 13.876      | 47.27%      | 51.14%     | 32.16%     |
+| GPT-3 350M       |            |           | -----        | 9.09        | 54.3%       | 52.1%      | 43.6%      |
+| GPT-3 Ada        | 0.9631     | -----     | -----        | 9.954       | 51.60%      | 52.90%     | 35.93%     |
+| **GPT-Neo 1.3B** | **0.7527** | **6.159** | **13.10**    | **7.498**   | **57.23%**  | **55.01%** | **38.66%** |
+| GPT-3 1.3B       |            |           | -----        | 5.44        | 63.6%       | 58.7%      | 54.7%      |
+| GPT-2 1.5B       | 1.0468     | -----     | 17.48        | 10.634      | 51.21%      | 59.40%     | 40.03%     |
+| **GPT-Neo 2.7B** | **0.7165** | **5.646** | **11.39**    | **5.626**   | **62.22%**  | **56.50%** | **42.73%** |
+| GPT-3 2,7B       |            |           | -----        | 4.60        | 67.1%       | 62.3%      | 62.8%      |
+
 
 #### Physical and Scientific Reasoning
 
-| Model and Size   | MathQA     | PubMedQA   | Piqa        |
-| ---------------- | ---------- | ---------- | ----------- |
-| **GPT-Neo 1.3B** | **24.05%** | **54.40%** | **71.11%**  |
-| GPT-2 1.5B       | 23.64%     | 58.33%     | 70.78%      |
-| **GPT-Neo 2.7B** | **24.72%** | **57.54%** | **72.14%**  |
-| GPT-3 Ada        | 24.29%     | 52.80%     | 68.88%      |
+| Model and Size   | MathQA     | PubMedQA   | Piqa       |
+|------------------|------------|------------|------------|
+| **GPT-Neo 125M** | 22.78%     | 55.10%     | 63.06%     |
+| GPT-3 124M       | -----      | -----      | 64.6%      |
+| **GPT-Neo 350M** | 23.45%     | 53.80%     | 65.07%     |
+| GPT-3 350M       | -----      | -----      | 70.2%      |
+| GPT-3 Ada        | 24.29%     | 52.80%     | 68.88%     |
+| **GPT-Neo 1.3B** | **24.05%** | **54.40%** | **71.11%** |
+| GPT-3 1.3B       | -----      | -----      | 75.1%      |
+| GPT-2 1.5B       | 23.64%     | 58.33%     | 70.78%     |
+| **GPT-Neo 2.7B** | **24.72%** | **57.54%** | **72.14%** |
+| GPT-3 2.7B       | -----      | -----      | 75.6%      |
+
 
 **Note:** All evaluations were done using our [evaluation harness](https://github.com/EleutherAI/lm-evaluation-harness). Some results for GPT-2 and GPT-3 are inconsistent with the values reported in the respective papers. We are currently looking into why, and would greatly appreciate feedback and further testing of our eval harness.
 
