@@ -22,7 +22,6 @@ keywords:
   - "Massive language model"
   - "Autoregressive language model"
 license: "Apache-2.0"
-message: "If you use this software, please cite it using these metadata."
 repository-code: "https://www.github.com/eleutherai/gpt-neo"
 title: "GPT-Neo: Large Scale Autoregressive Language Modeling with Mesh-Tensorflow"
 version: "1.0"
