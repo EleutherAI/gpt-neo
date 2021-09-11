@@ -381,13 +381,23 @@ If you have found GPT-Neo helpful in your work, you can cite this repository as
 
 ```
 @software{gpt-neo,
-  author = {Black, Sid and Gao, Leo and Wang, Phil and Leahy, Connor and Biderman, Stella},
-  title = {{GPT-Neo}: Large Scale Autoregressive Language Modeling with Mesh-Tensorflow},
-  url = {http://github.com/eleutherai/gpt-neo},
-  version = {1.0},
-  doi = {10.5281/zenodo.5297715},
-  year = {2021},
+  author       = {Black, Sid and
+                  Leo, Gao and
+                  Wang, Phil and
+                  Leahy, Connor and
+                  Biderman, Stella},
+  title        = {{GPT-Neo: Large Scale Autoregressive Language 
+                   Modeling with Mesh-Tensorflow}},
+  month        = mar,
+  year         = 2021,
+  note         = {{If you use this software, please cite it using 
+                   these metadata.}},
+  publisher    = {Zenodo},
+  version      = {1.0},
+  doi          = {10.5281/zenodo.5297715},
+  url          = {https://doi.org/10.5281/zenodo.5297715}
 }
+
 ```
 The version number should be replaced with the version number you are using, and the year corresponds to the project's open-source release.
 
