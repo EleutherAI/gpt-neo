@@ -1,0 +1,31 @@
+# YAML 1.2
+---
+authors: 
+  - affiliation: EleutherAI
+    family-names: Black
+    given-names: Sid
+  - affiliation: EleutherAI
+    family-names: Gao
+    given-names: Leo
+  - affiliation: EleutherAI
+    family-names: Wang
+    given-names: Phil
+  - affiliation: EleutherAI
+    family-names: Leahy
+    given-names: Connor
+  - affiliation: EleutherAI
+    family-names: Biderman
+    given-names: Stella
+cff-version: "1.1.0"
+keywords: 
+  - Transformers
+  - "Massive language model"
+  - "Autoregressive language model"
+license: "Apache-2.0"
+message: "If you use this software, please cite it using these metadata."
+repository-code: "https://www.github.com/eleutherai/gpt-neo"
+title: "GPT-Neo: Large Scale Autoregressive Language Modeling with Mesh-Tensorflow"
+version: "1.0"
+doi: 10.5281/zenodo.5297715
+date-released: 2021-03-21
+...
