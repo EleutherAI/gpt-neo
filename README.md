@@ -382,7 +382,7 @@ If you have found GPT-Neo helpful in your work, you can cite this repository as
 ```
 @software{gpt-neo,
   author       = {Black, Sid and
-                  Leo, Gao and
+                  Gao, Leo and
                   Wang, Phil and
                   Leahy, Connor and
                   Biderman, Stella},
