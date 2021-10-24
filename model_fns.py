@@ -135,7 +135,7 @@ def model_fn(features, labels, mode, params):
             prediction_hooks=[mtf.MtfRestoreHook(lowering)])
 
     # We're not predicting, so we better be training or evaluating
-    assert (mode == tf.estimator.ModeKeys.TRAIN or mode == tf.estimator.ModeKeys.EVAL)
+    assert mode in [tf.estimator.ModeKeys.TRAIN, tf.estimator.ModeKeys.EVAL]
 
     if mode == tf.estimator.ModeKeys.TRAIN:
         # Gets number of microbatches per batch for serialized training
