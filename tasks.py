@@ -101,7 +101,7 @@ def lambada_input(params):
         output = tf.cast(output, dtype=tf.int32)
         return bin, output
 
-    dataset = dataset.map(_get_output)
+    dataset = dataset.map(_get_output,num_parallel_calls=tf.data.AUTOTUNE)
     dataset = dataset.batch(params['eval_batch_size'], drop_remainder=True)
     dataset = dataset.repeat()
     return dataset
