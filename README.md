@@ -26,9 +26,9 @@ NB, while neo can *technically* run a training step at 200B+ parameters, it is v
 
 We're proud to release two pretrained GPT-Neo models trained on The Pile, the weights and configs can be freely downloaded from [the-eye.eu](https://the-eye.eu/public/AI/gptneo-release/).
 
-1.3B: https://the-eye.eu/public/AI/gptneo-release/GPT3_XL/
+1.3B: https://mystic.the-eye.eu/public/AI/gptneo-release/GPT3_XL/
 
-2.7B: https://the-eye.eu/public/AI/gptneo-release/GPT3_2-7B/
+2.7B: https://mystic.the-eye.eu/public/AI/gptneo-release/GPT3_2-7B/
 
 For more information on how to get these set up, see the colab notebook, or read through the rest of the readme.
 
